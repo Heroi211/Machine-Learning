@@ -3,6 +3,8 @@ import pandas as pd
 import os
 from dotenv import load_dotenv
 from graphs import Graphs as gr
+from datetime import datetime
+import numpy as np
 
 load_dotenv()
 
@@ -17,6 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 pmsg_raise = "Pipeline interrompido"
+agora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
 class Baseline:
     def __init__(self, ppath,pmsg_raise):
@@ -30,6 +33,8 @@ class Baseline:
         self.x_test = None
         self.y_train = None
         self.y_test = None
+        self.ratio = None
+        
         
         self.load_data()
         self.summary_overview()
@@ -90,23 +95,22 @@ class Baseline:
             "Missing_percentage" : ((self.data.isnull().sum() / len(self.data))*100).round(2)
         })
         
-        missing = missing[missing["Missing_count"]>0].sort_values(by='Missing_Percentage',ascending=False)
+        missing = missing[missing["Missing_count"]>0].sort_values(by='Missing_percentage',ascending=False)
         
         if len(missing)==0:
             logger.info("Dataset não apresentou missing values")
         else:
             logger.debug(f"Missing values identificados na fonte de dados: {missing}")
-            width   = 10
-            height  = 6
-            x_data  = missing['Coluna']
-            y_data  = missing['Missing_Percentage']
-            x_label = "Porcentagem de Missing Values (%)"
-            title   = "Distribuição de Missing Values por Coluna"
-            color   = "blue"
-            graph  = 1
+            gr.build_report(
+            g_type=1, # BARH
+            x_data=missing['Coluna'],
+            y_data=missing['Missing_percentage'],
+            title="Distribuição de Missing Values por Coluna",
+            xlabel="Porcentagem (%)",
+            filename=f"missing_values_{agora}.png",
+            color="skyblue"
+            )
             
-            gr.building_graphs(pgraph=graph,ptitle=title,pxlabel=x_label,px_data=x_data,py_data=y_data,pwidth=width,pheight=height,pcolor=color)
-            gr.show_graph()
             
             
     def target_analysis(self):
@@ -132,6 +136,97 @@ class Baseline:
             null_count = self.data['target'].isnull().sum()
             logger.error(f"Valores nulos ou faltantes foram encontrados na coluna target {null_count}")
             raise ValueError(self.msg_raise)
+        
+        logger.info("Iniciando analise de balancemanto da variável target")
+        target_counts = self.data['target'].value_counts()
+        target_percentages = self.data['target'].value_counts(normalize=True) * 100
+        
+        logger.info(f"Contagem\n {target_counts}")
+        logger.info("\nPercentual:")
+        for idx, pct in target_percentages.items():
+            label = "Sem churn" if idx==0 else "Churn"
+            logger.info(f"{label} ({idx}): {pct:.2f}")
+            
+        gr.build_report(
+            g_type=3, # PIE
+            x_data=target_counts.values,
+            labels=['Sem Churn (0)', 'Churn (1)'],
+            title="Proporção da Variável Target",
+            filename=f"target_distribution_pie_{agora}.png",
+            color="coral"
+        )
+        gr.build_report(
+            g_type=2, 
+            x_data=['Sem Churn', 'Churn'],
+            y_data=target_counts.values,    
+            title="Distribuição Absoluta da Target",
+            ylabel="Quantidade",
+            filename=f"target_distribution_bar{agora}.png",
+            color="skyblue"
+        )
+            
+        self.ratio = target_counts.min/target_counts.max()
+        logger.info(f"\n Ratio de Balancemanto: {self.ratio:.2f}")
+        
+        if self.ratio < 0.5:
+            logger.warning("Dataset desbalanceado!")
+            # Precisa implementar alguma estratégia para tratamento de dataset desbalanceado, mas não sei qual usar.
+        else:
+            logger.info("✓ Dataset razoavelmente balanceado.")
+            
+    def outlier_analysis(self):
+        """
+        Passo 5, identificar outliers se houverem.
+        """
+        logger.info("Iniciando análise de outliers...")
+        
+        numeric_cols = self.data.select_dtypes(include=[np.number]).columns.tolist()
+        if 'target' in numeric_cols:
+            numeric_cols.remove('target')
+               
+        gr.build_outliers_report(
+            data=self.data, 
+            numeric_cols=numeric_cols, 
+            filename=f"outliers_boxplot_{agora}.png"
+        )
+            
+    
+    # ------------------------------------------------------
+    # Data Preparation
+    # ------------------------------------------------------   
+            
+    def clean_data(self):
+        """
+            Tratamento de dados
+        """
+        logger.info("Iniciando limpeza de dados...")
+        
+        self.data_clean = pd.DataFrame()
+        self.data_clean = self.data
+        
+        logger.info("Imputando moda em colunas missing não numericas")
+        non_numeric_cols = self.data_clean.select_dtypes(exclude=[np.number]).columns
+        for col in non_numeric_cols:
+            mode = self.data_clean[col].mode()[0]
+            self.data_clean[col].fillna(mode,inplace=True)
+            logger.debug(f"{col} : imputada com a moda: {mode}")
+            
+        numeric_cols = self.data_clean.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            median = self.data_clean[col].median()
+            self.data_clean[col].fillna(median,inplace=True)
+            logger.debug(f"{col} : imputada com a mediana : {median}")
+            
+        logger.info("\n✓ Tratamento de missing values concluído!")
+        logger.debug(f"Shape após imputação: {self.data_clean.shape}")
+        logger.debug(f"Valores ausentes restantes por coluna: {self.data_clean.isnull().sum()}")
+        
+        
+            
+        
+        
+        
+        
         
         
         

@@ -1,41 +1,87 @@
-import matplotlib as plt
+import matplotlib.pyplot as plt
+import os
+import logging
+import seaborn as sns
+import numpy as np
+from scipy import stats
+
+logger = logging.getLogger(__name__)
 
 class Graphs:
-    
-    BARH = 1
-    BAR = 2
-    PIE = 3
-    
-    def __init__(self, px_data = None,py_data=None,
-                 pwidth= 10,pheight= 6,pcolor = 'coral',
-                 pylabel='',pxlabel='',ptitle = ''):
-        self.title  = ptitle
-        self.xlabel = pxlabel
-        self.x_data = px_data
-        self.y_data = py_data
-        self.ylabel = pylabel
-        self.width  = pwidth
-        self.height = pheight
-        self.color  = pcolor
+    @staticmethod
+    def build_report(g_type, x_data, y_data=None, title="", xlabel="", ylabel="", 
+                     filename="graph.png", color="coral", labels=None):
+        """
+        Gera e salva gráficos (BAR, BARH, PIE).
+        g_type: 1 (BARH), 2 (BAR), 3 (PIE)
+        """
+        # Garantir diretório na raiz
+        if not os.path.exists("graphs"):
+            os.makedirs("graphs")
+            logger.info("Diretório /graphs criado.")
 
-    def building_graphs(self,pgraph:int,ptitle,pxlabel,px_data,py_data,pylabel,pwidth,pheight,pcolor):
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        if g_type == 1:   # BARH
+            ax.barh(x_data, y_data, color=color)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+
+        elif g_type == 2: # BAR
+            ax.bar(x_data, y_data, color=color)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+
+        elif g_type == 3: # PIE
+            ax.pie(x_data, labels=labels, autopct='%1.1f%%', colors=[color, 'lightblue'])
         
-        self.__init__(px_data=px_data,py_data=py_data,
-                      pwidth=pwidth,pheight=pheight,
-                      pcolor=pcolor,pylabel=pylabel,
-                      pxlabel=pxlabel,ptitle=ptitle)
-            
-        if pgraph == Graphs.BARH:
-            self.build_barh()
-                
-    def build_barh(self):
-       
-        plt.figure(figsize=(self.width,self.height))
-        plt.barh(self.x_data,self.y_data, color=self.color)    
-        plt.xlabel(self.xlabel)
-        plt.ylabel(self.ylabel)
-        plt.title(self.title)
+        ax.set_title(title)
         plt.tight_layout()
-    
-    def show_graph(self):
+        
+        save_path = os.path.join("graphs", filename)
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        logger.info(f"Gráfico salvo em: {save_path}")
+        
         plt.show()
+        plt.close(fig) 
+        
+    @staticmethod
+    def build_outliers_report(data, numeric_cols, filename="outliers_analysis.png"):
+        """
+        Gera um grid de Boxplots com contagem de outliers via Z-Score.
+        Senioridade: Automação de layout baseado no número de colunas.
+        """
+        num_cols_count = len(numeric_cols)
+        nrows = (num_cols_count + 1) // 2  
+        ncols = 2 if num_cols_count > 1 else 1
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(12, 4 * nrows))
+        
+        if num_cols_count == 1:
+            axes = [axes]
+        else:
+            axes = axes.ravel()
+
+        for idx, col in enumerate(numeric_cols):
+            
+            sns.boxplot(x=data[col], ax=axes[idx], color='coral')
+            
+            col_data = data[col].dropna()
+            z = np.abs(stats.zscore(col_data))
+            outliers_count = (z > 3).sum()
+            
+            axes[idx].set_title(f"{col} | Outliers (Z>3): {outliers_count}")
+            axes[idx].set_xlabel("")
+
+        for j in range(idx + 1, len(axes)):
+            fig.delaxes(axes[j])
+
+        plt.tight_layout()
+        
+        if not os.path.exists("graphs"): os.makedirs("graphs")
+        save_path = os.path.join("graphs", filename)
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+        logger.info(f"Relatório de outliers salvo: {save_path}")
+        plt.show()
+        plt.close(fig)
