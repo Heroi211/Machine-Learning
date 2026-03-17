@@ -1,0 +1,9 @@
+Métrica,Nome Real,O que ela te diz?,Ponto de Atenção
+count,Contagem,Quantas linhas têm dados preenchidos.,"Se for menor que o total de linhas, há valores nulos."
+mean,Média,"O valor ""equilibrado"" do conjunto.",Cuidado: é facilmente distorcida por valores gigantes ou minúsculos.
+std,Desvio Padrão,"O ""grau de incerteza"" ou variação.","Quanto maior o std, mais ""espalhados"" e imprevisíveis são os dados."
+min,Mínimo,O menor valor encontrado.,Ótimo para achar erros (ex: peso negativo ou idade zero).
+25%,1º Quartil,Onde terminam os 25% menores valores.,Ajuda a entender a base da pirâmide dos seus dados.
+50%,Mediana,O valor que divide os dados ao meio.,"É mais ""pé no chão"" que a média para dados desiguais."
+75%,3º Quartil,Onde começam os 25% maiores valores.,Indica o topo da distribuição.
+max,Máximo,O maior valor encontrado.,Ajuda a identificar outliers (valores muito fora da curva).
