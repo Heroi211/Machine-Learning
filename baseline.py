@@ -158,14 +158,14 @@ class Baseline:
         gr.build_report(
             g_type=3, # PIE
             x_data=target_counts.values,
-            labels=['Sem Churn (0)', 'Churn (1)'],
+            labels=['Sem Churn (0)', 'Churn (1)'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
             title="Proporção da Variável Target",
             filename=f"target_distribution_pie_{agora}.png",
             color="coral"
         )
         gr.build_report(
             g_type=2, 
-            x_data=['Sem Churn', 'Churn'],
+            x_data=['Sem Churn', 'Churn'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
             y_data=target_counts.values,    
             title="Distribuição Absoluta da Target",
             ylabel="Quantidade",
