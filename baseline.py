@@ -1,10 +1,15 @@
 import logging
+import mlflow
 import pandas as pd
 import os
 from dotenv import load_dotenv
+from sklearn.linear_model import LogisticRegression
 from graphs import Graphs as gr
 from datetime import datetime
 import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+import joblib
 
 load_dotenv()
 
@@ -22,7 +27,10 @@ pmsg_raise = "Pipeline interrompido"
 agora = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
 class Baseline:
-    def __init__(self, ppath,pmsg_raise):
+    """
+    Pipeline para geração do baseline padrão
+    """
+    def __init__(self,pobjective):
         self.path = ppath
         self.msg_raise = pmsg_raise
         self.data = None
@@ -34,10 +42,8 @@ class Baseline:
         self.y_train = None
         self.y_test = None
         self.ratio = None
-        
-        
-        self.load_data()
-        self.summary_overview()
+        self.objective = None
+        self.model = None
     
     def load_data(self):
         """
@@ -67,7 +73,6 @@ class Baseline:
         logger.debug(self.data.columns)
         logger.info("Estatísticas inciiais do dataset:\n")
         logger.debug(self.data.describe())
-        
         
     # ------------------------------------------------------
     # EDA - Análise exploratória de dados
@@ -110,7 +115,6 @@ class Baseline:
             filename=f"missing_values_{agora}.png",
             color="skyblue"
             )
-            
             
             
     def target_analysis(self):
@@ -174,6 +178,7 @@ class Baseline:
         else:
             logger.info("✓ Dataset razoavelmente balanceado.")
             
+            
     def outlier_analysis(self):
         """
         Passo 5, identificar outliers se houverem.
@@ -190,7 +195,7 @@ class Baseline:
             filename=f"outliers_boxplot_{agora}.png"
         )
             
-    
+       
     # ------------------------------------------------------
     # Data Preparation
     # ------------------------------------------------------   
@@ -220,6 +225,115 @@ class Baseline:
         logger.info("\n✓ Tratamento de missing values concluído!")
         logger.debug(f"Shape após imputação: {self.data_clean.shape}")
         logger.debug(f"Valores ausentes restantes por coluna: {self.data_clean.isnull().sum()}")
+        
+    def encoding(self):
+        """
+        One hot encoding
+        """
+        
+        logger.info("Iniciando encoding de variáveis categorias...")
+        non_categorical_col = self.data_clean.select_dtypes(exclude=np.number).columns
+        self.data_encoded = pd.get_dummies(self.data_clean,columns=non_categorical_col, drop_first=True)
+        
+        logger.info(f"Shape após one hot encoding: {self.data_encoded.shape}")
+       
+    def split_data(self):
+        """
+        Divisão de treino e teste
+        """
+        
+        logger.info("Iniciando split data...")
+        
+        x=self.data_encoded.drop(columns='target')
+        y=self.data_encoded['target']
+        
+        self.x_train,self.x_test,self.y_train,self.y_test = train_test_split(x,y,test_size=0.2,random_state=42)
+       
+    def train(self):
+        """
+        Teste com MLflow
+        """
+        
+        logger.info("Iniciando treino do modelo com mlflow...")
+        with mlflow.start_run(run_name="logistic_regression_baseline_pipeline"):
+            model=LogisticRegression(random_state=42)
+            model.fit(self.x_train,self.y_train)
+            
+            y_pred_train = model.predict(self.x_train)
+            y_pred_test  = model.predict(self.x_test)
+            
+            train_accuracy = accuracy_score(self.y_train,y_pred_train)
+            
+            test_accuracy  = accuracy_score(self.y_test,y_pred_test)
+            test_f1        = f1_score(self.y_test,y_pred_test)
+            test_precision = precision_score(self.y_test,y_pred_test)
+            test_recall    = recall_score(self.y_test,y_pred_test)
+            
+            mlflow.log_metric("train_accuracy",train_accuracy)
+            mlflow.log_metric("test_accuracy",test_accuracy)
+            mlflow.log_metric("test_f1",test_f1)
+            mlflow.log_metric("test_precision",test_precision)
+            mlflow.log_metric("test_recall",test_recall)
+                    
+            overfitting = train_accuracy - test_accuracy
+            
+            logger.info(f"Logistic Regression \n")
+            logger.debug(f"Train Accuracy: {train_accuracy:.4f}\n")
+            logger.debug(f"Test Accuracy: {test_accuracy:.4f}\n")
+            logger.debug(f"Test F1 Score: {test_f1:.4f}\n")
+            logger.debug(f"Test Precision: {test_precision:.4f}\n")
+            logger.debug(f"Test Recall: {test_recall:.4f}\n")
+            logger.debug(f"Overfitting: {overfitting:.4f}\n")
+            
+    def save(self):
+        """
+        Salvando modelo para próxima step
+        """
+        
+        logger.info("Iniciando save do modelo preprocessado")
+        self.data_encoded.to_csv(f"data/processed/{self.objective}_preprocessed_{agora}.csv")
+        
+        logger.debug(f"Pre Processamento: data/processed/{self.objective}_preprocessed_{agora}.csv, salvo")
+        logger.debug(f"salvando modelo treinado...")
+        mlflow.sklearn.log_model(self.model, f"Logistic_regression_model_{self.objective}_{agora}")
+        logger.info(f"Modelo salvo!")
+        logger.info("Salvando modelo! com joblib")
+        joblib.dump(self.model,f"models/baseline_model_{self.objective}_{agora}.joblib")
+        
+        
+            
+if __name__=="__main":
+            
+    start_time = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    logger.info(f"Iniciando o pipeline: {start_time}")
+    
+    pipeline = Baseline(pobjective="churn")
+    pipeline.load_data()
+    logger.debug(f"Dados carregados: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.summary_overview()
+    logger.debug(f"Overview gerado: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.missing_identifier()
+    logger.debug(f"Identificados Missings: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.target_analysis()
+    logger.debug(f"Análise da target: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.outlier_analysis()
+    logger.debug(f"Análise de outliers: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.clean_data()
+    logger.debug(f"Dados limpos: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.encoding()
+    logger.debug(f"Encoding : {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.split_data()
+    logger.debug(f"Split de dados: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.train()
+    logger.debug(f"Treino feito: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    pipeline.save()
+    logger.debug(f"Modelos salvos: {start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S') }")
+    
+    end_time = start_time - datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    
+    logger.debug(f"Baseline encerrado em : {end_time}")
+        
+    
         
         
             
