@@ -14,23 +14,24 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 import joblib
 from sklearn.pipeline import Pipeline as SkPipeline
+import glob 
+from configs import settings
+
 load_dotenv()
 
 #Enviroments
-ppath_data = os.getenv('PATH_DATA')
-ppath_data_preprocessed = os.getenv('PATH_DATA_PREPROCESSED')
-ppath_model = os.getenv('PATH_MODEL')
-debug = os.getenv('DEBUG')
+ppath_data = settings.path_data
+ppath_data_preprocessed = settings.path_data_preprocessed
+ppath_model = settings.path_model
+ppath_graphs = settings.path_graphs
 
 logging.basicConfig(
-    level=logging.INFO(
-        format="%(asctime)s | %(levelname)s | %(message)s"
-    )
+    level=settings.get_log_level(),
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
-
 pmsg_raise = "Pipeline interrompido"
-agora = datetime.now().strftime('%Y%m%d_%H%M%S')
+pagora = datetime.now().strftime('%Y%m%d_%H%M%S')
 
 class Baseline:
     """
@@ -40,8 +41,10 @@ class Baseline:
         self.path_data = ppath_data
         self.path_data_preprocessed = ppath_data_preprocessed
         self.path_model = ppath_model
+        self.path_graphs = ppath_graphs
         self.msg_raise = pmsg_raise
         self.objective = pobjective
+        self.now = pagora
         self.data = None
         self.target = None
         self.x_train = None
@@ -62,7 +65,19 @@ class Baseline:
             logger.error("Path não encontrado ou valor vazio")
             raise ValueError(self.msg_raise)
         
-        self.data = pd.read_csv(self.path_data)
+        path_data = self.path_data
+        csv = os.path.join(path_data,'*.csv')
+        
+        file = glob.glob(csv) # já cria uma lista com os arquivos que encontrar la, quando for fazer o pipe analisar a pasta e processar tudo, ja ta no jeito
+        if not file:
+            logger.error(f"Nenhum arquivo CSV encontrado no caminho: {path_data}")
+            raise ValueError(self.msg_raise)
+        
+        if file:
+            file_must_modern = max(file, key=os.path.getctime)
+            logger.info(f"Arquivo CSV encontrado: {file_must_modern}")
+            
+        self.data = pd.read_csv(file_must_modern)
         self.target = self.data.columns.to_list().pop() 
         
         
@@ -119,7 +134,7 @@ class Baseline:
             y_data=missing['Missing_percentage'],
             title="Distribuição de Missing Values por Coluna",
             xlabel="Porcentagem (%)",
-            filename=f"missing_values_{agora}.png",
+            filename=f"missing_values_{self.now}.png",
             color="skyblue"
             )
             
@@ -146,30 +161,35 @@ class Baseline:
             raise ValueError(self.msg_raise)
         
         logger.info("Iniciando analise de balancemanto da variável target")
+        
+        self.data['target'] = self.data['target'].astype(int)
+        self.data['target'] = np.where(self.data['target']>0,1,0)
+        
+        
         target_counts = self.data['target'].value_counts()
         target_percentages = self.data['target'].value_counts(normalize=True) * 100
         
         logger.info(f"Contagem\n {target_counts}")
         logger.info("\nPercentual:")
         for idx, pct in target_percentages.items():
-            label = "Sem churn" if idx==0 else "Churn"
+            label = f"Sem {self.objective}" if idx==0 else f"{self.objective}"
             logger.info(f"{label} ({idx}): {pct:.2f}")
             
         gr.build_report(
             g_type=3, # PIE
             x_data=target_counts.values,
-            labels=['Sem Churn (0)', 'Churn (1)'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
+            labels=[f'Sem {self.objective} (0)', f'{self.objective} (1)'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
             title="Proporção da Variável Target",
-            filename=f"target_distribution_pie_{agora}.png",
+            filename=f"target_distribution_pie_{self.now}.png",
             color="coral"
         )
         gr.build_report(
             g_type=2, 
-            x_data=['Sem Churn', 'Churn'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
+            x_data=[f'Sem {self.objective}', f'{self.objective}'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
             y_data=target_counts.values,    
             title="Distribuição Absoluta da Target",
             ylabel="Quantidade",
-            filename=f"target_distribution_bar{agora}.png",
+            filename=f"target_distribution_bar_{self.now}.png",
             color="skyblue"
         )
             
@@ -196,7 +216,7 @@ class Baseline:
         gr.build_outliers_report(
             data=self.data, 
             numeric_cols=numeric_cols, 
-            filename=f"outliers_boxplot_{agora}.png"
+            filename=f"outliers_boxplot_{self.now}.png"
         )
             
        
@@ -244,8 +264,10 @@ class Baseline:
             mlflow.log_params(full_pipeline.named_steps['classifier'].get_params())
             mlflow.log_metrics(metrics)
             
-            if os.path.exists("graphs"):
-                mlflow.log_artifacts("graphs", artifact_path="plots")
+            if os.path.exists(self.path_graphs):
+                if not os.path.exists(f"{self.path_graphs}plots"):
+                    os.makedirs(f"{self.path_graphs}plots")
+                    mlflow.log_artifacts("graphs", artifact_path=f"{self.path_graphs}plots")
             
             mlflow.sklearn.log_model(self.model, "model")
             logger.info("Pipeline de treino e logs concluído com sucesso.")   
@@ -280,13 +302,13 @@ class Baseline:
                 columns=feature_names
             )
             
-            csv_path = f"{self.path_data_preprocessed}{self.objective}_sample_{agora}.csv"
+            csv_path = f"{self.path_data_preprocessed}{self.objective}_sample_{self.now}.csv"
             x_test_processed.head(100).to_csv(csv_path, index=False)
             logger.info(f"Amostra processada salva em: {csv_path}")
         except Exception as e:
             logger.warning(f"Não foi possível salvar amostra CSV: {e}")
 
-        model_name = f"baseline_model_{self.objective}_{agora}.joblib"
+        model_name = f"baseline_model_{self.objective}_{self.now}.joblib"
         joblib_path = os.path.join(self.path_model, model_name)
         
         joblib.dump(self.model, joblib_path)
@@ -297,6 +319,36 @@ class Baseline:
             logger.info("Modelo registrado como artefato no MLflow.")
         except Exception as e:
             logger.error(f"Erro ao registrar no MLflow: {e}")
+            
+    
+    
+    def run(self):
+        self.load_data()
+        logger.debug(f"Dados carregados: {datetime.now() - start_time }")
+        self.summary_overview()
+        logger.debug(f"Overview gerado: {datetime.now() - start_time }")
+        self.missing_identifier()
+        logger.debug(f"Identificados Missings: {datetime.now() - start_time }")
+        self.target_analysis()
+        logger.debug(f"Análise da target: {datetime.now() - start_time }")
+        self.outlier_analysis()
+        logger.debug(f"Análise de outliers: {datetime.now() - start_time }")
+        self.split_data()
+        logger.debug(f"Split de dados: {datetime.now() - start_time }")
+        self.prepare_and_train()
+        logger.debug(f"Preparando dados para limpeza e treinamento: {datetime.now() - start_time}")
+        self.save()
+        logger.debug(f"Modelos salvos: {datetime.now() - start_time }")
+    
+    def save_artifacts(self):
+        """
+        Salva os artefatos do pipeline (modelos, gráficos, dados processados).
+        """
+        logger.info("Iniciando o salvamento dos artefatos...")
+        # mover o dataset usado para a pasta old/datetime, incluindo.
+        # mover os gráficos para pasta old old/datetime
+        
+        
         
             
 if __name__=="__main__":
@@ -304,32 +356,9 @@ if __name__=="__main__":
     start_time = datetime.now()
     logger.info(f"Iniciando o pipeline: {start_time}")
     
-    pipeline = Baseline(pobjective="churn")
-    pipeline.load_data()
-    logger.debug(f"Dados carregados: {start_time - datetime.now() }")
-    
-    pipeline.summary_overview()
-    logger.debug(f"Overview gerado: {start_time - datetime.now() }")
-    
-    pipeline.missing_identifier()
-    logger.debug(f"Identificados Missings: {start_time - datetime.now() }")
-    
-    pipeline.target_analysis()
-    logger.debug(f"Análise da target: {start_time - datetime.now() }")
-    
-    pipeline.outlier_analysis()
-    logger.debug(f"Análise de outliers: {start_time - datetime.now() }")
-    
-    pipeline.split_data()
-    logger.debug(f"Split de dados: {start_time - datetime.now() }")
-    
-    pipeline.prepare_and_train()
-    logger.debug(f"Preparando dados para limpeza e treinamento: {start_time - datetime.now()}")
-    
-    pipeline.save()
-    logger.debug(f"Modelos salvos: {start_time - datetime.now() }")
-    
-    end_time = start_time - datetime.now()
+    pipeline = Baseline(pobjective="Churn")
+    pipeline.run()
+    end_time = datetime.now() - start_time
     
     logger.debug(f"Baseline encerrado em : {end_time}")
 

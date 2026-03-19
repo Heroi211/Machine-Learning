@@ -4,9 +4,10 @@ import logging
 import seaborn as sns
 import numpy as np
 from scipy import stats
+from configs import settings
 
 logger = logging.getLogger(__name__)
-path_graphs = os.getenv('PATH_GRAPHS')
+path_graphs = settings.path_graphs
 
 class Graphs:
     @staticmethod
