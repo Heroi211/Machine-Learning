@@ -16,6 +16,8 @@ import joblib
 from sklearn.pipeline import Pipeline as SkPipeline
 import glob 
 from configs import settings
+import shutil
+from custom_logger import setup_log
 
 load_dotenv()
 
@@ -28,13 +30,10 @@ ppath_graphs = settings.path_graphs
 ptest_size = settings.test_size
 prandom_state = settings.random_state
 
-logging.basicConfig(
-    level=settings.get_log_level(),
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
 logger = logging.getLogger(__name__)
 pmsg_raise = "Pipeline interrompido"
 pagora = datetime.now().strftime('%Y%m%d_%H%M%S')
+psnapshot_path = os.path.join(settings.path_data, settings.path_logs, pagora)
 
 class Baseline:
     """
@@ -50,6 +49,8 @@ class Baseline:
         self.test_size = ptest_size
         self.random_state = prandom_state
         self.now = pagora
+        self.snapshot_path = psnapshot_path
+        self.current_csv_path = None
         self.data = None
         self.target = None
         self.x_train = None
@@ -80,6 +81,7 @@ class Baseline:
         
         if file:
             file_must_modern = max(file, key=os.path.getctime)
+            self.current_csv_path = file_must_modern
             logger.info(f"Arquivo CSV encontrado: {file_must_modern}")
             
         self.data = pd.read_csv(file_must_modern)
@@ -325,7 +327,7 @@ class Baseline:
             
     
     
-    def run(self):
+    def run(self, start_time):
         self.load_data()
         logger.debug(f"Dados carregados: {datetime.now() - start_time }")
         self.summary_overview()
@@ -345,26 +347,53 @@ class Baseline:
     
     def save_artifacts(self):
         """
-        Salva os artefatos do pipeline (modelos, gráficos, dados processados).
+        Arquiva o dataset original e os gráficos gerados no diretório de snapshot.
+        Limpa a pasta de entrada após o arquivamento.
         """
-        logger.info("Iniciando o salvamento dos artefatos...")
-        # mover o dataset usado para a pasta old/datetime, incluindo.
-        # mover os gráficos para pasta old old/datetime
-        # salvar todos os logs gerados em um txt
+        logger.info(f"Arquivando artefatos em: {self.snapshot_path}")
+
+        if self.current_csv_path and os.path.exists(self.current_csv_path):
+            try:
+                shutil.copy(self.current_csv_path, self.snapshot_path)
+                logger.info(f"CSV original copiado para snapshot.")
+                
+                os.remove(self.current_csv_path)
+                logger.info(f"Arquivo original removido da pasta de entrada: {self.current_csv_path}")
+            except Exception as e:
+                logger.error(f"Erro ao mover/deletar o CSV original: {e}")
+
+        target_graphs_path = os.path.join(self.snapshot_path, "graphs")
+        if os.path.exists(self.path_graphs):
+            if not os.path.exists(target_graphs_path):
+                os.makedirs(target_graphs_path)
+            
+            for file_name in os.listdir(self.path_graphs):
+                full_file_name = os.path.join(self.path_graphs, file_name)
+                if os.path.isfile(full_file_name):
+                    shutil.move(full_file_name, target_graphs_path)
+            
+            logger.info(f"Gráficos movidos para: {target_graphs_path}")
                 
         
         
             
 if __name__=="__main__":
             
+    logger = setup_log(psnapshot_path, pagora)
     start_time = datetime.now()
     logger.info(f"Iniciando o pipeline: {start_time}")
-    
     pipeline = Baseline(pobjective="Churn")
-    pipeline.run()
-    end_time = datetime.now() - start_time
+    try:
+        pipeline.run(start_time)
+        pipeline.save_artifacts()
+        logger.debug(f"Artefatos salvos: {datetime.now() - start_time }")
+        end_time = datetime.now() - start_time
+        logger.debug(f"Baseline encerrado em : {end_time}")
+    except Exception as e:
+        logger.error(f"Erro durante a execução do pipeline: {e}")
+        raise ValueError("Pipeline interrompido devido a um erro.")
     
-    logger.debug(f"Baseline encerrado em : {end_time}")
+    
 
         
         

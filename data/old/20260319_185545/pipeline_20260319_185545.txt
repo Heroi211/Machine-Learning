@@ -1,0 +1,298 @@
+2026-03-19 18:55:45,767 | INFO | 💾 Log persistente configurado em: data/old/20260319_185545/pipeline_20260319_185545.txt
+2026-03-19 18:55:45,767 | INFO | Iniciando o pipeline: 2026-03-19 18:55:45.767554
+2026-03-19 18:55:45,782 | DEBUG | Loaded backend agg version v2.2.
+2026-03-19 18:56:01,233 | INFO | Iniciando Dataset...
+2026-03-19 18:56:01,235 | INFO | Arquivo CSV encontrado: data/heart_disease_uci.csv
+2026-03-19 18:56:01,243 | DEBUG | Dataset carregado (920, 15)
+2026-03-19 18:56:01,268 | DEBUG | 5 primeiras linhas    age     sex    dataset  ...   ca               thal  num
+0   63    Male  Cleveland  ...  0.0       fixed defect    0
+1   67    Male  Cleveland  ...  3.0             normal    2
+2   67    Male  Cleveland  ...  2.0  reversable defect    1
+3   37    Male  Cleveland  ...  0.0             normal    0
+4   41  Female  Cleveland  ...  0.0             normal    0
+
+[5 rows x 15 columns]
+2026-03-19 18:56:03,240 | DEBUG | Dados carregados: 0:00:17.472429
+2026-03-19 18:56:03,888 | INFO | Informações gerais do dataset:
+
+2026-03-19 18:56:03,899 | DEBUG | None
+2026-03-19 18:56:03,899 | INFO | Colunas presentes no dataset:
+
+2026-03-19 18:56:03,899 | DEBUG | Index(['age', 'sex', 'dataset', 'cp', 'trestbps', 'chol', 'fbs', 'restecg',
+       'thalch', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num'],
+      dtype='object')
+2026-03-19 18:56:03,900 | INFO | Estatísticas inciiais do dataset:
+
+2026-03-19 18:56:03,912 | DEBUG |               age    trestbps        chol  ...     oldpeak          ca         num
+count  920.000000  861.000000  890.000000  ...  858.000000  309.000000  920.000000
+mean    53.510870  132.132404  199.130337  ...    0.878788    0.676375    0.995652
+std      9.424685   19.066070  110.780810  ...    1.091226    0.935653    1.142693
+min     28.000000    0.000000    0.000000  ...   -2.600000    0.000000    0.000000
+25%     47.000000  120.000000  175.000000  ...    0.000000    0.000000    0.000000
+50%     54.000000  130.000000  223.000000  ...    0.500000    0.000000    1.000000
+75%     60.000000  140.000000  268.000000  ...    1.500000    1.000000    2.000000
+max     77.000000  200.000000  603.000000  ...    6.200000    3.000000    4.000000
+
+[8 rows x 7 columns]
+2026-03-19 18:56:04,557 | DEBUG | Overview gerado: 0:00:18.789989
+2026-03-19 18:56:04,968 | INFO | Inicializando a identificação dos missings values
+2026-03-19 18:56:04,980 | DEBUG | Missing values identificados na fonte de dados:             Coluna  Missing_count  Missing_percentage
+ca              ca            611               66.41
+thal          thal            486               52.83
+slope        slope            309               33.59
+fbs            fbs             90                9.78
+oldpeak    oldpeak             62                6.74
+trestbps  trestbps             59                6.41
+exang        exang             55                5.98
+thalch      thalch             55                5.98
+chol          chol             30                3.26
+restecg    restecg              2                0.22
+2026-03-19 18:56:04,986 | DEBUG | findfont: Matching sans\-serif:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0.
+2026-03-19 18:56:04,987 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansDisplay.ttf', name='DejaVu Sans Display', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,987 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizThreeSymReg.ttf', name='STIXSizeThreeSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,987 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerifDisplay.ttf', name='DejaVu Serif Display', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,987 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralBol.ttf', name='STIXGeneral', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,987 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFourSymBol.ttf', name='STIXSizeFourSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,988 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif-Bold.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,988 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmss10.ttf', name='cmss10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,988 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizTwoSymReg.ttf', name='STIXSizeTwoSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,988 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniIta.ttf', name='STIXNonUnicode', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,988 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono-Bold.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,989 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizOneSymBol.ttf', name='STIXSizeOneSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,989 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralItalic.ttf', name='STIXGeneral', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,989 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Bold.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 0.33499999999999996
+2026-03-19 18:56:04,989 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmtt10.ttf', name='cmtt10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,989 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniBol.ttf', name='STIXNonUnicode', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,989 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizOneSymReg.ttf', name='STIXSizeOneSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,989 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif-BoldItalic.ttf', name='DejaVu Serif', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,990 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono-Oblique.ttf', name='DejaVu Sans Mono', style='oblique', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,990 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFourSymReg.ttf', name='STIXSizeFourSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,990 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralBolIta.ttf', name='STIXGeneral', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,990 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono-BoldOblique.ttf', name='DejaVu Sans Mono', style='oblique', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,990 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUni.ttf', name='STIXNonUnicode', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,990 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf', name='DejaVu Sans', style='oblique', variant='normal', weight=400, stretch='normal', size='scalable')) = 1.05
+2026-03-19 18:56:04,990 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmb10.ttf', name='cmb10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,991 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif-Italic.ttf', name='DejaVu Serif', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,991 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-BoldOblique.ttf', name='DejaVu Sans', style='oblique', variant='normal', weight=700, stretch='normal', size='scalable')) = 1.335
+2026-03-19 18:56:04,991 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,991 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmmi10.ttf', name='cmmi10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,991 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFiveSymReg.ttf', name='STIXSizeFiveSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,991 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,991 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmr10.ttf', name='cmr10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,992 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneral.ttf', name='STIXGeneral', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,992 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniBolIta.ttf', name='STIXNonUnicode', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,992 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizThreeSymBol.ttf', name='STIXSizeThreeSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,992 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmsy10.ttf', name='cmsy10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,992 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmex10.ttf', name='cmex10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,992 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizTwoSymBol.ttf', name='STIXSizeTwoSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,993 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 0.05
+2026-03-19 18:56:04,993 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-Bold.otf', name='C059', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,993 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-BoldItalic.otf', name='P052', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,993 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf', name='Nimbus Sans', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,993 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-BoldItalic.otf', name='Nimbus Sans', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,993 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-Italic.otf', name='Nimbus Roman', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,993 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-BI.ttf', name='Ubuntu Mono', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,994 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-Light.otf', name='URW Bookman', style='normal', variant='normal', weight=300, stretch='normal', size='scalable')) = 10.145
+2026-03-19 18:56:04,994 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-Italic.otf', name='Nimbus Sans', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,994 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Regular.otf', name='Nimbus Mono PS', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,994 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-BoldOblique.otf', name='Nimbus Sans Narrow', style='oblique', variant='normal', weight=700, stretch='condensed', size='scalable')) = 11.535
+2026-03-19 18:56:04,994 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-Bold.otf', name='Nimbus Sans', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,994 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,995 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-RI.ttf', name='Ubuntu', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,995 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-LightItalic.otf', name='URW Bookman', style='italic', variant='normal', weight=300, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:04,995 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-DemiItalic.otf', name='URW Bookman', style='italic', variant='normal', weight=600, stretch='normal', size='scalable')) = 11.24
+2026-03-19 18:56:04,995 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-Regular.otf', name='Nimbus Roman', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,995 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-Bold.otf', name='Nimbus Roman', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,995 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Bold.otf', name='Nimbus Sans Narrow', style='normal', variant='normal', weight=700, stretch='condensed', size='scalable')) = 10.535
+2026-03-19 18:56:04,995 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Italic.otf', name='Nimbus Mono PS', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,996 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/StandardSymbolsPS.otf', name='Standard Symbols PS', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,996 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-LI.ttf', name='Ubuntu', style='italic', variant='normal', weight=300, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:04,996 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-Th.ttf', name='Ubuntu', style='normal', variant='normal', weight=250, stretch='normal', size='scalable')) = 10.1925
+2026-03-19 18:56:04,996 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Bold.otf', name='Nimbus Mono PS', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,996 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-Roman.otf', name='P052', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,996 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf', name='Ubuntu Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,996 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/Z003-MediumItalic.otf', name='Z003', style='italic', variant='normal', weight=500, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:04,997 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-Italic.otf', name='C059', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,997 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-BdIta.otf', name='C059', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,997 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-BoldItalic.otf', name='Nimbus Roman', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,997 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,997 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-BI.ttf', name='Ubuntu', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:04,997 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-Bold.otf', name='P052', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,998 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', name='Noto Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,998 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-Demi.otf', name='URW Bookman', style='normal', variant='normal', weight=600, stretch='normal', size='scalable')) = 10.24
+2026-03-19 18:56:04,998 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/D050000L.otf', name='D050000L', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,998 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 0.05
+2026-03-19 18:56:04,998 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Oblique.otf', name='Nimbus Sans Narrow', style='oblique', variant='normal', weight=400, stretch='condensed', size='scalable')) = 11.25
+2026-03-19 18:56:04,998 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-BookOblique.otf', name='URW Gothic', style='oblique', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,999 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-C.ttf', name='Ubuntu Condensed', style='normal', variant='normal', weight=400, stretch='condensed', size='scalable')) = 10.25
+2026-03-19 18:56:04,999 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,999 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf', name='Ubuntu Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,999 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-RI.ttf', name='Ubuntu Mono', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:04,999 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-Book.otf', name='URW Gothic', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:04,999 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:04,999 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-Roman.otf', name='C059', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,000 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf', name='Noto Sans Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,000 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-Demi.otf', name='URW Gothic', style='normal', variant='normal', weight=600, stretch='normal', size='scalable')) = 10.24
+2026-03-19 18:56:05,000 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-Italic.otf', name='P052', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,000 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/noto/NotoSansMono-Bold.ttf', name='Noto Sans Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,000 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Regular.otf', name='Nimbus Sans Narrow', style='normal', variant='normal', weight=400, stretch='condensed', size='scalable')) = 10.25
+2026-03-19 18:56:05,000 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-L.ttf', name='Ubuntu', style='normal', variant='normal', weight=300, stretch='normal', size='scalable')) = 10.145
+2026-03-19 18:56:05,000 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf', name='Droid Sans Fallback', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,001 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf', name='Ubuntu', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,001 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-DemiOblique.otf', name='URW Gothic', style='oblique', variant='normal', weight=600, stretch='normal', size='scalable')) = 11.24
+2026-03-19 18:56:05,001 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-BoldItalic.otf', name='Nimbus Mono PS', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,001 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 0.33499999999999996
+2026-03-19 18:56:05,001 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf', name='Ubuntu', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,001 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-MI.ttf', name='Ubuntu', style='italic', variant='normal', weight=500, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:05,002 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf', name='Ubuntu', style='normal', variant='normal', weight=500, stretch='normal', size='scalable')) = 10.145
+2026-03-19 18:56:05,002 | DEBUG | findfont: Matching sans\-serif:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to DejaVu Sans ('/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf') with score of 0.050000.
+2026-03-19 18:56:05,082 | DEBUG | findfont: Matching sans\-serif:style=normal:variant=normal:weight=normal:stretch=normal:size=12.0.
+2026-03-19 18:56:05,082 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansDisplay.ttf', name='DejaVu Sans Display', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,082 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizThreeSymReg.ttf', name='STIXSizeThreeSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,083 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerifDisplay.ttf', name='DejaVu Serif Display', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,083 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralBol.ttf', name='STIXGeneral', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,083 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFourSymBol.ttf', name='STIXSizeFourSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,083 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif-Bold.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,083 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmss10.ttf', name='cmss10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,083 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizTwoSymReg.ttf', name='STIXSizeTwoSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,083 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniIta.ttf', name='STIXNonUnicode', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,084 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono-Bold.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,084 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizOneSymBol.ttf', name='STIXSizeOneSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,084 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralItalic.ttf', name='STIXGeneral', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,084 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Bold.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 0.33499999999999996
+2026-03-19 18:56:05,084 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmtt10.ttf', name='cmtt10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,084 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniBol.ttf', name='STIXNonUnicode', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,085 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizOneSymReg.ttf', name='STIXSizeOneSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,085 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif-BoldItalic.ttf', name='DejaVu Serif', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,085 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono-Oblique.ttf', name='DejaVu Sans Mono', style='oblique', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,085 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFourSymReg.ttf', name='STIXSizeFourSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,085 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralBolIta.ttf', name='STIXGeneral', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,085 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono-BoldOblique.ttf', name='DejaVu Sans Mono', style='oblique', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,085 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUni.ttf', name='STIXNonUnicode', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,086 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf', name='DejaVu Sans', style='oblique', variant='normal', weight=400, stretch='normal', size='scalable')) = 1.05
+2026-03-19 18:56:05,086 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmb10.ttf', name='cmb10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,086 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif-Italic.ttf', name='DejaVu Serif', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,086 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-BoldOblique.ttf', name='DejaVu Sans', style='oblique', variant='normal', weight=700, stretch='normal', size='scalable')) = 1.335
+2026-03-19 18:56:05,086 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,086 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmmi10.ttf', name='cmmi10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,087 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFiveSymReg.ttf', name='STIXSizeFiveSym', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,087 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,087 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmr10.ttf', name='cmr10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,087 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneral.ttf', name='STIXGeneral', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,087 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniBolIta.ttf', name='STIXNonUnicode', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,087 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizThreeSymBol.ttf', name='STIXSizeThreeSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,087 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmsy10.ttf', name='cmsy10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,088 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/cmex10.ttf', name='cmex10', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,088 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizTwoSymBol.ttf', name='STIXSizeTwoSym', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,088 | DEBUG | findfont: score(FontEntry(fname='/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 0.05
+2026-03-19 18:56:05,088 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-Bold.otf', name='C059', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,088 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-BoldItalic.otf', name='P052', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,088 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf', name='Nimbus Sans', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,088 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-BoldItalic.otf', name='Nimbus Sans', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,089 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-Italic.otf', name='Nimbus Roman', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,089 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-BI.ttf', name='Ubuntu Mono', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,089 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-Light.otf', name='URW Bookman', style='normal', variant='normal', weight=300, stretch='normal', size='scalable')) = 10.145
+2026-03-19 18:56:05,089 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-Italic.otf', name='Nimbus Sans', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,089 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Regular.otf', name='Nimbus Mono PS', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,089 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-BoldOblique.otf', name='Nimbus Sans Narrow', style='oblique', variant='normal', weight=700, stretch='condensed', size='scalable')) = 11.535
+2026-03-19 18:56:05,090 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSans-Bold.otf', name='Nimbus Sans', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,090 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,090 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-RI.ttf', name='Ubuntu', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,090 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-LightItalic.otf', name='URW Bookman', style='italic', variant='normal', weight=300, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:05,090 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-DemiItalic.otf', name='URW Bookman', style='italic', variant='normal', weight=600, stretch='normal', size='scalable')) = 11.24
+2026-03-19 18:56:05,090 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-Regular.otf', name='Nimbus Roman', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,091 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-Bold.otf', name='Nimbus Roman', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,091 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Bold.otf', name='Nimbus Sans Narrow', style='normal', variant='normal', weight=700, stretch='condensed', size='scalable')) = 10.535
+2026-03-19 18:56:05,091 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Italic.otf', name='Nimbus Mono PS', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,091 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/StandardSymbolsPS.otf', name='Standard Symbols PS', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,091 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-LI.ttf', name='Ubuntu', style='italic', variant='normal', weight=300, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:05,091 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-Th.ttf', name='Ubuntu', style='normal', variant='normal', weight=250, stretch='normal', size='scalable')) = 10.1925
+2026-03-19 18:56:05,091 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Bold.otf', name='Nimbus Mono PS', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,092 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-Roman.otf', name='P052', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,092 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf', name='Ubuntu Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,092 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/Z003-MediumItalic.otf', name='Z003', style='italic', variant='normal', weight=500, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:05,092 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-Italic.otf', name='C059', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,092 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-BdIta.otf', name='C059', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,092 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusRoman-BoldItalic.otf', name='Nimbus Roman', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,093 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,093 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-BI.ttf', name='Ubuntu', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,093 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-Bold.otf', name='P052', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,093 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', name='Noto Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,093 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWBookman-Demi.otf', name='URW Bookman', style='normal', variant='normal', weight=600, stretch='normal', size='scalable')) = 10.24
+2026-03-19 18:56:05,093 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/D050000L.otf', name='D050000L', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,093 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 0.05
+2026-03-19 18:56:05,094 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Oblique.otf', name='Nimbus Sans Narrow', style='oblique', variant='normal', weight=400, stretch='condensed', size='scalable')) = 11.25
+2026-03-19 18:56:05,094 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-BookOblique.otf', name='URW Gothic', style='oblique', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,094 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-C.ttf', name='Ubuntu Condensed', style='normal', variant='normal', weight=400, stretch='condensed', size='scalable')) = 10.25
+2026-03-19 18:56:05,094 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf', name='DejaVu Sans Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,094 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf', name='Ubuntu Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,094 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/UbuntuMono-RI.ttf', name='Ubuntu Mono', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,095 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-Book.otf', name='URW Gothic', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,095 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf', name='DejaVu Serif', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,095 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/C059-Roman.otf', name='C059', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,095 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf', name='Noto Sans Mono', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,095 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-Demi.otf', name='URW Gothic', style='normal', variant='normal', weight=600, stretch='normal', size='scalable')) = 10.24
+2026-03-19 18:56:05,095 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/P052-Italic.otf', name='P052', style='italic', variant='normal', weight=400, stretch='normal', size='scalable')) = 11.05
+2026-03-19 18:56:05,096 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/noto/NotoSansMono-Bold.ttf', name='Noto Sans Mono', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,096 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusSansNarrow-Regular.otf', name='Nimbus Sans Narrow', style='normal', variant='normal', weight=400, stretch='condensed', size='scalable')) = 10.25
+2026-03-19 18:56:05,096 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-L.ttf', name='Ubuntu', style='normal', variant='normal', weight=300, stretch='normal', size='scalable')) = 10.145
+2026-03-19 18:56:05,096 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf', name='Droid Sans Fallback', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,096 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf', name='Ubuntu', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 10.335
+2026-03-19 18:56:05,096 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/URWGothic-DemiOblique.otf', name='URW Gothic', style='oblique', variant='normal', weight=600, stretch='normal', size='scalable')) = 11.24
+2026-03-19 18:56:05,096 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-BoldItalic.otf', name='Nimbus Mono PS', style='italic', variant='normal', weight=700, stretch='normal', size='scalable')) = 11.335
+2026-03-19 18:56:05,097 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', name='DejaVu Sans', style='normal', variant='normal', weight=700, stretch='normal', size='scalable')) = 0.33499999999999996
+2026-03-19 18:56:05,097 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf', name='Ubuntu', style='normal', variant='normal', weight=400, stretch='normal', size='scalable')) = 10.05
+2026-03-19 18:56:05,097 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-MI.ttf', name='Ubuntu', style='italic', variant='normal', weight=500, stretch='normal', size='scalable')) = 11.145
+2026-03-19 18:56:05,097 | DEBUG | findfont: score(FontEntry(fname='/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf', name='Ubuntu', style='normal', variant='normal', weight=500, stretch='normal', size='scalable')) = 10.145
+2026-03-19 18:56:05,098 | DEBUG | findfont: Matching sans\-serif:style=normal:variant=normal:weight=normal:stretch=normal:size=12.0 to DejaVu Sans ('/home/gabriel/Machine-Learning/venv/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf') with score of 0.050000.
+2026-03-19 18:56:05,364 | INFO | Gráfico salvo em: graphs/missing_values_20260319_185545.png
+2026-03-19 18:56:05,931 | DEBUG | Identificados Missings: 0:00:20.163799
+2026-03-19 18:56:06,329 | INFO | Iniciando a análise da target
+2026-03-19 18:56:06,330 | INFO | Variável target definida
+2026-03-19 18:56:06,330 | INFO | Convertendo variável target para binário
+2026-03-19 18:56:06,332 | INFO | Target codificada: {'0': np.int64(0), '1': np.int64(1), '2': np.int64(2), '3': np.int64(3), '4': np.int64(4)}
+2026-03-19 18:56:06,333 | INFO | Iniciando analise de balancemanto da variável target
+2026-03-19 18:56:06,335 | INFO | Contagem
+ target
+1    509
+0    411
+Name: count, dtype: int64
+2026-03-19 18:56:06,335 | INFO | 
+Percentual:
+2026-03-19 18:56:06,335 | INFO | Churn (1): 55.33
+2026-03-19 18:56:06,335 | INFO | Sem Churn (0): 44.67
+2026-03-19 18:56:06,506 | INFO | Gráfico salvo em: graphs/target_distribution_pie_20260319_185545.png
+2026-03-19 18:56:06,827 | INFO | Gráfico salvo em: graphs/target_distribution_bar_20260319_185545.png
+2026-03-19 18:56:06,827 | INFO | 
+ Ratio de Balancemanto: 0.81
+2026-03-19 18:56:06,827 | INFO | ✓ Dataset razoavelmente balanceado.
+2026-03-19 18:56:07,266 | DEBUG | Análise da target: 0:00:21.499257
+2026-03-19 18:56:07,655 | INFO | Iniciando análise de outliers...
+2026-03-19 18:56:08,662 | INFO | Relatório de outliers salvo: graphs/outliers_boxplot_20260319_185545.png
+2026-03-19 18:56:09,161 | DEBUG | Análise de outliers: 0:00:23.394335
+2026-03-19 18:56:09,591 | INFO | Iniciando split data...
+2026-03-19 18:56:10,419 | DEBUG | Split de dados: 0:00:24.651642
+2026-03-19 18:56:10,919 | INFO | Iniciando preparação e treino robusto...
+2026-03-19 18:56:14,735 | DEBUG | Popen(['git', 'version'], cwd=/home/gabriel/Machine-Learning, stdin=None, shell=False, universal_newlines=False)
+2026-03-19 18:56:14,739 | DEBUG | Popen(['git', 'version'], cwd=/home/gabriel/Machine-Learning, stdin=None, shell=False, universal_newlines=False)
+2026-03-19 18:56:14,741 | DEBUG | sys.platform='linux', git_executable='git'
+2026-03-19 18:56:14,742 | DEBUG | Popen(['git', 'check-ignore', '/home/gabriel/Machine-Learning'], cwd=/home/gabriel/Machine-Learning, stdin=None, shell=False, universal_newlines=False)
+2026-03-19 18:56:14,746 | DEBUG | Popen(['git', 'cat-file', '--batch-check'], cwd=/home/gabriel/Machine-Learning, stdin=<valid stream>, shell=False, universal_newlines=False)
+2026-03-19 18:56:14,806 | DEBUG | Starting new HTTPS connection (1): config.mlflow-telemetry.io:443
+2026-03-19 18:56:15,007 | DEBUG | https://config.mlflow-telemetry.io:443 "GET /3.10.1.json HTTP/1.1" 200 308
+2026-03-19 18:56:16,092 | DEBUG | Starting new HTTPS connection (1): api.mlflow-telemetry.io:443
+2026-03-19 18:56:16,847 | DEBUG | https://api.mlflow-telemetry.io:443 "POST /log HTTP/1.1" 200 30
+2026-03-19 18:56:19,900 | INFO | Pipeline de treino e logs concluído com sucesso.
+2026-03-19 18:56:22,820 | DEBUG | Preparando dados para limpeza e treinamento: 0:00:37.052388
+2026-03-19 18:56:25,853 | INFO | Iniciando o salvamento dos artefatos...
+2026-03-19 18:56:25,878 | INFO | Amostra processada salva em: data/pre_processed/Churn_sample_20260319_185545.csv
+2026-03-19 18:56:25,884 | INFO | Pipeline (Joblib) salvo em: models/baseline_model_Churn_20260319_185545.joblib
+2026-03-19 18:56:25,919 | INFO | Modelo registrado como artefato no MLflow.
+2026-03-19 18:56:26,870 | DEBUG | Starting new HTTPS connection (1): api.mlflow-telemetry.io:443
+2026-03-19 18:56:27,512 | DEBUG | https://api.mlflow-telemetry.io:443 "POST /log HTTP/1.1" 200 30
+2026-03-19 18:56:29,115 | DEBUG | Modelos salvos: 0:00:43.347955
+2026-03-19 18:56:36,339 | INFO | Arquivando artefatos em: data/old/20260319_185545
+2026-03-19 18:56:43,387 | INFO | CSV original copiado para snapshot.
+2026-03-19 18:56:57,229 | INFO | Gráficos movidos para: data/old/20260319_185545/graphs
+2026-03-19 18:56:58,560 | DEBUG | Artefatos salvos: 0:01:12.793021
+2026-03-19 18:56:59,959 | DEBUG | Baseline encerrado em : 0:01:13.667244
