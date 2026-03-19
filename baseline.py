@@ -25,6 +25,9 @@ ppath_data_preprocessed = settings.path_data_preprocessed
 ppath_model = settings.path_model
 ppath_graphs = settings.path_graphs
 
+ptest_size = settings.test_size
+prandom_state = settings.random_state
+
 logging.basicConfig(
     level=settings.get_log_level(),
     format="%(asctime)s | %(levelname)s | %(message)s"
@@ -44,6 +47,8 @@ class Baseline:
         self.path_graphs = ppath_graphs
         self.msg_raise = pmsg_raise
         self.objective = pobjective
+        self.test_size = ptest_size
+        self.random_state = prandom_state
         self.now = pagora
         self.data = None
         self.target = None
@@ -245,7 +250,7 @@ class Baseline:
 
         full_pipeline = SkPipeline(steps=[
             ('preprocessor', self.preprocessor),
-            ('classifier', LogisticRegression(random_state=42, class_weight='balanced'))
+            ('classifier', LogisticRegression(random_state=self.random_state, class_weight='balanced'))
         ])
 
         with mlflow.start_run(run_name=f"baseline_{self.objective}"):
@@ -265,9 +270,7 @@ class Baseline:
             mlflow.log_metrics(metrics)
             
             if os.path.exists(self.path_graphs):
-                if not os.path.exists(f"{self.path_graphs}plots"):
-                    os.makedirs(f"{self.path_graphs}plots")
-                    mlflow.log_artifacts("graphs", artifact_path=f"{self.path_graphs}plots")
+                mlflow.log_artifacts("graphs", artifact_path=f"{self.path_graphs}plots")
             
             mlflow.sklearn.log_model(self.model, "model")
             logger.info("Pipeline de treino e logs concluído com sucesso.")   
@@ -282,7 +285,7 @@ class Baseline:
         x=self.data.drop(columns='target')
         y=self.data['target']
         
-        self.x_train,self.x_test,self.y_train,self.y_test = train_test_split(x,y,test_size=0.2,random_state=42,stratify=y)
+        self.x_train,self.x_test,self.y_train,self.y_test = train_test_split(x,y,test_size=self.test_size,random_state=self.random_state,stratify=y)
             
     def save(self):
         """
@@ -347,7 +350,8 @@ class Baseline:
         logger.info("Iniciando o salvamento dos artefatos...")
         # mover o dataset usado para a pasta old/datetime, incluindo.
         # mover os gráficos para pasta old old/datetime
-        
+        # salvar todos os logs gerados em um txt
+                
         
         
             
