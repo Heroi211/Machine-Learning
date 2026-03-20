@@ -4,7 +4,7 @@ import logging
 import seaborn as sns
 import numpy as np
 from scipy import stats
-from configs import settings
+from core.configs import settings
 
 logger = logging.getLogger(__name__)
 path_graphs = settings.path_graphs

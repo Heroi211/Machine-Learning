@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from configs import settings
+from core.configs import settings
 
 def setup_log(snapshot_path, now):
     """

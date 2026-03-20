@@ -7,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder,OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from graphs import Graphs as gr
+from core.graphs import Graphs as gr
 from datetime import datetime
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -15,9 +15,9 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 import joblib
 from sklearn.pipeline import Pipeline as SkPipeline
 import glob 
-from configs import settings
+from core.configs import settings
 import shutil
-from custom_logger import setup_log
+from core.custom_logger import setup_log
 
 load_dotenv()
 
