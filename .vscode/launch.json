@@ -6,11 +6,29 @@
     "configurations": [
 
         {
-            "name": "Depurador do Python: Arquivo Atual",
+            "name": "Features Enginnering",
             "type": "debugpy",
             "request": "launch",
-            "program": "baseline.py",
+            "program": "pipelines/features_enginnering.py",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Baseline",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "pipelines/baseline.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Servidor",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "main:app",
+                "--reload"
+            ],
+            "jinja": true
         }
     ]
 }
