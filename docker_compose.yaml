@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  db_login:
+    build:
+      dockerfile: ./docker/db.dockerfile
+      context: .
+    image: login_database:v1
+    container_name: database_login
+    ports:
+      - 5432:5432
+    networks:
+      - nwlogin
+    volumes:
+      - pgdata:/var/lib/postgresql/data/
+      - ./init_db:/docker-entrypoint-initdb.d/
+
+  api_login:
+    build:
+      dockerfile: ./docker/api.dockerfile
+      context: .
+    image: login_api:v1
+    container_name: api_login
+    command: sh -c "python main.py"
+    depends_on:
+      - db_login
+    ports:
+      - 8000:8000
+    networks:
+      - nwlogin
+
+  pgadmin:
+    build:
+      dockerfile: ./docker/pgadmin.dockerfile
+      context: .
+    image: pgadmin_db:v1
+    container_name: pgadmin_db
+    ports:
+      - 5050:80
+    depends_on:
+      - db_login
+    networks:
+      - nwlogin
+
+networks:
+  nwlogin:
+    name: "nwlogin"
+    driver: "bridge"
+volumes:
+  pgdata:
