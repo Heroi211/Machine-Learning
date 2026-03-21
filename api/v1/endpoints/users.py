@@ -1,7 +1,7 @@
 from fastapi import APIRouter,HTTPException,status,Depends,Response
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
-from system_models.users import Users as users_models
+from models.users import Users as users_models
 
 from schemas import users_schemas as users_schemas
 from core.deps import get_session,get_current_user

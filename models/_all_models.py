@@ -1,3 +1,3 @@
-from system_models.roles import Roles
-from system_models.users import Users
+from models.roles import Roles
+from models.users import Users
 

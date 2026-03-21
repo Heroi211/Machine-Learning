@@ -1,7 +1,7 @@
 from fastapi import APIRouter,HTTPException, status,Depends,Response
 from schemas import roles_schemas as roles_schemas
-from system_models.roles import Roles as roles_models
-from system_models.users import Users as users_models
+from models.roles import Roles as roles_models
+from models.users import Users as users_models
 from core.deps import get_session, get_current_user
 from services import roles_services as roles_service
 
