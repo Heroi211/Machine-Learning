@@ -16,30 +16,6 @@ from core.security import get_password_hash
 
 router = APIRouter()
 
-#POST user / signup
-@router.post('/signup', response_model=users_schemas.users,status_code=status.HTTP_201_CREATED)
-async def post_user(user: users_schemas.users_create,db:AsyncSession = Depends(get_session)):
-    try:
-        new_user:users_models = await users_service.register_user(user,db)
-        return new_user
-    except IntegrityError:
-        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="Usuário já cadastrado na base de dados")
-
-#POST Login
-@router.post('/authorize',status_code=status.HTTP_200_OK)
-async def login(form_data:OAuth2PasswordRequestForm = Depends(),db:AsyncSession = Depends(get_session)):
-    user = await users_service.login_user(form_data.username,form_data.password,db)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Dados incorretos")
-    
-    return JSONResponse(content={"access_token":_generate_access_token(sub=user.id), "token_type":"bearer"},status_code=status.HTTP_200_OK)
-
-#GET Logged
-@router.get('/logged', response_model=users_schemas.users,status_code=status.HTTP_200_OK)
-async def get_logged(user_logged :users_models = Depends(get_current_user)):
-    return user_logged
-
 #GET users
 @router.get('/', response_model=List[users_schemas.usersGetData],status_code=status.HTTP_202_ACCEPTED)
 async def get_users(db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):

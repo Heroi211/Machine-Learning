@@ -2,6 +2,7 @@
 CREATE TABLE public.roles (
 	id serial4 NOT NULL,
 	description varchar NOT NULL,
+	created_at timestamp NOT NULL DEFAULT NOW(),
 	active bool NOT NULL,
 	CONSTRAINT roles_pkey PRIMARY KEY (id)
 );

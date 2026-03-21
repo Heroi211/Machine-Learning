@@ -8,6 +8,7 @@ COPY . /var/www
 WORKDIR /var/www
 
 RUN pip install --upgrade pip
+RUN pip install asyncpg
 RUN pip install --no-cache-dir -r ./requirements.txt
 
 EXPOSE 8000
