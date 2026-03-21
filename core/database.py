@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.configs import settings
-
+from sqlalchemy.ext.declarative import declarative_base
 
 engine:AsyncEngine = create_async_engine(settings.database_url, echo=False, future=True)
 
@@ -14,3 +14,5 @@ Session: AsyncSession = sessionmaker(
     class_=AsyncSession,
     bind=engine
 )
+
+db_base_model = declarative_base()

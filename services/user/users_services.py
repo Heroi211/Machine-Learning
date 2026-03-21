@@ -69,7 +69,7 @@ async def select_user(id_user:int,db:AsyncSession) -> users_schemas.users:
         
         return user
 
-async def update_user(id_user:int,user:users_schemas.users_updateForm,db:AsyncSession) -> bool:
+async def update_user(id_user:int,user:users_schemas.users_update,db:AsyncSession) -> bool:
     async with db as session:
         querie = select(users_models).filter(users_models.id == id_user,users_models.active==True)
         resultset = await session.execute(querie)
@@ -84,7 +84,7 @@ async def update_user(id_user:int,user:users_schemas.users_updateForm,db:AsyncSe
                 user_up.active = user['active']
             if user['phone']:
                 user_up.phone = user['phone']
-            if user['cpf']:
+            if user['cpf']: 
                 user_up.cpf = user['cpf'] 
             await session.commit() 
             return True

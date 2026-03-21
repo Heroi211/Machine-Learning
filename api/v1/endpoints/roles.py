@@ -3,7 +3,7 @@ from schemas import roles_schemas as roles_schemas
 from models.roles import Roles as roles_models
 from models.users import Users as users_models
 from core.deps import get_session, get_current_user
-from services import roles_services as roles_service
+from services.roles import roles_services as roles_service
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select

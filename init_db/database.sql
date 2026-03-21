@@ -14,7 +14,6 @@ CREATE TABLE public.users (
 	created_at timestamp NULL,
 	role_id int4 NULL,
 	active bool NULL,
-	CONSTRAINT "users_CPF_key" UNIQUE ("CPF"),
 	CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 

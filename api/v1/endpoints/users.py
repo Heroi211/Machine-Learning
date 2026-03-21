@@ -9,7 +9,7 @@ from typing import List
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
-from services import users_services as users_service
+from services.user import users_services as users_service
 from sqlalchemy.exc import IntegrityError
 from core.auth import _generate_access_token
 from core.security import get_password_hash
@@ -76,7 +76,7 @@ async def get_user(id_user : int, db:AsyncSession = Depends(get_session),user_lo
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Ocorreu um erro durante a solicitação.")
 #PUT user
 @router.put('/{id_user}',status_code=status.HTTP_202_ACCEPTED)
-async def put_user(id_user:int,payload:users_schemas.users_updateForm, db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)): 
+async def put_user(id_user:int,payload:users_schemas.users_update, db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)): 
     try:
         if user_logged:
             user_id = id_user
