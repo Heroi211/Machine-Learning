@@ -24,7 +24,8 @@ class users_update(users):
 class users_create(users):
     password:str
 
-class usersGetData(users):
+class usersGetData(SC_BaseModel):
+    id:Optional[int] = None
     name:Optional[str] = None
     email:Optional[EmailStr] = None
     active:Optional[bool] = True

@@ -5,8 +5,6 @@ import datetime
 from fastapi import HTTPException,status
 from sqlalchemy.future import select
 from typing import List
-from core.security import get_password_hash
-from core.auth import authenticate_user
 import secrets
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -23,10 +21,6 @@ async def select_all_users(db:AsyncSession) -> List[users_schemas.usersGetData]:
         
         users_list = []
         for user in users:
-            querie = select(func.count(routines_models.id)).filter(routines_models.users_id == user.id,routines_models.active == True)
-            resultset = await session.execute(querie)
-            count = resultset.scalar()
-            
             #role
             role = select(roles_models).filter(roles_models.id == user.role_id,roles_models.active==True)
             role = await session.execute(role)
@@ -37,43 +31,51 @@ async def select_all_users(db:AsyncSession) -> List[users_schemas.usersGetData]:
                     "id":user.id,
                     "name":user.name,
                     "email":user.email,
-                    "cpf":user.cpf,
-                    "phone":user.phone,
                     "active":user.active,
                     "role":role.get_role_display(),
-                    "tarefas":count
                 }
             )
         
         
         return users_list
     
-async def select_user(id_user:int,db:AsyncSession) -> users_schemas.users:
+async def select_user(id_user:int,db:AsyncSession) -> users_schemas.usersGetData | None:
     async with db as session:
         querie = select(users_models).filter(users_models.id==id_user,users_models.active==True)
         resultset = await session.execute(querie)
         user = resultset.scalars().unique().one_or_none()
         
-        return user
+        if user:
+            role = select(roles_models).filter(roles_models.id == user.role_id,roles_models.active==True)
+            role = await session.execute(role)
+            role = role.scalars().unique().one_or_none()
+            return users_schemas.usersGetData(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                active=user.active,
+                role=role.get_role_display(),
+            )
+        return None
+        
 
-async def update_user(id_user:int,user:users_schemas.users_update,db:AsyncSession) -> bool:
+async def update_user(id_user:int,user:dict,db:AsyncSession) -> bool:
     async with db as session:
         querie = select(users_models).filter(users_models.id == id_user,users_models.active==True)
         resultset = await session.execute(querie)
-        user_up:users_schemas.users = resultset.scalars().unique().one_or_none()
+        user_up:users_schemas.users | None = resultset.scalars().unique().one_or_none()
         
         if user_up:
-            if user["name"]:
+            if user.get("name"):
                 user_up.name = user['name']
-            if user["email"]:
+            if user.get("email"):
                 user_up.email = user['email']
-            if user['active'] is not None:
+            if user.get("active") is not None:
                 user_up.active = user['active']
-            if user['phone']:
-                user_up.phone = user['phone']
-            if user['cpf']: 
-                user_up.cpf = user['cpf'] 
+            if user.get("role_id"):
+                user_up.role_id = user['role_id']
             await session.commit() 
+            await session.refresh(user_up)
             return True
         return False
             
@@ -82,12 +84,13 @@ async def drop_user(id_user:int, db:AsyncSession):
     async with db as session:
         querie = select(users_models).filter(users_models.id==int(id_user),users_models.active==True)
         result_set = await session.execute(querie)
-        user_delete:users_schemas.users = result_set.scalars().unique().one_or_none()
+        user_delete = result_set.scalars().unique().one_or_none()
         if user_delete:
             user_delete.active = False
             await session.commit()
             await session.refresh(user_delete)
             return user_delete
+        return None
             
 async def get_user_by_email(email:str,db:AsyncSession):
     async with db as session:

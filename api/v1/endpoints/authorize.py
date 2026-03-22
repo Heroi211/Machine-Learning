@@ -23,7 +23,7 @@ async def signup(user: users_schemas.users_create,db:AsyncSession = Depends(get_
         raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="Usuário já cadastrado na base de dados")
 
 #POST Login
-@router.post('/authorize',status_code=status.HTTP_200_OK)
+@router.post('/authenticate',status_code=status.HTTP_200_OK)
 async def login(form_data:OAuth2PasswordRequestForm = Depends(),db:AsyncSession = Depends(get_session)):
     user = await auth_service.authorize(form_data.username,form_data.password,db)
     if not user:
