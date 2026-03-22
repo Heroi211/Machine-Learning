@@ -39,8 +39,7 @@ async def update_role(id_role:int,role:roles_schemas.role_update,db:AsyncSession
         
         if role.description:
             role_update.description = role.description
-        if role.active:
-            role_update.active = role.active
+        
         await session.commit()
         return role_update
 
