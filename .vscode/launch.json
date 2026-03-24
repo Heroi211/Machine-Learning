@@ -6,17 +6,17 @@
     "configurations": [
 
         {
-            "name": "Features Enginnering",
+            "name": "Feature Engineering",
             "type": "debugpy",
             "request": "launch",
-            "program": "pipelines/features_enginnering.py",
+            "program": "services/pipelines/feature_engineering.py",
             "console": "integratedTerminal"
         },
         {
             "name": "Baseline",
             "type": "debugpy",
             "request": "launch",
-            "program": "pipelines/baseline.py",
+            "program": "services/pipelines/baseline.py",
             "console": "integratedTerminal"
         },
         {

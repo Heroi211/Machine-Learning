@@ -6,10 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title=settings.project_name,version=settings.project_version)
 app.include_router(api.router,prefix=settings.project_version)
 
-# Configuração do CORS
-origins = [
-    "*",  
-]
 
 if __name__ == "__main__":
     import uvicorn

@@ -3,9 +3,7 @@ import mlflow
 import pandas as pd
 import os
 from dotenv import load_dotenv
-from sklearn.preprocessing import LabelEncoder,OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import LogisticRegression
 from core.graphs import Graphs as gr
 from datetime import datetime
@@ -13,7 +11,6 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 import joblib
-from sklearn.pipeline import Pipeline as SkPipeline
 import glob 
 from core.configs import settings
 import shutil
@@ -52,6 +49,7 @@ class Baseline:
         self.snapshot_path = psnapshot_path
         self.current_csv_path = None
         self.data = None
+        self.data_encoded = None
         self.target = None
         self.x_train = None
         self.x_test = None
@@ -59,7 +57,6 @@ class Baseline:
         self.y_test = None
         self.ratio = None
         self.model = None
-        self.preprocessor = None
     
     def load_data(self):
         """
@@ -230,94 +227,116 @@ class Baseline:
     # ------------------------------------------------------
     # Data Preparation
     # ------------------------------------------------------   
-       
+
+    def clean_and_encode(self):
+        """
+        Limpeza e encoding diretamente no DataFrame.
+        Gera self.data_encoded — dataset completo, limpo, pronto para split e CSV.
+        """
+        logger.info("Iniciando limpeza e encoding do DataFrame...")
+
+        df_clean = self.data.copy()
+
+        cat_cols = df_clean.drop(columns='target').select_dtypes(exclude=[np.number]).columns.tolist()
+        num_cols = df_clean.drop(columns='target').select_dtypes(include=[np.number]).columns.tolist()
+
+        for col in cat_cols:
+            if df_clean[col].isnull().any():
+                mode = df_clean[col].mode()[0]
+                df_clean[col].fillna(mode, inplace=True)
+                logger.info(f"{col}: imputado com moda ('{mode}')")
+
+        for col in num_cols:
+            if df_clean[col].isnull().any():
+                median = df_clean[col].median()
+                df_clean[col].fillna(median, inplace=True)
+                logger.info(f"{col}: imputado com mediana ({median:.2f})")
+
+        remaining_nulls = df_clean.isnull().sum().sum()
+        if remaining_nulls > 0:
+            logger.error(f"Ainda existem {remaining_nulls} valores nulos após imputação")
+            raise ValueError(self.msg_raise)
+
+        logger.info("Imputação concluída — zero valores nulos")
+
+        if cat_cols:
+            df_clean = pd.get_dummies(df_clean, columns=cat_cols, drop_first=True)
+            logger.info(f"One-hot encoding aplicado em: {cat_cols}")
+
+        self.data_encoded = df_clean
+        logger.info(f"DataFrame limpo e codificado: {self.data_encoded.shape}")
+        logger.debug(f"Colunas finais: {self.data_encoded.columns.tolist()}")
+
     def prepare_and_train(self):
-        """ Une Clean, Encoding e Train usando Sklearn Pipelines (Fase 2 e 3) """
-        logger.info("Iniciando preparação e treino robusto...")
+        """Treino do modelo baseline sobre dados já limpos e codificados."""
+        logger.info("Iniciando treino do baseline...")
 
-        num_cols = self.x_train.select_dtypes(include=[np.number]).columns.tolist()
-        cat_cols = self.x_train.select_dtypes(exclude=[np.number]).columns.tolist()
-
-        # Criando transformadores (Fase 2: Evita Leakage usando fit apenas no treino)
-        num_transformer = SimpleImputer(strategy='median')
-        cat_transformer = SkPipeline(steps=[
-            ('imputer', SimpleImputer(strategy='most_frequent')),
-            ('onehot', OneHotEncoder(drop='first', handle_unknown='ignore'))
-        ])
-
-        self.preprocessor = ColumnTransformer(transformers=[
-            ('num', num_transformer, num_cols),
-            ('cat', cat_transformer, cat_cols)
-        ])
-
-        full_pipeline = SkPipeline(steps=[
-            ('preprocessor', self.preprocessor),
-            ('classifier', LogisticRegression(random_state=self.random_state, class_weight='balanced'))
-        ])
+        model = LogisticRegression(random_state=self.random_state, class_weight='balanced')
 
         with mlflow.start_run(run_name=f"baseline_{self.objective}"):
 
-            full_pipeline.fit(self.x_train, self.y_train)
-            self.model = full_pipeline
+            model.fit(self.x_train, self.y_train)
+            self.model = model
 
-            y_pred = self.model.predict(self.x_test)
+            y_pred_train = self.model.predict(self.x_train)
+            y_pred_test = self.model.predict(self.x_test)
+
             metrics = {
-                "accuracy": accuracy_score(self.y_test, y_pred),
-                "f1": f1_score(self.y_test, y_pred),
-                "precision": precision_score(self.y_test, y_pred),
-                "recall": recall_score(self.y_test, y_pred)
+                "train_accuracy": accuracy_score(self.y_train, y_pred_train),
+                "test_accuracy": accuracy_score(self.y_test, y_pred_test),
+                "test_f1": f1_score(self.y_test, y_pred_test),
+                "test_precision": precision_score(self.y_test, y_pred_test),
+                "test_recall": recall_score(self.y_test, y_pred_test),
             }
-            
-            mlflow.log_params(full_pipeline.named_steps['classifier'].get_params())
+
+            overfitting = metrics["train_accuracy"] - metrics["test_accuracy"]
+
+            mlflow.log_params(model.get_params())
             mlflow.log_metrics(metrics)
-            
+            mlflow.log_metric("overfitting_gap", overfitting)
+
             if os.path.exists(self.path_graphs):
                 mlflow.log_artifacts("graphs", artifact_path=f"{self.path_graphs}plots")
-            
+
             mlflow.sklearn.log_model(self.model, "model")
-            logger.info("Pipeline de treino e logs concluído com sucesso.")   
+
+            logger.info(f"Train Accuracy: {metrics['train_accuracy']:.4f}")
+            logger.info(f"Test Accuracy:  {metrics['test_accuracy']:.4f}")
+            logger.info(f"Test F1:        {metrics['test_f1']:.4f}")
+            logger.info(f"Test Precision: {metrics['test_precision']:.4f}")
+            logger.info(f"Test Recall:    {metrics['test_recall']:.4f}")
+            logger.info(f"Overfitting:    {overfitting:.4f}")
+            logger.info("Treino e logs concluídos.")   
     
     def split_data(self):
         """
-        Divisão de treino e teste
+        Divisão de treino e teste a partir do DataFrame limpo e codificado.
         """
         
         logger.info("Iniciando split data...")
         
-        x=self.data.drop(columns='target')
-        y=self.data['target']
+        x = self.data_encoded.drop(columns='target')
+        y = self.data_encoded['target']
         
         self.x_train,self.x_test,self.y_train,self.y_test = train_test_split(x,y,test_size=self.test_size,random_state=self.random_state,stratify=y)
             
     def save(self):
         """
-        Salva o pipeline completo (transformações + modelo) e os dados processados.
+        Salva o DataFrame pré-processado completo e o modelo treinado.
         """
         logger.info("Iniciando o salvamento dos artefatos...")
 
         for path in [self.path_data_preprocessed, self.path_model]:
-            if not os.path.exists(path):
-                os.makedirs(path)
-                logger.info(f"Diretório criado: {path}")
+            os.makedirs(path, exist_ok=True)
 
-        try:
-            feature_names = self.model.named_steps['preprocessor'].get_feature_names_out()
-            x_test_processed = pd.DataFrame(
-                self.model.named_steps['preprocessor'].transform(self.x_test),
-                columns=feature_names
-            )
-            
-            csv_path = f"{self.path_data_preprocessed}{self.objective}_sample_{self.now}.csv"
-            x_test_processed.head(100).to_csv(csv_path, index=False)
-            logger.info(f"Amostra processada salva em: {csv_path}")
-        except Exception as e:
-            logger.warning(f"Não foi possível salvar amostra CSV: {e}")
+        csv_path = os.path.join(self.path_data_preprocessed, f"{self.objective}_sample_{self.now}.csv")
+        self.data_encoded.to_csv(csv_path, index=False)
+        logger.info(f"Dataset pré-processado salvo em: {csv_path} ({self.data_encoded.shape})")
 
         model_name = f"baseline_model_{self.objective}_{self.now}.joblib"
         joblib_path = os.path.join(self.path_model, model_name)
-        
         joblib.dump(self.model, joblib_path)
-        logger.info(f"Pipeline (Joblib) salvo em: {joblib_path}")
+        logger.info(f"Modelo salvo em: {joblib_path}")
 
         try:
             mlflow.log_artifact(joblib_path, artifact_path="model_files")
@@ -329,21 +348,23 @@ class Baseline:
     
     def run(self, start_time):
         self.load_data()
-        logger.debug(f"Dados carregados: {datetime.now() - start_time }")
+        logger.debug(f"Dados carregados: {datetime.now() - start_time}")
         self.summary_overview()
-        logger.debug(f"Overview gerado: {datetime.now() - start_time }")
+        logger.debug(f"Overview gerado: {datetime.now() - start_time}")
         self.missing_identifier()
-        logger.debug(f"Identificados Missings: {datetime.now() - start_time }")
+        logger.debug(f"Identificados Missings: {datetime.now() - start_time}")
         self.target_analysis()
-        logger.debug(f"Análise da target: {datetime.now() - start_time }")
+        logger.debug(f"Análise da target: {datetime.now() - start_time}")
         self.outlier_analysis()
-        logger.debug(f"Análise de outliers: {datetime.now() - start_time }")
+        logger.debug(f"Análise de outliers: {datetime.now() - start_time}")
+        self.clean_and_encode()
+        logger.debug(f"Limpeza e encoding: {datetime.now() - start_time}")
         self.split_data()
-        logger.debug(f"Split de dados: {datetime.now() - start_time }")
+        logger.debug(f"Split de dados: {datetime.now() - start_time}")
         self.prepare_and_train()
-        logger.debug(f"Preparando dados para limpeza e treinamento: {datetime.now() - start_time}")
+        logger.debug(f"Treino do baseline: {datetime.now() - start_time}")
         self.save()
-        logger.debug(f"Modelos salvos: {datetime.now() - start_time }")
+        logger.debug(f"Artefatos salvos: {datetime.now() - start_time}")
     
     def save_artifacts(self):
         """

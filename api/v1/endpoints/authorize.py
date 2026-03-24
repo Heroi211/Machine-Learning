@@ -10,7 +10,6 @@ from services.auth import auth_service as auth_service
 from sqlalchemy.exc import IntegrityError
 from core.auth import _generate_access_token
 
-
 router = APIRouter()
 
 #POST user / signup
