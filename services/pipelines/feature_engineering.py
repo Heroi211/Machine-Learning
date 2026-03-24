@@ -37,6 +37,9 @@ from core.configs import settings
 from core.custom_logger import setup_log
 from services.pipelines.feature_strategies.base import FeatureStrategy
 
+mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
+
 logger = logging.getLogger(__name__)
 
 plt.style.use("seaborn-v0_8-darkgrid")

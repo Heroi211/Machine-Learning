@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     path_model: str = Field(default="models/",validation_alias="PATH_MODEL")
     path_graphs: str = Field(default="graphs/",validation_alias="PATH_GRAPHS")
     path_logs: str = Field(default="logs/",validation_alias="PATH_LOGS")
+    mlflow_tracking_uri: str = Field(default="sqlite:///artifacts/mlruns/mlflow.db",validation_alias="MLFLOW_TRACKING_URI")
+    mlflow_artifact_root: str = Field(default="artifacts/mlruns",validation_alias="MLFLOW_ARTIFACT_ROOT")
     
     debug: bool = Field(default=False,validation_alias="DEBUG",description="Ativa modo debug"    )
     test_size: float = Field(default=0.2,validation_alias="TEST_SIZE",description="Proporção de teste (0.0 a 1.0)")

@@ -47,11 +47,13 @@ class HeartDiseaseFeatures(FeatureStrategy):
         if {"trestbps", "chol"} <= cols:
             out["bp_chol_ratio"] = out["trestbps"] / (out["chol"] + EPS)
 
-        if "fbs" in cols:
-            out["fbs_flag"] = out["fbs"].astype(int)
+        fbs_col = "fbs" if "fbs" in cols else "fbs_True" if "fbs_True" in cols else None
+        if fbs_col:
+            out["fbs_flag"] = out[fbs_col].astype(int)
 
-        if "exang" in cols:
-            out["exang_flag"] = out["exang"].astype(int)
+        exang_col = "exang" if "exang" in cols else "exang_True" if "exang_True" in cols else None
+        if exang_col:
+            out["exang_flag"] = out[exang_col].astype(int)
 
         if {"thalch", "trestbps"} <= cols:
             out["stress_index"] = out["thalch"] / (out["trestbps"] + EPS)

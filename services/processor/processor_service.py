@@ -17,14 +17,10 @@ from services.utils import utcnow
 logger = logging.getLogger(__name__)
 
 
-async def run_baseline(
-    file: UploadFile,
-    objective: str,
-    user_id: int,
-    db: AsyncSession,
-) -> PipelineRuns:
+async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSession) -> PipelineRuns:
     """Salva o CSV enviado, executa o Baseline e persiste o resultado."""
     from services.pipelines.baseline import Baseline
+    from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -34,13 +30,7 @@ async def run_baseline(
     with open(input_path, "wb") as f:
         f.write(content)
 
-    run = PipelineRuns(
-        user_id=user_id,
-        pipeline_type="baseline",
-        objective=objective,
-        status="processing",
-        original_filename=file.filename,
-    )
+    run = PipelineRuns(user_id=user_id,pipeline_type="baseline",objective=objective,status="processing",original_filename=file.filename)
 
     async with db as session:
         session.add(run)
@@ -52,19 +42,11 @@ async def run_baseline(
             pipeline.run(start_time=datetime.now())
             pipeline.save_artifacts()
 
-            model_path = os.path.join(
-                settings.path_model,
-                f"baseline_model_{objective}_{pipeline.now}.joblib",
-            )
-            csv_path = os.path.join(
-                settings.path_data_preprocessed,
-                f"{objective}_sample_{pipeline.now}.csv",
-            )
+            model_path = os.path.join(settings.path_model, f"baseline_model_{objective}_{pipeline.now}.joblib")
+            csv_path = os.path.join(settings.path_data_preprocessed, f"{objective}_sample_{pipeline.now}.csv")
 
             model = pipeline.model
             y_pred_test = model.predict(pipeline.x_test)
-
-            from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
             metrics = {
                 "test_accuracy": float(accuracy_score(pipeline.y_test, y_pred_test)),
@@ -92,20 +74,13 @@ async def run_baseline(
     return run
 
 
-async def run_feature_engineering(
-    file: UploadFile,
-    objective: str,
-    user_id: int,
-    db: AsyncSession,
-) -> PipelineRuns:
+async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,db: AsyncSession) -> PipelineRuns:
     """Salva o CSV pré-processado, executa o Feature Engineering e persiste o resultado."""
     from services.pipelines.feature_engineering import FeatureEngineering
     from services.pipelines.feature_strategies import STRATEGY_REGISTRY
 
     if objective not in STRATEGY_REGISTRY:
-        raise ValueError(
-            f"Strategy '{objective}' não registrada. Disponíveis: {list(STRATEGY_REGISTRY.keys())}"
-        )
+        raise ValueError(f"Strategy '{objective}' não registrada. Disponíveis: {list(STRATEGY_REGISTRY.keys())}")
 
     os.makedirs(settings.path_data_preprocessed, exist_ok=True)
     input_path = os.path.join(settings.path_data_preprocessed, file.filename)
@@ -113,13 +88,7 @@ async def run_feature_engineering(
     with open(input_path, "wb") as f:
         f.write(content)
 
-    run = PipelineRuns(
-        user_id=user_id,
-        pipeline_type="feature_engineering",
-        objective=objective,
-        status="processing",
-        original_filename=file.filename,
-    )
+    run = PipelineRuns(user_id=user_id,pipeline_type="feature_engineering",objective=objective,status="processing",original_filename=file.filename)
 
     async with db as session:
         session.add(run)
@@ -133,10 +102,7 @@ async def run_feature_engineering(
 
             run.status = "completed"
             run.metrics = pipeline.tuned_metrics
-            run.model_path = os.path.join(
-                settings.path_model,
-                f"best_{objective}_{pipeline.now}.joblib",
-            )
+            run.model_path = os.path.join(settings.path_model, f"best_{objective}_{pipeline.now}.joblib")
             run.completed_at = utcnow()
 
         except Exception as e:
@@ -152,20 +118,12 @@ async def run_feature_engineering(
     return run
 
 
-async def predict_single(
-    pipeline_run_id: int,
-    features: dict,
-    user_id: int,
-    db: AsyncSession,
-) -> Predictions:
+async def predict_single(pipeline_run_id: int,features: dict,user_id: int,db: AsyncSession) -> Predictions:
     """Carrega o modelo de um pipeline_run específico e faz predição para 1 indivíduo."""
     from sqlalchemy.future import select
 
     async with db as session:
-        query = select(PipelineRuns).filter(
-            PipelineRuns.id == pipeline_run_id,
-            PipelineRuns.status == "completed",
-        )
+        query = select(PipelineRuns).filter(PipelineRuns.id == pipeline_run_id,PipelineRuns.status == "completed")
         result = await session.execute(query)
         run = result.scalars().one_or_none()
 
@@ -186,13 +144,7 @@ async def predict_single(
             proba = model.predict_proba(df_input)[0]
             probability = float(proba[1])
 
-        pred = Predictions(
-            user_id=user_id,
-            pipeline_run_id=pipeline_run_id,
-            input_data=features,
-            prediction=prediction_value,
-            probability=probability,
-        )
+        pred = Predictions(user_id=user_id,pipeline_run_id=pipeline_run_id,input_data=features,prediction=prediction_value,probability=probability)
 
         session.add(pred)
         await session.commit()

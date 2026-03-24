@@ -6,17 +6,22 @@ from dotenv import load_dotenv
 from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import LogisticRegression
 from core.graphs import Graphs as gr
+from core.configs import settings
+from core.custom_logger import setup_log
 from datetime import datetime
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 import joblib
 import glob 
-from core.configs import settings
+
 import shutil
-from core.custom_logger import setup_log
+
 
 load_dotenv()
+
+mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
 
 #Enviroments
 ppath_data = settings.path_data
@@ -237,7 +242,12 @@ class Baseline:
 
         df_clean = self.data.copy()
 
-        cat_cols = df_clean.drop(columns='target').select_dtypes(exclude=[np.number]).columns.tolist()
+        if 'dataset' in df_clean.columns:
+            df_clean.drop(columns=['dataset'], inplace=True)
+            logger.info("Coluna 'dataset' removida (metadado de origem).")
+
+        non_numeric = df_clean.drop(columns='target').select_dtypes(exclude=[np.number]).columns.tolist()
+        cat_cols = [c for c in non_numeric if df_clean[c].dtype != bool]
         num_cols = df_clean.drop(columns='target').select_dtypes(include=[np.number]).columns.tolist()
 
         for col in cat_cols:
@@ -403,7 +413,7 @@ if __name__=="__main__":
     logger = setup_log(psnapshot_path, pagora)
     start_time = datetime.now()
     logger.info(f"Iniciando o pipeline: {start_time}")
-    pipeline = Baseline(pobjective="Churn")
+    pipeline = Baseline(pobjective="Heart_Disease")
     try:
         pipeline.run(start_time)
         pipeline.save_artifacts()

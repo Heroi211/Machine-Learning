@@ -10,14 +10,18 @@
             "type": "debugpy",
             "request": "launch",
             "program": "services/pipelines/feature_engineering.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": { "PYTHONPATH": "${workspaceFolder}" }
         },
         {
             "name": "Baseline",
             "type": "debugpy",
             "request": "launch",
             "program": "services/pipelines/baseline.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": { "PYTHONPATH": "${workspaceFolder}" }
         },
         {
             "name": "Servidor",
