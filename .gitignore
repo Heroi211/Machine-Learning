@@ -166,3 +166,5 @@ logs/
 *.csv
 mlflow.db
 artifacts/
+data/old/*
+data/pre_processed/*

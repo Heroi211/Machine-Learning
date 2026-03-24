@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 import glob
 
@@ -37,8 +38,8 @@ from core.configs import settings
 from core.custom_logger import setup_log
 from services.pipelines.feature_strategies.base import FeatureStrategy
 
-mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
+mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class FeatureEngineering:
         self.best_test_acc: float = -np.inf
         self.tuned_metrics: dict = {}
         self.figs_to_log: list[tuple[str, plt.Figure]] = []
+        self.n_jobs = 1 if "debugpy" in sys.modules else -1
 
     # ------------------------------------------------------------------
     # Etapa 1 — Carregar dados pré-processados (saída do baseline)
@@ -91,10 +93,10 @@ class FeatureEngineering:
         if not files:
             raise ValueError(f"Nenhum CSV encontrado em {self.path_data_preprocessed}")
 
-        latest = max(files, key=os.path.getctime)
-        logger.info(f"Arquivo selecionado: {latest}")
+        file_must_modern = max(files, key=os.path.getctime)
+        logger.info(f"Arquivo selecionado: {file_must_modern}")
 
-        df = pd.read_csv(latest)
+        df = pd.read_csv(file_must_modern)
 
         has_prefixes = any("__" in col for col in df.columns)
         if has_prefixes:
@@ -245,7 +247,7 @@ class FeatureEngineering:
             ])
             pipeline.set_params(**params)
 
-            cv_scores = cross_val_score(pipeline, self.x_train, self.y_train, cv=cv, scoring="accuracy", n_jobs=-1)
+            cv_scores = cross_val_score(pipeline, self.x_train, self.y_train, cv=cv, scoring="accuracy", n_jobs=self.n_jobs)
             mean_cv = float(np.mean(cv_scores))
 
             pipeline.fit(self.x_train, self.y_train)
@@ -338,7 +340,7 @@ class FeatureEngineering:
 
         perm = permutation_importance(
             self.best_pipeline, self.x_test, self.y_test,
-            scoring="accuracy", n_repeats=10, random_state=self.random_state, n_jobs=-1,
+            scoring="accuracy", n_repeats=10, random_state=self.random_state, n_jobs=self.n_jobs,
         )
         perm_df = pd.DataFrame({
             "feature": feat_names,
@@ -371,6 +373,8 @@ class FeatureEngineering:
 
         try:
             experiment_name = f"{self.objective}_feature_engineering"
+            if not mlflow.get_experiment_by_name(experiment_name):
+                mlflow.create_experiment(experiment_name, artifact_location=settings.mlflow_artifact_root)
             mlflow.set_experiment(experiment_name)
             with mlflow.start_run(run_name=f"fe_{self.objective}_{self.now}"):
                 if self.best_params:
@@ -415,7 +419,7 @@ class FeatureEngineering:
         self.train_models()
         logger.debug(f"Modelos treinados: {datetime.now() - start_time}")
 
-        self.tune()
+        self.tune(time_limit_minutes=2)
         logger.debug(f"Tuning concluído: {datetime.now() - start_time}")
 
         self.evaluate_importance()

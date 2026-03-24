@@ -20,8 +20,8 @@ import shutil
 
 load_dotenv()
 
-mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
+mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 
 #Enviroments
 ppath_data = settings.path_data
@@ -247,19 +247,18 @@ class Baseline:
             logger.info("Coluna 'dataset' removida (metadado de origem).")
 
         non_numeric = df_clean.drop(columns='target').select_dtypes(exclude=[np.number]).columns.tolist()
-        cat_cols = [c for c in non_numeric if df_clean[c].dtype != bool]
         num_cols = df_clean.drop(columns='target').select_dtypes(include=[np.number]).columns.tolist()
 
-        for col in cat_cols:
+        for col in non_numeric:
             if df_clean[col].isnull().any():
                 mode = df_clean[col].mode()[0]
-                df_clean[col].fillna(mode, inplace=True)
+                df_clean[col] = df_clean[col].fillna(mode)
                 logger.info(f"{col}: imputado com moda ('{mode}')")
 
         for col in num_cols:
             if df_clean[col].isnull().any():
                 median = df_clean[col].median()
-                df_clean[col].fillna(median, inplace=True)
+                df_clean[col] = df_clean[col].fillna(median)
                 logger.info(f"{col}: imputado com mediana ({median:.2f})")
 
         remaining_nulls = df_clean.isnull().sum().sum()
@@ -268,6 +267,15 @@ class Baseline:
             raise ValueError(self.msg_raise)
 
         logger.info("Imputação concluída — zero valores nulos")
+
+        cat_cols = []
+        for col in non_numeric:
+            unique_vals = set(df_clean[col].unique())
+            if unique_vals <= {True, False}:
+                df_clean[col] = df_clean[col].astype(bool)
+                logger.info(f"{col}: binária — convertida para bool, sem encoding.")
+            else:
+                cat_cols.append(col)
 
         if cat_cols:
             df_clean = pd.get_dummies(df_clean, columns=cat_cols, drop_first=True)
@@ -283,6 +291,10 @@ class Baseline:
 
         model = LogisticRegression(random_state=self.random_state, class_weight='balanced')
 
+        experiment_name = f"{self.objective}_baseline"
+        if not mlflow.get_experiment_by_name(experiment_name):
+            mlflow.create_experiment(experiment_name, artifact_location=settings.mlflow_artifact_root)
+        mlflow.set_experiment(experiment_name)
         with mlflow.start_run(run_name=f"baseline_{self.objective}"):
 
             model.fit(self.x_train, self.y_train)
