@@ -1,0 +1,299 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-03-21T00:00:00.000Z",
+  "__export_source": "insomnia.importers",
+  "resources": [
+    {
+      "_id": "wrk_ml",
+      "_type": "workspace",
+      "name": "Machine Learning API",
+      "description": "Collection completa da API de ML",
+      "scope": "collection"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "parentId": "wrk_ml",
+      "name": "Local",
+      "data": {
+        "base_url": "http://localhost:8000/v1",
+        "token": ""
+      }
+    },
+    {
+      "_id": "fld_auth",
+      "_type": "request_group",
+      "parentId": "wrk_ml",
+      "name": "Auth"
+    },
+    {
+      "_id": "fld_users",
+      "_type": "request_group",
+      "parentId": "wrk_ml",
+      "name": "Users"
+    },
+    {
+      "_id": "fld_roles",
+      "_type": "request_group",
+      "parentId": "wrk_ml",
+      "name": "Roles"
+    },
+    {
+      "_id": "fld_processor",
+      "_type": "request_group",
+      "parentId": "wrk_ml",
+      "name": "Processor"
+    },
+
+    {
+      "_id": "req_signup",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Signup",
+      "description": "Cadastra um novo usuário.\n\nPayload:\n- name (string, obrigatório): Nome do usuário\n- email (EmailStr, obrigatório): Email válido\n- password (string, obrigatório): Senha\n\nResponse 201:\n{\n  \"id\": 1,\n  \"name\": \"Gabriel\",\n  \"email\": \"gabriel@email.com\",\n  \"created_at\": \"2026-03-21T...\",\n  \"active\": true,\n  \"role_id\": 1\n}\n\nResponse 406: Usuário já cadastrado",
+      "method": "POST",
+      "url": "{{ _.base_url }}/auth/signup",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Gabriel\",\n  \"email\": \"gabriel@email.com\",\n  \"password\": \"123456\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
+    },
+    {
+      "_id": "req_authenticate",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Authenticate (Login)",
+      "description": "Autentica o usuário e retorna um JWT.\n\nPayload (x-www-form-urlencoded):\n- username (string, obrigatório): Email do usuário\n- password (string, obrigatório): Senha\n\nResponse 200:\n{\n  \"access_token\": \"eyJhbGciOi...\",\n  \"token_type\": \"bearer\"\n}\n\nResponse 400: Dados incorretos\n\nDica: Copie o access_token e cole na variável 'token' do ambiente Local.",
+      "method": "POST",
+      "url": "{{ _.base_url }}/auth/authenticate",
+      "body": {
+        "mimeType": "application/x-www-form-urlencoded",
+        "params": [
+          { "name": "username", "value": "gabriel@email.com" },
+          { "name": "password", "value": "123456" }
+        ]
+      }
+    },
+    {
+      "_id": "req_logged",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Get Logged User",
+      "description": "Retorna os dados do usuário autenticado pelo token.\n\nHeaders:\n- Authorization: Bearer {token}\n\nResponse 200:\n{\n  \"id\": 1,\n  \"name\": \"Gabriel\",\n  \"email\": \"gabriel@email.com\",\n  \"created_at\": \"2026-03-21T...\",\n  \"active\": true,\n  \"role_id\": 1\n}\n\nResponse 401: Token inválido ou ausente",
+      "method": "GET",
+      "url": "{{ _.base_url }}/auth/logged",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+
+    {
+      "_id": "req_get_users",
+      "_type": "request",
+      "parentId": "fld_users",
+      "name": "List Users",
+      "description": "Lista todos os usuários ativos.\n\nHeaders:\n- Authorization: Bearer {token}\n\nResponse 200:\n[\n  {\n    \"id\": 1,\n    \"name\": \"Gabriel\",\n    \"email\": \"gabriel@email.com\",\n    \"active\": true,\n    \"role\": \"Usuario\"\n  }\n]",
+      "method": "GET",
+      "url": "{{ _.base_url }}/users/",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_get_user",
+      "_type": "request",
+      "parentId": "fld_users",
+      "name": "Get User by ID",
+      "description": "Busca um usuário por ID.\n\nPath params:\n- id_user (int): ID do usuário\n\nResponse 200:\n{\n  \"id\": 1,\n  \"name\": \"Gabriel\",\n  \"email\": \"gabriel@email.com\",\n  \"active\": true,\n  \"role\": \"Usuario\"\n}\n\nResponse 404: Usuário não encontrado",
+      "method": "GET",
+      "url": "{{ _.base_url }}/users/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_put_user",
+      "_type": "request",
+      "parentId": "fld_users",
+      "name": "Update User",
+      "description": "Atualiza dados de um usuário. Todos os campos são opcionais (PATCH semântico via PUT).\n\nPath params:\n- id_user (int): ID do usuário\n\nPayload (todos opcionais):\n- name (string): Novo nome\n- email (EmailStr): Novo email\n- password (string): Nova senha\n- active (bool): Ativar/desativar\n- role_id (int): Novo role\n\nResponse 200: Usuário atualizado com sucesso\nResponse 404: Usuário não encontrado",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/users/1",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Gabriel Atualizado\",\n  \"email\": \"gabriel.novo@email.com\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_delete_user",
+      "_type": "request",
+      "parentId": "fld_users",
+      "name": "Delete User",
+      "description": "Soft-delete de um usuário (active = false).\n\nPath params:\n- id_user (int): ID do usuário\n\nResponse 204: Deletado com sucesso\nResponse 404: Usuário não encontrado",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/users/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_forgot_password",
+      "_type": "request",
+      "parentId": "fld_users",
+      "name": "Forgot Password",
+      "description": "Envia email de recuperação de senha.\n\nPath params:\n- email (string): Email do usuário cadastrado\n\nResponse 200:\n{\n  \"message\": \"Email de redefinição de senha enviado!.\"\n}\n\nResponse 404: Usuário não encontrado",
+      "method": "POST",
+      "url": "{{ _.base_url }}/users/forgot-password/gabriel@email.com",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_reset_password",
+      "_type": "request",
+      "parentId": "fld_users",
+      "name": "Reset Password",
+      "description": "Redefine a senha usando o token recebido por email.\n\nQuery params:\n- token (string, obrigatório): Token de reset recebido no email\n- password (string, obrigatório): Nova senha\n\nResponse 200:\n{\n  \"message\": \"Senha redefinida com sucesso!\"\n}\n\nResponse 400: Token inválido ou expirado",
+      "method": "POST",
+      "url": "{{ _.base_url }}/users/reset-password?token=SEU_TOKEN_AQUI&password=novaSenha123",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+
+    {
+      "_id": "req_post_role",
+      "_type": "request",
+      "parentId": "fld_roles",
+      "name": "Create Role",
+      "description": "Cria um novo papel no sistema. Requer Admin (role_id = 2).\n\nPayload:\n- description (string, obrigatório): Nome do papel\n- active (bool, obrigatório): Status\n\nResponse 201:\n{\n  \"id\": 3,\n  \"description\": \"Moderator\",\n  \"active\": true\n}\n\nResponse 401: Sem permissão (não é admin)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/roles/",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"description\": \"Moderator\",\n  \"active\": true\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_get_roles",
+      "_type": "request",
+      "parentId": "fld_roles",
+      "name": "List Roles",
+      "description": "Lista todos os papéis. Requer Admin.\n\nResponse 200:\n[\n  { \"id\": 1, \"description\": \"User\", \"active\": true },\n  { \"id\": 2, \"description\": \"Administrator\", \"active\": true }\n]\n\nResponse 401: Sem permissão",
+      "method": "GET",
+      "url": "{{ _.base_url }}/roles/",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_get_role",
+      "_type": "request",
+      "parentId": "fld_roles",
+      "name": "Get Role by ID",
+      "description": "Busca um papel por ID. Requer Admin.\n\nPath params:\n- id_role (int): ID do papel\n\nResponse 200:\n{\n  \"id\": 1,\n  \"description\": \"User\",\n  \"active\": true\n}\n\nResponse 404: Papel não encontrado",
+      "method": "GET",
+      "url": "{{ _.base_url }}/roles/1",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_put_role",
+      "_type": "request",
+      "parentId": "fld_roles",
+      "name": "Update Role",
+      "description": "Atualiza um papel. Requer Admin.\n\nPath params:\n- id_role (int): ID do papel\n\nPayload (todos opcionais):\n- description (string): Nova descrição\n- active (bool): Novo status\n\nResponse 202:\n{\n  \"id\": 1,\n  \"description\": \"Super Admin\",\n  \"active\": true\n}",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/roles/1",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"description\": \"Super Admin\",\n  \"active\": true\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_delete_role",
+      "_type": "request",
+      "parentId": "fld_roles",
+      "name": "Delete Role",
+      "description": "Deleta um papel. Requer Admin.\n\nPath params:\n- id_role (int): ID do papel\n\nResponse 204: Deletado\nResponse 404: Não encontrado\nResponse 401: Sem permissão",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/roles/3",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+
+    {
+      "_id": "req_baseline",
+      "_type": "request",
+      "parentId": "fld_processor",
+      "name": "Run Baseline",
+      "description": "Executa o pipeline Baseline completo.\n\nPayload (multipart/form-data):\n- file (file, obrigatório): Arquivo CSV bruto com dados. A última coluna deve ser a target.\n- objective (string, obrigatório): Nome do objetivo. Ex: 'heart_disease', 'Churn'\n\nResponse 201:\n{\n  \"id\": 1,\n  \"user_id\": 1,\n  \"pipeline_type\": \"baseline\",\n  \"objective\": \"heart_disease\",\n  \"status\": \"completed\",\n  \"original_filename\": \"heart_disease_uci.csv\",\n  \"model_path\": \"models/baseline_model_heart_disease_20260321.joblib\",\n  \"csv_output_path\": \"data/pre_processed/heart_disease_sample_20260321.csv\",\n  \"metrics\": {\n    \"test_accuracy\": 0.8234,\n    \"test_f1\": 0.8102,\n    \"test_precision\": 0.8456,\n    \"test_recall\": 0.7890\n  },\n  \"error_message\": null,\n  \"created_at\": \"2026-03-21T...\",\n  \"completed_at\": \"2026-03-21T...\"\n}\n\nResponse 400: Apenas .csv aceito\nResponse 500: Erro no pipeline",
+      "method": "POST",
+      "url": "{{ _.base_url }}/processor/baseline",
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          { "name": "file", "type": "file", "fileName": "", "value": "" },
+          { "name": "objective", "type": "text", "value": "heart_disease" }
+        ]
+      },
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_feature_engineering",
+      "_type": "request",
+      "parentId": "fld_processor",
+      "name": "Run Feature Engineering",
+      "description": "Executa o pipeline de Feature Engineering com Strategy Pattern.\n\nPayload (multipart/form-data):\n- file (file, obrigatório): CSV pré-processado (saída do baseline). Deve conter coluna 'target'.\n- objective (string, obrigatório): Deve corresponder a uma strategy registrada. Disponíveis: 'heart_disease'\n\nResponse 201:\n{\n  \"id\": 2,\n  \"user_id\": 1,\n  \"pipeline_type\": \"feature_engineering\",\n  \"objective\": \"heart_disease\",\n  \"status\": \"completed\",\n  \"original_filename\": \"heart_disease_sample_20260321.csv\",\n  \"model_path\": \"models/best_heart_disease_20260321.joblib\",\n  \"metrics\": {\n    \"Acurácia\": 0.9012,\n    \"Precisão\": 0.8890,\n    \"Recall\": 0.9134,\n    \"F1\": 0.9010,\n    \"ROC AUC\": 0.9456\n  },\n  \"created_at\": \"2026-03-21T...\",\n  \"completed_at\": \"2026-03-21T...\"\n}\n\nResponse 400: Strategy não registrada / .csv inválido\nResponse 500: Erro no pipeline",
+      "method": "POST",
+      "url": "{{ _.base_url }}/processor/feature-engineering",
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          { "name": "file", "type": "file", "fileName": "", "value": "" },
+          { "name": "objective", "type": "text", "value": "heart_disease" }
+        ]
+      },
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    },
+    {
+      "_id": "req_predict",
+      "_type": "request",
+      "parentId": "fld_processor",
+      "name": "Predict (1 indivíduo)",
+      "description": "Faz predição para um único indivíduo usando o modelo de um pipeline_run.\n\nPayload (JSON):\n- pipeline_run_id (int, obrigatório): ID do PipelineRun cujo modelo será usado\n- features (dict, obrigatório): Campos do indivíduo. Os nomes devem corresponder às colunas do modelo treinado.\n\nExemplo features (heart_disease após baseline com get_dummies):\n{\n  \"age\": 55, \"trestbps\": 140, \"chol\": 250, \"thalch\": 150,\n  \"oldpeak\": 1.5, \"ca\": 0, \"sex_Male\": 1,\n  \"cp_atypical angina\": 0, \"cp_non-anginal\": 0, \"cp_typical angina\": 0,\n  \"fbs_True\": 0, \"restecg_normal\": 1, \"restecg_st-t abnormality\": 0,\n  \"exang_True\": 0, \"slope_flat\": 0, \"slope_upsloping\": 1,\n  \"thal_normal\": 1, \"thal_reversable defect\": 0\n}\n\nResponse 200:\n{\n  \"id\": 1,\n  \"pipeline_run_id\": 1,\n  \"prediction\": 1,\n  \"probability\": 0.7823,\n  \"input_data\": { ... }\n}\n\nprediction: 0 = negativo, 1 = positivo\nprobability: confiança do modelo (0.0 a 1.0) para a classe positiva\n\nResponse 400: PipelineRun não encontrado / modelo ausente",
+      "method": "POST",
+      "url": "{{ _.base_url }}/processor/predict",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"pipeline_run_id\": 1,\n  \"features\": {\n    \"age\": 55,\n    \"trestbps\": 140,\n    \"chol\": 250,\n    \"thalch\": 150,\n    \"oldpeak\": 1.5,\n    \"ca\": 0,\n    \"sex_Male\": 1,\n    \"cp_atypical angina\": 0,\n    \"cp_non-anginal\": 0,\n    \"cp_typical angina\": 0,\n    \"fbs_True\": 0,\n    \"restecg_normal\": 1,\n    \"restecg_st-t abnormality\": 0,\n    \"exang_True\": 0,\n    \"slope_flat\": 0,\n    \"slope_upsloping\": 1,\n    \"thal_normal\": 1,\n    \"thal_reversable defect\": 0\n  }\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ]
+    }
+  ]
+}
