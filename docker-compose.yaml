@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  db_processing:
+    build:
+      dockerfile: ./docker/db.dockerfile
+      context: .
+    image: processing_database:v1
+    container_name: database_processing
+    ports:
+      - 5432:5432
+    networks:
+      - nwprocessing
+    volumes:
+      - pgdata:/var/lib/postgresql/data/
+      - ./init_db:/docker-entrypoint-initdb.d/
+
+  api_processing:
+    build:
+      dockerfile: ./docker/api.dockerfile
+      context: .
+    image: processing_api:v1
+    container_name: api_processing
+    command: sh -c "python main.py"
+    depends_on:
+      - db_processing
+    ports:
+      - 8000:8000
+    networks:
+      - nwprocessing
+      
+  pgadmin:
+    build:
+      dockerfile: ./docker/pgadmin.dockerfile
+      context: .
+    image: pgadmin_db:v1
+    container_name: pgadmin_db
+    ports:
+      - 5050:80
+    depends_on:
+      - db_processing
+    networks:
+      - nwprocessing
+
+networks:
+  nwprocessing:
+    name: "nwprocessing"
+    driver: "bridge"
+volumes:
+  pgdata:
