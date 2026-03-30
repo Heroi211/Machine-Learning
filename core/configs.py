@@ -40,6 +40,29 @@ class Settings(BaseSettings):
     
     timezone: str = Field(validation_alias="TIMEZONE", description="Timezone para logs e timestamps")
     
+    log_http_requests: bool = Field(default=True,validation_alias="LOG_HTTP_REQUESTS",description="Log de método, path, status e latência por requisição")
+
+    log_http_requests_file: bool = Field(
+        default=True,
+        validation_alias="LOG_HTTP_REQUESTS_FILE",
+        description="Persistir linhas JSONL de acesso em path_api_request_logs/access.jsonl",
+    )
+    path_api_request_logs: str = Field(
+        default="logs/api_requests",
+        validation_alias="PATH_API_REQUEST_LOGS",
+        description="Diretório dos arquivos access.jsonl (rotação automática)",
+    )
+    log_http_requests_max_bytes: int = Field(
+        default=5_242_880,
+        validation_alias="LOG_HTTP_REQUESTS_MAX_BYTES",
+        description="Tamanho máximo de access.jsonl antes da rotação (~5 MiB)",
+    )
+    log_http_requests_backup_count: int = Field(
+        default=5,
+        validation_alias="LOG_HTTP_REQUESTS_BACKUP_COUNT",
+        description="Número de arquivos access.jsonl.* retidos após rotação",
+    )
+
     class Config:
         env_file = ".env"
         case_sensitive = False

@@ -2,6 +2,10 @@ import logging
 import os
 import sys
 from core.configs import settings
+from core.custom_logger import setup_log
+from datetime import datetime
+from typing import Dict, Any
+import logging
 
 def setup_log(snapshot_path, now):
     """
@@ -31,3 +35,27 @@ def setup_log(snapshot_path, now):
 
     logging.info(f"💾 Log persistente configurado em: {log_filename}")
     return logger
+
+def log_requests(
+    now:str, 
+    request_id: str,
+    request_payload: str,
+    response_payload: Dict[str, Any],
+    status_code: int,
+    latency_ms:float,
+     ):
+    
+    try:
+        record = {
+            "timestamp": now,
+            "request_id": request_id,
+            "request_payload": request_payload,
+            "response_payload": response_payload,
+            "status_code": status_code,
+            "latency_ms": latency_ms
+        }
+        logger.info(record)
+        return True
+    except Exception as e:
+        logger.error(f"Erro ao logar requisição: {e}")
+        return False 
