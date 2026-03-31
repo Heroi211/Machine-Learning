@@ -124,12 +124,17 @@ async def admin_train_baseline(
 async def admin_train_feature_engineering(
     file: UploadFile = File(...),
     objective: str = Form(...),
+    optimization_metric: str = Form("accuracy"),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
     try:
         run = await processor_service.run_feature_engineering(
-            file=file, objective=objective, user_id=admin.id, db=db
+            file=file,
+            objective=objective,
+            user_id=admin.id,
+            db=db,
+            optimization_metric=optimization_metric,
         )
         return _file_response_for_run(run, "feature_engineering")
     except HTTPException:

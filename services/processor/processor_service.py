@@ -83,10 +83,19 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
     return run
 
 
-async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,db: AsyncSession) -> PipelineRuns:
+async def run_feature_engineering(
+    file: UploadFile,
+    objective: str,
+    user_id: int,
+    db: AsyncSession,
+    optimization_metric: str = "accuracy",
+) -> PipelineRuns:
     """Salva o CSV pré-processado, executa o Feature Engineering e persiste o resultado."""
     from services.pipelines.feature_engineering import FeatureEngineering
     from services.pipelines.feature_strategies import STRATEGY_REGISTRY
+    from services.pipelines.fe_model_selection import normalize_optimization_metric
+
+    metric = normalize_optimization_metric(optimization_metric)
 
     if objective not in STRATEGY_REGISTRY:
         raise ValueError(f"Strategy '{objective}' não registrada. Disponíveis: {list(STRATEGY_REGISTRY.keys())}")
@@ -116,12 +125,18 @@ async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,d
             )
             strategy = STRATEGY_REGISTRY[objective]()
             pipeline = FeatureEngineering(
-                objective=objective, strategy=strategy, run_timestamp=run_ts, csv_path=input_path
+                objective=objective,
+                strategy=strategy,
+                run_timestamp=run_ts,
+                csv_path=input_path,
+                optimization_metric=metric,
             )
             pipeline.run()
 
             run.status = "completed"
-            run.metrics = pipeline.tuned_metrics
+            merged_metrics = dict(pipeline.tuned_metrics)
+            merged_metrics["optimization_metric"] = metric
+            run.metrics = merged_metrics
             run.model_path = os.path.join(settings.path_model, f"best_{objective}_{pipeline.now}.joblib")
             run.csv_output_path = os.path.abspath(input_path)
             run.completed_at = utcnow()

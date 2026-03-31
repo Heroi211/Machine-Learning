@@ -37,6 +37,13 @@ from scipy.stats import randint, uniform
 from core.configs import settings
 from core.custom_logger import setup_log
 from services.pipelines.feature_strategies.base import FeatureStrategy
+from services.pipelines.fe_model_selection import (
+    normalize_optimization_metric,
+    result_column_for_metric,
+    select_best_model_after_training,
+    sklearn_scoring_parameter,
+    test_set_score,
+)
 
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
@@ -58,10 +65,12 @@ class FeatureEngineering:
         strategy: FeatureStrategy,
         run_timestamp: str | None = None,
         csv_path: str | None = None,
+        optimization_metric: str = "accuracy",
     ):
         self.objective = objective
         self.strategy = strategy
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
+        self.optimization_metric = normalize_optimization_metric(optimization_metric)
 
         self.path_data_preprocessed = settings.path_data_preprocessed
         self.path_model = settings.path_model
@@ -83,10 +92,11 @@ class FeatureEngineering:
 
         self.trained_models: dict = {}
         self.results_df: pd.DataFrame | None = None
+        self.best_model_name: str | None = None
         self.best_pipeline = None
         self.best_params: dict | None = None
-        self.best_cv_acc: float = -np.inf
-        self.best_test_acc: float = -np.inf
+        self.best_cv_score: float = -np.inf
+        self.best_test_score: float = -np.inf
         self.tuned_metrics: dict = {}
         self.figs_to_log: list[tuple[str, plt.Figure]] = []
         self.n_jobs = 1 if "debugpy" in sys.modules else -1
@@ -183,7 +193,12 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def train_models(self):
-        logger.info("Iniciando comparação de modelos...")
+        sort_col = result_column_for_metric(self.optimization_metric)
+        logger.info(
+            "Iniciando comparação de modelos (métrica de otimização: %s → coluna %s)",
+            self.optimization_metric,
+            sort_col,
+        )
 
         model_configs = {
             "Decision Tree": DecisionTreeClassifier(random_state=self.random_state),
@@ -207,9 +222,9 @@ class FeatureEngineering:
             metrics = {
                 "Modelo": name,
                 "Acurácia": accuracy_score(self.y_test, y_pred),
-                "Precisão": precision_score(self.y_test, y_pred),
-                "Recall": recall_score(self.y_test, y_pred),
-                "F1": f1_score(self.y_test, y_pred),
+                "Precisão": precision_score(self.y_test, y_pred, zero_division=0),
+                "Recall": recall_score(self.y_test, y_pred, zero_division=0),
+                "F1": f1_score(self.y_test, y_pred, zero_division=0),
                 "ROC AUC": np.nan,
             }
 
@@ -218,21 +233,84 @@ class FeatureEngineering:
             elif hasattr(pipeline, "decision_function"):
                 metrics["ROC AUC"] = roc_auc_score(self.y_test, pipeline.decision_function(self.x_test))
 
-            logger.info(f"=== {name} === Acurácia: {metrics['Acurácia']:.3f}")
+            logger.info("=== %s === %s: %s", name, sort_col, metrics[sort_col])
             logger.debug(f"\n{classification_report(self.y_test, y_pred)}")
 
             self.trained_models[name] = pipeline
             results.append(metrics)
 
-        self.results_df = pd.DataFrame(results).sort_values("Acurácia", ascending=False).reset_index(drop=True).round(3)
+        self.results_df = (
+            pd.DataFrame(results).sort_values(sort_col, ascending=False).reset_index(drop=True).round(4)
+        )
         logger.info(f"Ranking de modelos:\n{self.results_df.to_string()}")
+
+        winner_name, winner_score, _ = select_best_model_after_training(results, self.optimization_metric)
+        self.best_model_name = winner_name
+        self.best_pipeline = self.trained_models[winner_name]
+        logger.info(
+            "Modelo selecionado para a etapa seguinte: %s (%s=%.4f)",
+            winner_name,
+            sort_col,
+            winner_score,
+        )
 
     # ------------------------------------------------------------------
     # Etapa 5 — Tuning (time-budget)
     # ------------------------------------------------------------------
 
+    def _finalize_tuned_metrics(self, y_pred, y_proba_vec: np.ndarray | None) -> None:
+        """Preenche `tuned_metrics` a partir de predições no conjunto de teste (`y_proba_vec` = P(classe positiva))."""
+        self.tuned_metrics = {
+            "Acurácia": accuracy_score(self.y_test, y_pred),
+            "Precisão": precision_score(self.y_test, y_pred, zero_division=0),
+            "Recall": recall_score(self.y_test, y_pred, zero_division=0),
+            "F1": f1_score(self.y_test, y_pred, zero_division=0),
+            "ROC AUC": (
+                roc_auc_score(self.y_test, y_proba_vec)
+                if y_proba_vec is not None and not np.all(y_proba_vec == 0)
+                else np.nan
+            ),
+        }
+
     def tune(self, time_limit_minutes: int = 60, acc_target: float = 0.90):
-        logger.info(f"Iniciando tuning — limite: {time_limit_minutes}min | alvo: acc > {acc_target}")
+        sort_col = result_column_for_metric(self.optimization_metric)
+        scoring = sklearn_scoring_parameter(self.optimization_metric)
+        logger.info(
+            "Iniciando tuning — limite: %smin | métrica: %s | alvo em %s > %s",
+            time_limit_minutes,
+            self.optimization_metric,
+            sort_col,
+            acc_target,
+        )
+
+        if self.best_model_name != "Gradient Boosting":
+            logger.info(
+                "Melhor modelo por %s foi '%s' — busca de hiperparâmetros (apenas Gradient Boosting) omitida.",
+                self.optimization_metric,
+                self.best_model_name,
+            )
+            y_pred = self.best_pipeline.predict(self.x_test)
+            y_proba_pos = (
+                self.best_pipeline.predict_proba(self.x_test)[:, 1]
+                if hasattr(self.best_pipeline, "predict_proba")
+                else None
+            )
+            y_proba_full = (
+                self.best_pipeline.predict_proba(self.x_test)
+                if hasattr(self.best_pipeline, "predict_proba")
+                else None
+            )
+            self._finalize_tuned_metrics(y_pred, y_proba_pos)
+            self.best_params = None
+            self.best_cv_score = float("nan")
+            self.best_test_score = test_set_score(self.y_test, y_pred, y_proba_full, self.optimization_metric)
+            logger.info(
+                "Alvo (%.2f) sobre %s: %s",
+                acc_target,
+                sort_col,
+                "atingido" if self.tuned_metrics[sort_col] > acc_target else "não atingido",
+            )
+            return
 
         start = time.time()
         deadline = start + time_limit_minutes * 60
@@ -249,6 +327,11 @@ class FeatureEngineering:
         sampler = ParameterSampler(param_distributions, n_iter=1_000_000, random_state=self.random_state)
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
 
+        self.best_test_score = -np.inf
+        self.best_cv_score = -np.inf
+        self.best_params = None
+        tuned_pipeline: SkPipeline | None = None
+
         n_evaluated = 0
 
         for i, params in enumerate(sampler, start=1):
@@ -263,60 +346,75 @@ class FeatureEngineering:
             ])
             pipeline.set_params(**params)
 
-            cv_scores = cross_val_score(pipeline, self.x_train, self.y_train, cv=cv, scoring="accuracy", n_jobs=self.n_jobs)
+            cv_scores = cross_val_score(
+                pipeline,
+                self.x_train,
+                self.y_train,
+                cv=cv,
+                scoring=scoring,
+                n_jobs=self.n_jobs,
+            )
             mean_cv = float(np.mean(cv_scores))
 
             pipeline.fit(self.x_train, self.y_train)
-            test_acc = accuracy_score(self.y_test, pipeline.predict(self.x_test))
+            y_pred_t = pipeline.predict(self.x_test)
+            y_proba_t = pipeline.predict_proba(self.x_test) if hasattr(pipeline, "predict_proba") else None
+            test_score = test_set_score(self.y_test, y_pred_t, y_proba_t, self.optimization_metric)
 
-            if test_acc > self.best_test_acc:
-                self.best_test_acc = test_acc
-                self.best_cv_acc = mean_cv
+            if test_score > self.best_test_score:
+                self.best_test_score = test_score
+                self.best_cv_score = mean_cv
                 self.best_params = params
-                self.best_pipeline = pipeline
+                tuned_pipeline = pipeline
                 elapsed = now - start
                 logger.info(
-                    f"[{i}] Novo melhor | acc_teste={test_acc:.4f} | acc_cv={mean_cv:.4f} | "
-                    f"t={elapsed / 60:.1f}m | params={params}"
+                    "[%s] Novo melhor | %s_teste=%.4f | %s_cv=%.4f | t=%.1fm | params=%s",
+                    i,
+                    self.optimization_metric,
+                    test_score,
+                    self.optimization_metric,
+                    mean_cv,
+                    elapsed / 60,
+                    params,
                 )
 
             if i % 5 == 0:
                 elapsed = now - start
                 remaining = max(0.0, deadline - now)
                 logger.debug(
-                    f"Iterações: {i} | melhor_acc={self.best_test_acc:.4f} | "
-                    f"decorrido={elapsed / 60:.1f}m | restante={remaining / 60:.1f}m"
+                    "Iterações: %s | melhor_%s=%.4f | decorrido=%.1fm | restante=%.1fm",
+                    i,
+                    self.optimization_metric,
+                    self.best_test_score,
+                    elapsed / 60,
+                    remaining / 60,
                 )
 
             n_evaluated = i
 
-        if self.best_pipeline is None:
-            logger.warning("Nenhuma iteração concluída. Usando base pipeline.")
-            self.best_pipeline = SkPipeline([
-                ("selector", SelectKBest(score_func=f_classif, k="all")),
-                ("model", GradientBoostingClassifier(random_state=self.random_state)),
-            ])
-            self.best_pipeline.fit(self.x_train, self.y_train)
+        if tuned_pipeline is None:
+            logger.warning("Nenhuma iteração melhorou o modelo — mantendo Gradient Boosting da etapa comparativa.")
+            tuned_pipeline = self.best_pipeline
+        else:
+            self.best_pipeline = tuned_pipeline
 
         y_pred = self.best_pipeline.predict(self.x_test)
         y_proba = (
             self.best_pipeline.predict_proba(self.x_test)[:, 1]
             if hasattr(self.best_pipeline, "predict_proba")
-            else np.zeros(len(y_pred))
+            else None
         )
-
-        self.tuned_metrics = {
-            "Acurácia": accuracy_score(self.y_test, y_pred),
-            "Precisão": precision_score(self.y_test, y_pred),
-            "Recall": recall_score(self.y_test, y_pred),
-            "F1": f1_score(self.y_test, y_pred),
-            "ROC AUC": roc_auc_score(self.y_test, y_proba) if not np.all(y_proba == 0) else np.nan,
-        }
+        self._finalize_tuned_metrics(y_pred, y_proba)
 
         elapsed_total = time.time() - start
         logger.info(f"Tuning concluído — {n_evaluated} iterações em {elapsed_total / 60:.1f}min")
-        logger.info(f"Melhor acurácia (teste): {self.tuned_metrics['Acurácia']:.4f}")
-        logger.info(f"Alvo (>{acc_target}): {'atingido' if self.tuned_metrics['Acurácia'] > acc_target else 'não atingido'}")
+        logger.info("Melhor %s (teste): %.4f", sort_col, self.tuned_metrics[sort_col])
+        logger.info(
+            "Alvo (%.2f) sobre %s: %s",
+            acc_target,
+            sort_col,
+            "atingido" if self.tuned_metrics[sort_col] > acc_target else "não atingido",
+        )
 
     # ------------------------------------------------------------------
     # Etapa 6 — Importância de features
@@ -355,8 +453,13 @@ class FeatureEngineering:
             logger.info("Modelo não expõe feature_importances_. Pulando gráfico Gini.")
 
         perm = permutation_importance(
-            self.best_pipeline, self.x_test, self.y_test,
-            scoring="accuracy", n_repeats=10, random_state=self.random_state, n_jobs=self.n_jobs,
+            self.best_pipeline,
+            self.x_test,
+            self.y_test,
+            scoring=sklearn_scoring_parameter(self.optimization_metric),
+            n_repeats=10,
+            random_state=self.random_state,
+            n_jobs=self.n_jobs,
         )
         perm_df = pd.DataFrame({
             "feature": feat_names,
@@ -367,7 +470,7 @@ class FeatureEngineering:
 
         fig2, ax2 = plt.subplots(figsize=(8, min(0.45 * len(perm_df.head(20)), 10)))
         sns.barplot(data=perm_df.head(20), x="importance", y="feature", color="#ff7f0e", ax=ax2)
-        ax2.set_title("Importância por Permutação (Accuracy) — Top 20")
+        ax2.set_title(f"Importância por Permutação ({self.optimization_metric}) — Top 20")
         ax2.set_xlabel("Queda média na métrica")
         ax2.set_ylabel("Feature")
         plt.tight_layout()
@@ -397,7 +500,8 @@ class FeatureEngineering:
                     for k, v in self.best_params.items():
                         mlflow.log_param(k, str(v))
 
-                mlflow.log_metric("cv_accuracy", float(self.best_cv_acc))
+                if np.isfinite(self.best_cv_score):
+                    mlflow.log_metric(f"cv_{self.optimization_metric}", float(self.best_cv_score))
                 for k, v in self.tuned_metrics.items():
                     if v is not None and not (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
                         mlflow.log_metric(k.replace(" ", "_").lower(), float(v))
