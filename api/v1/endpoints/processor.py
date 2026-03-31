@@ -1,4 +1,8 @@
+import json
+import os
+
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Form
+from starlette.responses import FileResponse
 from models.users import Users as users_models
 from core.deps import get_session, get_current_user, require_admin
 from schemas import processor_schemas
@@ -63,10 +67,36 @@ async def admin_promote(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
+    """Devolve o CSV em disco no corpo da resposta + metadados em cabeçalhos HTTP."""
+    if run.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"run_id": run.id, "error": run.error_message},
+        )
+    if not run.csv_output_path or not os.path.isfile(run.csv_output_path):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Arquivo CSV de saída não encontrado após o pipeline.",
+        )
+    return FileResponse(
+        path=run.csv_output_path,
+        filename=os.path.basename(run.csv_output_path),
+        media_type="text/csv",
+        status_code=status.HTTP_201_CREATED,
+        headers={
+            "X-Pipeline-Run-Id": str(run.id),
+            "X-Pipeline-Type": pipeline_type,
+            "X-Pipeline-Objective": run.objective,
+            "X-Pipeline-Metrics": json.dumps(run.metrics, ensure_ascii=False) if run.metrics else "",
+        },
+    )
+
+
 @router.post(
     "/admin/train/baseline",
     status_code=status.HTTP_201_CREATED,
-    response_model=processor_schemas.PipelineRunResponse,
+    response_class=FileResponse,
 )
 async def admin_train_baseline(
     file: UploadFile = File(...),
@@ -76,7 +106,9 @@ async def admin_train_baseline(
 ):
     try:
         run = await processor_service.run_baseline(file=file, objective=objective, user_id=admin.id, db=db)
-        return run
+        return _file_response_for_run(run, "baseline")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -87,7 +119,7 @@ async def admin_train_baseline(
 @router.post(
     "/admin/train/feature-engineering",
     status_code=status.HTTP_201_CREATED,
-    response_model=processor_schemas.PipelineRunResponse,
+    response_class=FileResponse,
 )
 async def admin_train_feature_engineering(
     file: UploadFile = File(...),
@@ -99,7 +131,9 @@ async def admin_train_feature_engineering(
         run = await processor_service.run_feature_engineering(
             file=file, objective=objective, user_id=admin.id, db=db
         )
-        return run
+        return _file_response_for_run(run, "feature_engineering")
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
