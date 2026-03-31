@@ -32,7 +32,7 @@ ppath_graphs = settings.path_graphs
 ptest_size = settings.test_size
 prandom_state = settings.random_state
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ml.pipeline")
 pmsg_raise = "Pipeline interrompido"
 pagora = datetime.now().strftime('%Y%m%d_%H%M%S')
 psnapshot_path = os.path.join(settings.path_data, settings.path_logs, pagora)
@@ -41,7 +41,7 @@ class Baseline:
     """
     Pipeline para geração do baseline padrão
     """
-    def __init__(self,pobjective):
+    def __init__(self, pobjective, run_timestamp: str | None = None):
         self.path_data = ppath_data
         self.path_data_preprocessed = ppath_data_preprocessed
         self.path_model = ppath_model
@@ -50,8 +50,12 @@ class Baseline:
         self.objective = pobjective
         self.test_size = ptest_size
         self.random_state = prandom_state
-        self.now = pagora
-        self.snapshot_path = psnapshot_path
+        if run_timestamp is not None:
+            self.now = run_timestamp
+            self.snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_timestamp)
+        else:
+            self.now = pagora
+            self.snapshot_path = psnapshot_path
         self.current_csv_path = None
         self.data = None
         self.data_encoded = None

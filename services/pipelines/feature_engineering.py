@@ -41,7 +41,7 @@ from services.pipelines.feature_strategies.base import FeatureStrategy
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ml.pipeline")
 
 plt.style.use("seaborn-v0_8-darkgrid")
 
@@ -52,7 +52,7 @@ class FeatureEngineering:
     treinamento comparativo, tuning e persistência.
     """
 
-    def __init__(self, objective: str, strategy: FeatureStrategy):
+    def __init__(self, objective: str, strategy: FeatureStrategy, run_timestamp: str | None = None):
         self.objective = objective
         self.strategy = strategy
 
@@ -61,7 +61,10 @@ class FeatureEngineering:
         self.test_size = settings.test_size
         self.random_state = settings.random_state
 
-        self.now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if run_timestamp is not None:
+            self.now = run_timestamp
+        else:
+            self.now = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.snapshot_path = os.path.join(settings.path_data, settings.path_logs, self.now)
 
         self.data: pd.DataFrame | None = None

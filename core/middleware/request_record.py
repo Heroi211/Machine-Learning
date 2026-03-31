@@ -2,6 +2,7 @@
 
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 
 from starlette.requests import Request
@@ -21,6 +22,7 @@ async def request_record(request: Request, call_next):
 
     start = time.perf_counter()
     client = request.client.host if request.client else "-"
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
 
     try:
         response = await call_next(request)
@@ -28,6 +30,7 @@ async def request_record(request: Request, call_next):
         elapsed_ms = (time.perf_counter() - start) * 1000
         payload = {
             "ts": _utc_iso(),
+            "request_id": request_id,
             "method": request.method,
             "path": request.url.path,
             "status": None,
@@ -48,6 +51,7 @@ async def request_record(request: Request, call_next):
     elapsed_ms = (time.perf_counter() - start) * 1000
     payload = {
         "ts": _utc_iso(),
+        "request_id": request_id,
         "method": request.method,
         "path": request.url.path,
         "status": response.status_code,
@@ -64,4 +68,5 @@ async def request_record(request: Request, call_next):
         elapsed_ms,
         extra={"access_payload": payload},
     )
+    response.headers["X-Request-ID"] = request_id
     return response

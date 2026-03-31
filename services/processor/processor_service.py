@@ -10,6 +10,7 @@ from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.configs import settings
+from core.custom_logger import setup_pipeline_run_logging
 from models.pipeline_runs import PipelineRuns
 from models.predictions import Predictions
 from services.utils import utcnow
@@ -38,7 +39,16 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
         await session.refresh(run)
 
         try:
-            pipeline = Baseline(pobjective=objective)
+            run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_ts)
+            setup_pipeline_run_logging(
+                snapshot_path,
+                run_ts,
+                run_id=run.id,
+                objective=objective,
+                pipeline_type="baseline",
+            )
+            pipeline = Baseline(pobjective=objective, run_timestamp=run_ts)
             pipeline.run(start_time=datetime.now())
             pipeline.save_artifacts()
 
@@ -96,8 +106,17 @@ async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,d
         await session.refresh(run)
 
         try:
+            run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_ts)
+            setup_pipeline_run_logging(
+                snapshot_path,
+                run_ts,
+                run_id=run.id,
+                objective=objective,
+                pipeline_type="feature_engineering",
+            )
             strategy = STRATEGY_REGISTRY[objective]()
-            pipeline = FeatureEngineering(objective=objective, strategy=strategy)
+            pipeline = FeatureEngineering(objective=objective, strategy=strategy, run_timestamp=run_ts)
             pipeline.run()
 
             run.status = "completed"
