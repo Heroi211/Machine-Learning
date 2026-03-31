@@ -1,6 +1,5 @@
 import logging
 import os
-import glob
 from datetime import datetime
 
 import pandas as pd
@@ -48,7 +47,7 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
                 objective=objective,
                 pipeline_type="baseline",
             )
-            pipeline = Baseline(pobjective=objective, run_timestamp=run_ts)
+            pipeline = Baseline(pobjective=objective, run_timestamp=run_ts, csv_path=input_path)
             pipeline.run(start_time=datetime.now())
             pipeline.save_artifacts()
 
@@ -116,12 +115,15 @@ async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,d
                 pipeline_type="feature_engineering",
             )
             strategy = STRATEGY_REGISTRY[objective]()
-            pipeline = FeatureEngineering(objective=objective, strategy=strategy, run_timestamp=run_ts)
+            pipeline = FeatureEngineering(
+                objective=objective, strategy=strategy, run_timestamp=run_ts, csv_path=input_path
+            )
             pipeline.run()
 
             run.status = "completed"
             run.metrics = pipeline.tuned_metrics
             run.model_path = os.path.join(settings.path_model, f"best_{objective}_{pipeline.now}.joblib")
+            run.csv_output_path = os.path.abspath(input_path)
             run.completed_at = utcnow()
 
         except Exception as e:

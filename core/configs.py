@@ -37,9 +37,7 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(validation_alias="SECRET", description="Chave secreta JWT")
     algorithm: str = Field(validation_alias="ALGORITHM", description="Algoritmo JWT")
     access_token_expire_minutes: int = Field(validation_alias="ACCESS_TOKEN_EXPIRE_MINUTES", description="Minutos para expiração do token de acesso")
-    
-    timezone: str = Field(validation_alias="TIMEZONE", description="Timezone para logs e timestamps")
-    
+
     log_http_requests: bool = Field(default=True,validation_alias="LOG_HTTP_REQUESTS",description="Log de método, path, status e latência por requisição")
 
     log_http_requests_file: bool = Field(

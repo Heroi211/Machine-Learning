@@ -52,9 +52,16 @@ class FeatureEngineering:
     treinamento comparativo, tuning e persistência.
     """
 
-    def __init__(self, objective: str, strategy: FeatureStrategy, run_timestamp: str | None = None):
+    def __init__(
+        self,
+        objective: str,
+        strategy: FeatureStrategy,
+        run_timestamp: str | None = None,
+        csv_path: str | None = None,
+    ):
         self.objective = objective
         self.strategy = strategy
+        self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
 
         self.path_data_preprocessed = settings.path_data_preprocessed
         self.path_model = settings.path_model
@@ -91,13 +98,19 @@ class FeatureEngineering:
     def load_data(self):
         logger.info("Carregando dataset pré-processado...")
 
-        csv_pattern = os.path.join(self.path_data_preprocessed, "*.csv")
-        files = glob.glob(csv_pattern)
-        if not files:
-            raise ValueError(f"Nenhum CSV encontrado em {self.path_data_preprocessed}")
+        if self._explicit_csv_path:
+            if not os.path.isfile(self._explicit_csv_path):
+                raise ValueError(f"CSV não encontrado: {self._explicit_csv_path}")
+            file_must_modern = self._explicit_csv_path
+            logger.info(f"Arquivo CSV (rota explícita): {file_must_modern}")
+        else:
+            csv_pattern = os.path.join(self.path_data_preprocessed, "*.csv")
+            files = glob.glob(csv_pattern)
+            if not files:
+                raise ValueError(f"Nenhum CSV encontrado em {self.path_data_preprocessed}")
 
-        file_must_modern = max(files, key=os.path.getctime)
-        logger.info(f"Arquivo selecionado: {file_must_modern}")
+            file_must_modern = max(files, key=os.path.getctime)
+            logger.info(f"Arquivo selecionado (modo legado — último ctime): {file_must_modern}")
 
         df = pd.read_csv(file_must_modern)
 
