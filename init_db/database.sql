@@ -72,3 +72,7 @@ CREATE TABLE public.deployed_models (
 );
 
 CREATE INDEX ix_deployed_models_domain ON public.deployed_models (domain);
+
+-- No máximo um deployment ativo por domínio (alinhado a deployment_service.get_active_deployment)
+CREATE UNIQUE INDEX uq_deployed_models_one_active_per_domain ON public.deployed_models (domain)
+WHERE status = 'active' AND active IS TRUE;
