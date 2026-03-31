@@ -63,6 +63,12 @@ class Settings(BaseSettings):
         description="Número de arquivos access.jsonl.* retidos após rotação",
     )
 
+    path_maintenance_reports: str = Field(
+        default="artifacts/reports",
+        validation_alias="PATH_MAINTENANCE_REPORTS",
+        description="Saídas dos scripts de manutenção (latência, drift, relatórios)",
+    )
+
     class Config:
         env_file = ".env"
         case_sensitive = False
