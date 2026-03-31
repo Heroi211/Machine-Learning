@@ -37,6 +37,10 @@ from scipy.stats import randint, uniform
 from core.configs import settings
 from core.custom_logger import setup_log
 from services.pipelines.feature_strategies.base import FeatureStrategy
+from services.pipelines.fe_hyperparameter_tuning import (
+    build_fresh_tuning_pipeline,
+    param_distributions_for,
+)
 from services.pipelines.fe_model_selection import (
     normalize_optimization_metric,
     result_column_for_metric,
@@ -275,55 +279,22 @@ class FeatureEngineering:
     def tune(self, time_limit_minutes: int = 60, acc_target: float = 0.90):
         sort_col = result_column_for_metric(self.optimization_metric)
         scoring = sklearn_scoring_parameter(self.optimization_metric)
+        if not self.best_model_name:
+            raise RuntimeError("tune requer train_models prévio com best_model_name definido.")
+
         logger.info(
-            "Iniciando tuning — limite: %smin | métrica: %s | alvo em %s > %s",
+            "Iniciando tuning — modelo: %s | limite: %smin | métrica: %s | alvo em %s > %s",
+            self.best_model_name,
             time_limit_minutes,
             self.optimization_metric,
             sort_col,
             acc_target,
         )
 
-        if self.best_model_name != "Gradient Boosting":
-            logger.info(
-                "Melhor modelo por %s foi '%s' — busca de hiperparâmetros (apenas Gradient Boosting) omitida.",
-                self.optimization_metric,
-                self.best_model_name,
-            )
-            y_pred = self.best_pipeline.predict(self.x_test)
-            y_proba_pos = (
-                self.best_pipeline.predict_proba(self.x_test)[:, 1]
-                if hasattr(self.best_pipeline, "predict_proba")
-                else None
-            )
-            y_proba_full = (
-                self.best_pipeline.predict_proba(self.x_test)
-                if hasattr(self.best_pipeline, "predict_proba")
-                else None
-            )
-            self._finalize_tuned_metrics(y_pred, y_proba_pos)
-            self.best_params = None
-            self.best_cv_score = float("nan")
-            self.best_test_score = test_set_score(self.y_test, y_pred, y_proba_full, self.optimization_metric)
-            logger.info(
-                "Alvo (%.2f) sobre %s: %s",
-                acc_target,
-                sort_col,
-                "atingido" if self.tuned_metrics[sort_col] > acc_target else "não atingido",
-            )
-            return
-
         start = time.time()
         deadline = start + time_limit_minutes * 60
 
-        param_distributions = {
-            "model__n_estimators": randint(50, 400),
-            "model__learning_rate": uniform(0.01, 0.3),
-            "model__max_depth": randint(2, 6),
-            "model__min_samples_split": randint(2, 100),
-            "model__min_samples_leaf": randint(1, 50),
-            "model__subsample": uniform(0.6, 0.4),
-        }
-
+        param_distributions = param_distributions_for(self.best_model_name)
         sampler = ParameterSampler(param_distributions, n_iter=1_000_000, random_state=self.random_state)
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
 
@@ -340,10 +311,7 @@ class FeatureEngineering:
                 logger.info("Tempo limite atingido — encerrando busca.")
                 break
 
-            pipeline = SkPipeline([
-                ("selector", SelectKBest(score_func=f_classif, k="all")),
-                ("model", GradientBoostingClassifier(random_state=self.random_state)),
-            ])
+            pipeline = build_fresh_tuning_pipeline(self.best_model_name, self.random_state)
             pipeline.set_params(**params)
 
             cv_scores = cross_val_score(
@@ -393,7 +361,10 @@ class FeatureEngineering:
             n_evaluated = i
 
         if tuned_pipeline is None:
-            logger.warning("Nenhuma iteração melhorou o modelo — mantendo Gradient Boosting da etapa comparativa.")
+            logger.warning(
+                "Nenhuma iteração melhorou o modelo — mantendo %s da etapa comparativa.",
+                self.best_model_name,
+            )
             tuned_pipeline = self.best_pipeline
         else:
             self.best_pipeline = tuned_pipeline
