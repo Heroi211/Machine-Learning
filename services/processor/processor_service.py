@@ -137,18 +137,18 @@ async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,d
     return run
 
 
-async def predict_single(pipeline_run_id: int,features: dict,user_id: int,db: AsyncSession) -> Predictions:
-    """Carrega o modelo de um pipeline_run específico e faz predição para 1 indivíduo."""
-    from sqlalchemy.future import select
+async def predict_for_domain(domain: str, features: dict, user_id: int, db: AsyncSession) -> Predictions:
+    """Resolve o modelo ativo do domínio e prediz para um indivíduo."""
+    from services.processor.deployment_service import NoActiveDeploymentError, get_active_deployment
 
     async with db as session:
-        query = select(PipelineRuns).filter(PipelineRuns.id == pipeline_run_id,PipelineRuns.status == "completed")
-        result = await session.execute(query)
-        run = result.scalars().one_or_none()
+        deployment = await get_active_deployment(domain, session)
+        if not deployment:
+            raise NoActiveDeploymentError(
+                f"Nenhum modelo ativo para o domínio '{domain}'. Promova um pipeline concluído (admin)."
+            )
 
-        if not run:
-            raise ValueError(f"PipelineRun {pipeline_run_id} não encontrado ou não concluído.")
-
+        run = deployment.pipeline_run
         if not run.model_path or not os.path.exists(run.model_path):
             raise ValueError(f"Modelo não encontrado em: {run.model_path}")
 
@@ -163,7 +163,13 @@ async def predict_single(pipeline_run_id: int,features: dict,user_id: int,db: As
             proba = model.predict_proba(df_input)[0]
             probability = float(proba[1])
 
-        pred = Predictions(user_id=user_id,pipeline_run_id=pipeline_run_id,input_data=features,prediction=prediction_value,probability=probability)
+        pred = Predictions(
+            user_id=user_id,
+            pipeline_run_id=run.id,
+            input_data=features,
+            prediction=prediction_value,
+            probability=probability,
+        )
 
         session.add(pred)
         await session.commit()
