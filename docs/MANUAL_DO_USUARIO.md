@@ -102,4 +102,10 @@ Se o domínio **não** tiver modelo ativo, a resposta indica que não há modelo
 
 ---
 
+## 8. Manutenção, logs e observabilidade
+
+O manual acima cobre o **fluxo funcional**. Para **onde estão os ficheiros de log**, como é medida a **latência** dos pedidos e **quando** se analisa **drift** de dados (não é automático em cada predição), consulte **[Observabilidade e manutenção](OBSERVABILIDADE_E_MANUTENCAO.md)**. Em resumo: não existe um painel de administrador só para ver logs na própria API — o registo está no **servidor** (JSONL de acesso, ficheiros de pipeline) e relatórios opcionais vêm de **scripts** na pasta `scripts/maintenance/`.
+
+---
+
 *Manual alinhado ao comportamento da API (rotas de autenticação, processador e papéis). Para detalhes técnicos de cada campo, consulte a documentação interativa da API (Swagger/OpenAPI), se estiver ativa no ambiente.*
