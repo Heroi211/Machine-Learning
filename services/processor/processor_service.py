@@ -1,6 +1,5 @@
 import logging
 import os
-import glob
 from datetime import datetime
 
 import pandas as pd
@@ -10,6 +9,7 @@ from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.configs import settings
+from core.custom_logger import setup_pipeline_run_logging
 from models.pipeline_runs import PipelineRuns
 from models.predictions import Predictions
 from services.utils import utcnow
@@ -38,7 +38,16 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
         await session.refresh(run)
 
         try:
-            pipeline = Baseline(pobjective=objective)
+            run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_ts)
+            setup_pipeline_run_logging(
+                snapshot_path,
+                run_ts,
+                run_id=run.id,
+                objective=objective,
+                pipeline_type="baseline",
+            )
+            pipeline = Baseline(pobjective=objective, run_timestamp=run_ts, csv_path=input_path)
             pipeline.run(start_time=datetime.now())
             pipeline.save_artifacts()
 
@@ -74,10 +83,19 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
     return run
 
 
-async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,db: AsyncSession) -> PipelineRuns:
+async def run_feature_engineering(
+    file: UploadFile,
+    objective: str,
+    user_id: int,
+    db: AsyncSession,
+    optimization_metric: str = "accuracy",
+) -> PipelineRuns:
     """Salva o CSV pré-processado, executa o Feature Engineering e persiste o resultado."""
     from services.pipelines.feature_engineering import FeatureEngineering
     from services.pipelines.feature_strategies import STRATEGY_REGISTRY
+    from services.pipelines.fe_model_selection import normalize_optimization_metric
+
+    metric = normalize_optimization_metric(optimization_metric)
 
     if objective not in STRATEGY_REGISTRY:
         raise ValueError(f"Strategy '{objective}' não registrada. Disponíveis: {list(STRATEGY_REGISTRY.keys())}")
@@ -96,13 +114,31 @@ async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,d
         await session.refresh(run)
 
         try:
+            run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_ts)
+            setup_pipeline_run_logging(
+                snapshot_path,
+                run_ts,
+                run_id=run.id,
+                objective=objective,
+                pipeline_type="feature_engineering",
+            )
             strategy = STRATEGY_REGISTRY[objective]()
-            pipeline = FeatureEngineering(objective=objective, strategy=strategy)
+            pipeline = FeatureEngineering(
+                objective=objective,
+                strategy=strategy,
+                run_timestamp=run_ts,
+                csv_path=input_path,
+                optimization_metric=metric,
+            )
             pipeline.run()
 
             run.status = "completed"
-            run.metrics = pipeline.tuned_metrics
+            merged_metrics = dict(pipeline.tuned_metrics)
+            merged_metrics["optimization_metric"] = metric
+            run.metrics = merged_metrics
             run.model_path = os.path.join(settings.path_model, f"best_{objective}_{pipeline.now}.joblib")
+            run.csv_output_path = os.path.abspath(input_path)
             run.completed_at = utcnow()
 
         except Exception as e:
@@ -118,18 +154,18 @@ async def run_feature_engineering(file: UploadFile,objective: str,user_id: int,d
     return run
 
 
-async def predict_single(pipeline_run_id: int,features: dict,user_id: int,db: AsyncSession) -> Predictions:
-    """Carrega o modelo de um pipeline_run específico e faz predição para 1 indivíduo."""
-    from sqlalchemy.future import select
+async def predict_for_domain(domain: str, features: dict, user_id: int, db: AsyncSession) -> Predictions:
+    """Resolve o modelo ativo do domínio e prediz para um indivíduo."""
+    from services.processor.deployment_service import NoActiveDeploymentError, get_active_deployment
 
     async with db as session:
-        query = select(PipelineRuns).filter(PipelineRuns.id == pipeline_run_id,PipelineRuns.status == "completed")
-        result = await session.execute(query)
-        run = result.scalars().one_or_none()
+        deployment = await get_active_deployment(domain, session)
+        if not deployment:
+            raise NoActiveDeploymentError(
+                f"Nenhum modelo ativo para o domínio '{domain}'. Promova um pipeline concluído (admin)."
+            )
 
-        if not run:
-            raise ValueError(f"PipelineRun {pipeline_run_id} não encontrado ou não concluído.")
-
+        run = deployment.pipeline_run
         if not run.model_path or not os.path.exists(run.model_path):
             raise ValueError(f"Modelo não encontrado em: {run.model_path}")
 
@@ -144,7 +180,13 @@ async def predict_single(pipeline_run_id: int,features: dict,user_id: int,db: As
             proba = model.predict_proba(df_input)[0]
             probability = float(proba[1])
 
-        pred = Predictions(user_id=user_id,pipeline_run_id=pipeline_run_id,input_data=features,prediction=prediction_value,probability=probability)
+        pred = Predictions(
+            user_id=user_id,
+            pipeline_run_id=run.id,
+            input_data=features,
+            prediction=prediction_value,
+            probability=probability,
+        )
 
         session.add(pred)
         await session.commit()
