@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import Session
 from core.auth import oauth2_scheme
 from models.users import Users as users_models
+from models.roles import Roles
 from fastapi import HTTPException,status
 from jose import JWTError, jwt
 from core.configs import settings
@@ -53,3 +54,12 @@ async def get_current_user(db:Session = Depends(get_session),token:str = Depends
             raise credentials_exception
         
         return user
+
+
+async def require_admin(user: users_models = Depends(get_current_user)) -> users_models:
+    if user.role_id != Roles.ADMINISTRATOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito a administradores.",
+        )
+    return user

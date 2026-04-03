@@ -55,3 +55,24 @@ CREATE TABLE public.predictions (
 	CONSTRAINT predictions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
 	CONSTRAINT predictions_pipeline_run_id_fkey FOREIGN KEY (pipeline_run_id) REFERENCES public.pipeline_runs(id)
 );
+
+CREATE TABLE public.deployed_models (
+	id serial4 NOT NULL,
+	domain varchar(100) NOT NULL,
+	pipeline_run_id int4 NOT NULL,
+	status varchar(20) NOT NULL DEFAULT 'active',
+	promoted_at timestamp NULL,
+	promoted_by_user_id int4 NULL,
+	metrics_snapshot jsonb NULL,
+	created_at timestamp NOT NULL DEFAULT NOW(),
+	active bool NOT NULL DEFAULT true,
+	CONSTRAINT deployed_models_pkey PRIMARY KEY (id),
+	CONSTRAINT deployed_models_pipeline_run_id_fkey FOREIGN KEY (pipeline_run_id) REFERENCES public.pipeline_runs(id),
+	CONSTRAINT deployed_models_promoted_by_user_id_fkey FOREIGN KEY (promoted_by_user_id) REFERENCES public.users(id)
+);
+
+CREATE INDEX ix_deployed_models_domain ON public.deployed_models (domain);
+
+-- No máximo um deployment ativo por domínio (alinhado a deployment_service.get_active_deployment)
+CREATE UNIQUE INDEX uq_deployed_models_one_active_per_domain ON public.deployed_models (domain)
+WHERE status = 'active' AND active IS TRUE;

@@ -1,9 +1,13 @@
 from fastapi import FastAPI
 from core.configs import settings
+from core.logging_api_request import setup_api_request_logging
 from api.v1 import api
-from fastapi.middleware.cors import CORSMiddleware
+from core.middleware.request_record import request_record
+
+setup_api_request_logging()
 
 app = FastAPI(title=settings.project_name,version=settings.project_version)
+app.middleware("http")(request_record)
 app.include_router(api.router,prefix=settings.project_version)
 
 

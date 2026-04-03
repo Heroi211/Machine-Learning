@@ -32,7 +32,7 @@ ppath_graphs = settings.path_graphs
 ptest_size = settings.test_size
 prandom_state = settings.random_state
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ml.pipeline")
 pmsg_raise = "Pipeline interrompido"
 pagora = datetime.now().strftime('%Y%m%d_%H%M%S')
 psnapshot_path = os.path.join(settings.path_data, settings.path_logs, pagora)
@@ -41,7 +41,7 @@ class Baseline:
     """
     Pipeline para geração do baseline padrão
     """
-    def __init__(self,pobjective):
+    def __init__(self, pobjective, run_timestamp: str | None = None, csv_path: str | None = None):
         self.path_data = ppath_data
         self.path_data_preprocessed = ppath_data_preprocessed
         self.path_model = ppath_model
@@ -50,8 +50,13 @@ class Baseline:
         self.objective = pobjective
         self.test_size = ptest_size
         self.random_state = prandom_state
-        self.now = pagora
-        self.snapshot_path = psnapshot_path
+        self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
+        if run_timestamp is not None:
+            self.now = run_timestamp
+            self.snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_timestamp)
+        else:
+            self.now = pagora
+            self.snapshot_path = psnapshot_path
         self.current_csv_path = None
         self.data = None
         self.data_encoded = None
@@ -65,28 +70,35 @@ class Baseline:
     
     def load_data(self):
         """
-        Carregamento dos dados, passo 1
+        Carregamento dos dados, passo 1.
+        Se `csv_path` foi passado no construtor (ex.: upload da API), usa esse ficheiro;
+        caso contrário (CLI), escolhe o CSV mais recente em `path_data` por compatibilidade.
         """
         logger.info("Iniciando Dataset...")
-        
-        if not self.path_data:
-            logger.error("Path não encontrado ou valor vazio")
-            raise ValueError(self.msg_raise)
-        
-        path_data = self.path_data
-        csv = os.path.join(path_data,'*.csv')
-        
-        file = glob.glob(csv) # já cria uma lista com os arquivos que encontrar la, quando for fazer o pipe analisar a pasta e processar tudo, ja ta no jeito
-        if not file:
-            logger.error(f"Nenhum arquivo CSV encontrado no caminho: {path_data}")
-            raise ValueError(self.msg_raise)
-        
-        if file:
+
+        if self._explicit_csv_path:
+            if not os.path.isfile(self._explicit_csv_path):
+                logger.error(f"CSV não encontrado: {self._explicit_csv_path}")
+                raise ValueError(self.msg_raise)
+            self.current_csv_path = self._explicit_csv_path
+            logger.info(f"Arquivo CSV (rota explícita): {self.current_csv_path}")
+            self.data = pd.read_csv(self.current_csv_path)
+        else:
+            if not self.path_data:
+                logger.error("Path não encontrado ou valor vazio")
+                raise ValueError(self.msg_raise)
+
+            path_data = self.path_data
+            csv = os.path.join(path_data, "*.csv")
+            file = glob.glob(csv)
+            if not file:
+                logger.error(f"Nenhum arquivo CSV encontrado no caminho: {path_data}")
+                raise ValueError(self.msg_raise)
+
             file_must_modern = max(file, key=os.path.getctime)
             self.current_csv_path = file_must_modern
-            logger.info(f"Arquivo CSV encontrado: {file_must_modern}")
-            
-        self.data = pd.read_csv(file_must_modern)
+            logger.info(f"Arquivo CSV encontrado (modo legado — último ctime): {file_must_modern}")
+            self.data = pd.read_csv(file_must_modern)
         self.target = self.data.columns.to_list().pop() 
         
         

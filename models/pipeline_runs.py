@@ -20,3 +20,4 @@ class PipelineRuns(modelsGeneric):
 
     user = relationship("Users", lazy="joined")
     predictions = relationship("Predictions", back_populates="pipeline_run", lazy="select")
+    deployments = relationship("DeployedModels", back_populates="pipeline_run", lazy="select")
