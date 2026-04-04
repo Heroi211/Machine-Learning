@@ -39,7 +39,24 @@ psnapshot_path = os.path.join(settings.path_data, settings.path_logs, pagora)
 
 class Baseline:
     """
-    Pipeline para geração do baseline padrão
+    Pipeline de baseline para problemas de **classificação binária tabulada**.
+
+    Contrato de entrada do CSV
+    --------------------------
+    - A coluna alvo (target) deve ser sempre a **última coluna** do arquivo.
+    - O arquivo **não deve conter coluna de ID** (remover antes do upload).
+    - Valores ausentes são imputados automaticamente (mediana para numéricos,
+      moda para categóricos).
+    - O target é binarizado: qualquer valor > 0 vira 1, 0 permanece 0.
+
+    Escopo e limitações
+    --------------------
+    - Suporta apenas **classificação binária**. Regressão e multiclasse
+      estão fora do escopo deste pipeline.
+    - Desbalanceamento de classes é tratado via `class_weight='balanced'`
+      na Regressão Logística — estratégia de reamostragem não implementada.
+    - Modelo gerado serve como referência mínima; comparar sempre com o
+      pipeline de Feature Engineering antes de promover para produção.
     """
     def __init__(self, pobjective, run_timestamp: str | None = None, csv_path: str | None = None):
         self.path_data = ppath_data
@@ -218,8 +235,12 @@ class Baseline:
         logger.info(f"\n Ratio de Balancemanto: {self.ratio:.2f}")
         
         if self.ratio < 0.5:
-            logger.warning("Dataset desbalanceado!")
-            # Precisa implementar alguma estratégia para tratamento de dataset desbalanceado, mas não sei qual usar.
+            logger.warning(
+                "Dataset desbalanceado (ratio=%.2f). "
+                "Mitigação aplicada: class_weight='balanced' na Regressão Logística. "
+                "Estratégias de reamostragem (SMOTE, undersampling) estão fora do escopo deste pipeline.",
+                self.ratio,
+            )
         else:
             logger.info("✓ Dataset razoavelmente balanceado.")
             

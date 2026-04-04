@@ -135,8 +135,11 @@ class FeatureEngineering:
 
         logger.info(f"Colunas: {df.columns.tolist()}")
 
-        assert "target" in df.columns, "Coluna 'target' não encontrada no dataset pré-processado."
-
+        target_column = df.columns[-1]
+        if target_column != "target":
+            logger.error(f"Coluna 'target' não encontrada no dataset pré-processado no final do CSV.")
+            raise ValueError("Pipeline interrompido — coluna 'target' não encontrada no dataset pré-processado.")
+        
         null_total = df.isnull().sum().sum()
         if null_total > 0:
             logger.error(f"Valores nulos encontrados: {null_total}")
