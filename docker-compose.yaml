@@ -1,50 +1,110 @@
 version: "3.9"
 
+# ---------------------------------------------------------------------------
+# Para subir o ambiente:
+#   1. cp .env_example .env   (preencher as variáveis)
+#   2. docker compose up --build
+#   3. API disponível em http://localhost:8000/docs
+#   4. Logs em tempo real:    http://localhost:8888   (Dozzle)
+#   5. Banco via pgAdmin:     http://localhost:5050
+# ---------------------------------------------------------------------------
+
 services:
+
+  # ---------- Banco de dados PostgreSQL ------------------------------------
   db_processing:
     build:
       dockerfile: ./docker/db.dockerfile
       context: .
     image: processing_database:v1
     container_name: database_processing
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASS}
+      POSTGRES_DB: ${DATABASE_NAME}
     ports:
-      - 5432:5432
+      - "5432:5432"
     networks:
       - nwprocessing
     volumes:
       - pgdata:/var/lib/postgresql/data/
       - ./init_db:/docker-entrypoint-initdb.d/
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # ---------- API FastAPI --------------------------------------------------
   api_processing:
     build:
       dockerfile: ./docker/api.dockerfile
       context: .
     image: processing_api:v1
     container_name: api_processing
-    command: sh -c "python main.py"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Aponta o servidor do banco para o nome do serviço interno do compose
+      DATABASE_SERVER: db_processing
     depends_on:
-      - db_processing
+      db_processing:
+        condition: service_healthy
     ports:
-      - 8000:8000
+      - "8000:8000"
     networks:
       - nwprocessing
-      
+    volumes:
+      # Persistência de dados, modelos e logs entre reinicializações
+      - api_data:/var/www/data
+      - api_models:/var/www/models
+      - api_artifacts:/var/www/artifacts
+      - api_logs:/var/www/logs
+      - api_graphs:/var/www/graphs
+
+  # ---------- pgAdmin (interface web para o banco) -------------------------
   pgadmin:
     build:
       dockerfile: ./docker/pgadmin.dockerfile
       context: .
     image: pgadmin_db:v1
     container_name: pgadmin_db
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
-      - 5050:80
+      - "5050:80"
     depends_on:
-      - db_processing
+      db_processing:
+        condition: service_healthy
     networks:
       - nwprocessing
 
+  # ---------- Dozzle (visualizador de logs dos containers) -----------------
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle_logs
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - nwprocessing
+
+# ---------------------------------------------------------------------------
 networks:
   nwprocessing:
     name: "nwprocessing"
     driver: "bridge"
+
 volumes:
   pgdata:
+  api_data:
+  api_models:
+  api_artifacts:
+  api_logs:
+  api_graphs:
