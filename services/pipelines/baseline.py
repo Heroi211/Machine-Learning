@@ -104,6 +104,10 @@ class Baseline:
         self.y_test = None
         self.ratio = None
         self.model = None
+        
+        logger.info(f"Objective: {self.objective}")
+        logger.info(f"Random state: {self.random_state}")
+        logger.info(f"Test size: {self.test_size}")
     
     def load_data(self):
         """
@@ -136,7 +140,7 @@ class Baseline:
             self.current_csv_path = file_must_modern
             logger.info(f"Arquivo CSV encontrado (modo legado — último ctime): {file_must_modern}")
             self.data = pd.read_csv(file_must_modern)
-        self.target = self.data.columns.to_list().pop() 
+        self.target = self.data.columns.to_list().pop()
         
         
         logger.debug(f"Dataset carregado {self.data.shape}")
@@ -478,7 +482,7 @@ if __name__=="__main__":
     logger = setup_log(psnapshot_path, pagora)
     start_time = datetime.now()
     logger.info(f"Iniciando o pipeline: {start_time}")
-    pipeline = Baseline(pobjective="Heart_Disease")
+    pipeline = Baseline(pobjective="heart_disease")
     try:
         pipeline.run(start_time)
         pipeline.save_artifacts()

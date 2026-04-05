@@ -101,6 +101,7 @@ class FeatureEngineering:
             logger.info(f"Arquivo selecionado (modo legado — último ctime): {file_must_modern}")
 
         df = pd.read_csv(file_must_modern)
+        df.columns = df.columns.str.lower()
 
         has_prefixes = any("__" in col for col in df.columns)
         if has_prefixes:
@@ -109,8 +110,7 @@ class FeatureEngineering:
 
         logger.info(f"Colunas: {df.columns.tolist()}")
 
-        target_column = df.columns[-1]
-        if target_column != "target":
+        if not 'target' in df.columns:
             logger.error(f"Coluna 'target' não encontrada no dataset pré-processado no final do CSV.")
             raise ValueError("Pipeline interrompido — coluna 'target' não encontrada no dataset pré-processado.")
         
