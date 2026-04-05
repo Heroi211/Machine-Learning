@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
 import logging
 
@@ -6,9 +6,11 @@ class Settings(BaseSettings):
     """
     Configurações centralizadas com validação de tipo automática.
     Carrega do .env e converte para tipos corretos.
-    
-    Mapeia explicitamente cada field para sua variável de ambiente.
+
+    extra='ignore': o mesmo .env serve à API e ao Docker Compose; variáveis como
+    AIRFLOW_UID, PGADMIN_*, TIMEZONE não pertencem ao Settings e são ignoradas.
     """
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
     
     # Caminhos
     path_data: str = Field(default="data/",validation_alias="PATH_DATA",description="Path para dados brutos")
@@ -46,10 +48,11 @@ class Settings(BaseSettings):
     log_http_requests_backup_count: int = Field(default=5, validation_alias="LOG_HTTP_REQUESTS_BACKUP_COUNT", description="Número de arquivos access.jsonl.* retidos após rotação")
     path_maintenance_reports: str = Field(default="artifacts/reports", validation_alias="PATH_MAINTENANCE_REPORTS", description="Saídas dos scripts de manutenção (latência, drift, relatórios)")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        
+    airflow_base_url: str = Field(default="http://airflow-webserver:8080", validation_alias="AIRFLOW_BASE_URL", description="URL base do Airflow")
+    airflow_user: str = Field(default="airflow", validation_alias="AIRFLOW_USER", description="Usuário do Airflow")
+    airflow_password: str = Field(default="airflow", validation_alias="AIRFLOW_PASSWORD", description="Senha do Airflow")
+    ml_shared_path: str = Field(default="ml_shared/uploads", validation_alias="ML_SHARED_PATH", description="Caminho compartilhado para upload de arquivos")
+    
     def get_log_level(self) -> int:
         """Retorna o nível de logging baseado em debug""" 
         return logging.DEBUG if self.debug else logging.INFO

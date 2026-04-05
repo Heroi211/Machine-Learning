@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.auth import auth_service as auth_service
 from sqlalchemy.exc import IntegrityError
 from core.auth import _generate_access_token
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -25,6 +28,7 @@ async def signup(user: users_schemas.users_create,db:AsyncSession = Depends(get_
 @router.post('/authenticate',status_code=status.HTTP_200_OK)
 async def login(form_data:OAuth2PasswordRequestForm = Depends(),db:AsyncSession = Depends(get_session)):
     user = await auth_service.authorize(form_data.username,form_data.password,db)
+    logger.info(f"User: {user}")
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Dados incorretos")

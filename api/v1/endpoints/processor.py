@@ -1,27 +1,46 @@
 import json
 import os
 import uuid
-import httpx
 
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Form
+import httpx
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
-from models.users import Users as users_models
-from core.deps import get_session, get_current_user, require_admin
+
 from core.configs import settings
+from core.deps import get_current_user, get_session, require_admin
+from models.users import Users as users_models
 from schemas import processor_schemas
 from services.processor import processor_service
-from services.processor.deployment_service import NoActiveDeploymentError, promote_pipeline_run, get_deployment_history, rollback_deployment, RollbackError
-from sqlalchemy.ext.asyncio import AsyncSession
+from services.processor.deployment_service import (
+    NoActiveDeploymentError,
+    RollbackError,
+    get_deployment_history,
+    promote_pipeline_run,
+    rollback_deployment,
+)
 
 router = APIRouter()
 
-AIRFLOW_BASE_URL = os.environ.get("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
-AIRFLOW_USER = os.environ.get("AIRFLOW_USER", "airflow")
-AIRFLOW_PASSWORD = os.environ.get("AIRFLOW_PASSWORD", "airflow")
-ML_SHARED_PATH = os.environ.get("ML_SHARED_PATH", "ml_shared/uploads")
+AIRFLOW_BASE_URL = settings.airflow_base_url
+AIRFLOW_USER = settings.airflow_user
+AIRFLOW_PASSWORD = settings.airflow_password
+ML_SHARED_PATH = settings.ml_shared_path
 
 
-@router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
+@router.post(
+    "/predict",
+    status_code=status.HTTP_200_OK,
+    response_model=processor_schemas.PredictResponse,
+)
 async def predict(
     payload: processor_schemas.PredictRequest,
     db: AsyncSession = Depends(get_session),
@@ -75,7 +94,11 @@ async def admin_promote(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/admin/train/trigger-dag", status_code=status.HTTP_202_ACCEPTED, response_model=processor_schemas.TriggerDagResponse)
+@router.post(
+    "/admin/train/trigger-dag",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=processor_schemas.TriggerDagResponse,
+)
 async def admin_trigger_dag(
     file: UploadFile = File(...),
     objective: str = Form(...),
@@ -112,9 +135,15 @@ async def admin_trigger_dag(
             )
             resp.raise_for_status()
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Airflow recusou o trigger: {e.response.text}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Airflow recusou o trigger: {e.response.text}",
+        )
     except httpx.RequestError as e:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Airflow indisponível: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Airflow indisponível: {str(e)}",
+        )
 
     return processor_schemas.TriggerDagResponse(
         dag_run_id=dag_run_id,
@@ -125,17 +154,36 @@ async def admin_trigger_dag(
     )
 
 
-@router.get("/admin/deployments/{domain}/history", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.DeployedModelResponse])
-async def admin_deployment_history(domain: str, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+@router.get(
+    "/admin/deployments/{domain}/history",
+    status_code=status.HTTP_200_OK,
+    response_model=list[processor_schemas.DeployedModelResponse],
+)
+async def admin_deployment_history(
+    domain: str,
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
+):
     """Lista os últimos deployments (active + archived) do domínio, do mais recente ao mais antigo."""
     records = await get_deployment_history(domain=domain, db=db)
     if not records:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Nenhum deployment encontrado para o domínio '{domain}'.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Nenhum deployment encontrado para o domínio '{domain}'.",
+        )
     return records
 
 
-@router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
-async def admin_rollback(payload: processor_schemas.RollbackRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+@router.post(
+    "/admin/rollback",
+    status_code=status.HTTP_200_OK,
+    response_model=processor_schemas.DeployedModelResponse,
+)
+async def admin_rollback(
+    payload: processor_schemas.RollbackRequest,
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
+):
     """Reverte para o deployment archived mais recente do domínio, arquivando o active atual."""
     try:
         dep = await rollback_deployment(domain=payload.domain, db=db)
@@ -143,7 +191,10 @@ async def admin_rollback(payload: processor_schemas.RollbackRequest, db: AsyncSe
     except RollbackError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Rollback falhou: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Rollback falhou: {str(e)}",
+        )
 
 
 def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
@@ -184,7 +235,12 @@ async def admin_train_baseline(
     admin: users_models = Depends(require_admin),
 ):
     try:
-        run = await processor_service.run_baseline(file=file, objective=objective, user_id=admin.id, db=db)
+        run = await processor_service.run_baseline(
+            file=file,
+            objective=objective,
+            user_id=admin.id,
+            db=db,
+        )
         return _file_response_for_run(run, "baseline")
     except HTTPException:
         raise
