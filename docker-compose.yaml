@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ---------------------------------------------------------------------------
 # Para subir o ambiente:
 #   1. cp .env_example .env   (preencher as variáveis)
@@ -13,6 +11,7 @@ version: "3.9"
 
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9.1
+  user: "${AIRFLOW_UID:-50000}:0"
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DATABASE_USER}:${DATABASE_PASS}@db_processing/${DATABASE_NAME}
@@ -32,7 +31,8 @@ x-airflow-common: &airflow-common
     AIRFLOW_UID: ${AIRFLOW_UID:-50000}
   volumes:
     - ./airflow/dags:/opt/airflow/dags
-    - ./airflow/logs:/opt/airflow/logs
+    # Volume nomeado evita Permission denied (UID airflow vs pasta no host)
+    - airflow_logs:/opt/airflow/logs
     - ./airflow/plugins:/opt/airflow/plugins
     # Volume compartilhado entre API e Airflow para troca de CSVs e modelos
     - ml_shared:/opt/airflow/ml_project
@@ -105,9 +105,11 @@ services:
     image: pgadmin_db:v1
     container_name: pgadmin_db
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-changeme}
     ports:
       - "5050:80"
     depends_on:
@@ -132,12 +134,18 @@ services:
   airflow-init:
     <<: *airflow-common
     container_name: airflow_init
+    user: "0:0"
     entrypoint: /bin/bash
     command:
       - -c
       - |
-        airflow db migrate
-        airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true
+        set -e
+        mkdir -p /opt/airflow/logs/scheduler /opt/airflow/logs/dag_processor
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
+        exec /entrypoint bash -c '
+          airflow db migrate
+          airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true
+        '
     restart: "no"
 
   # ---------- Airflow — scheduler ------------------------------------------
@@ -181,3 +189,4 @@ volumes:
   api_logs:
   api_graphs:
   ml_shared:
+  airflow_logs:

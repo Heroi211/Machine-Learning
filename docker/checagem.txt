@@ -1,0 +1,19 @@
+cd /home/gabriel/Machine-Learning
+docker compose ps -a
+
+curl -s -o /dev/null -w "API docs: %{http_code}\n" http://localhost:8000/docs
+curl -s -o /dev/null -w "Airflow health: %{http_code}\n" http://localhost:8080/health
+curl -s -o /dev/null -w "pgAdmin: %{http_code}\n" http://localhost:5050/
+curl -s -o /dev/null -w "Dozzle: %{http_code}\n" http://localhost:8888/
+
+curl -s http://localhost:8000/health 2>/dev/null || echo "(sem rota /health — usa /docs)"
+
+docker compose exec db_processing sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT current_database(), now();"'
+
+docker compose exec airflow-scheduler airflow version
+docker compose exec airflow-scheduler airflow dags list
+
+http://localhost:8000/docs	Swagger abre
+http://localhost:8080	Login Airflow (airflow / airflow se não mudaste)
+http://localhost:5050	Login pgAdmin e ligação ao servidor db_processing
+http://localhost:8888	Dozzle mostra streams de logs
