@@ -52,7 +52,7 @@ async def promote_pipeline_run(
     """
     d = _normalize_domain(domain)
 
-    stmt_run = select(PipelineRuns).where(PipelineRuns.id == pipeline_run_id)
+    stmt_run = select(PipelineRuns).where(PipelineRuns.id == pipeline_run_id, PipelineRuns.active==True)
     res = await db.execute(stmt_run)
     run = res.scalars().one_or_none()
     if not run:
