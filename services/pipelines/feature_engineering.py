@@ -63,14 +63,7 @@ class FeatureEngineering:
     treinamento comparativo, tuning e persistência.
     """
 
-    def __init__(
-        self,
-        objective: str,
-        strategy: FeatureStrategy,
-        run_timestamp: str | None = None,
-        csv_path: str | None = None,
-        optimization_metric: str = "accuracy",
-    ):
+    def __init__(self, objective: str, strategy: FeatureStrategy, run_timestamp: str | None = None, csv_path: str | None = None, optimization_metric: str = "accuracy"):
         self.objective = objective
         self.strategy = strategy
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None

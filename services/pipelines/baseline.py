@@ -82,7 +82,7 @@ class Baseline:
         self.test_size = ptest_size
         self.random_state = prandom_state
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
-        # Labels das classes: usa o padrão baseado no objective se não for fornecido
+        
         if class_labels is not None:
             self.label_neg, self.label_pos = class_labels
         else:

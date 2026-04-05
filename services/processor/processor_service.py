@@ -47,7 +47,13 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
                 objective=objective,
                 pipeline_type="baseline",
             )
-            pipeline = Baseline(pobjective=objective, run_timestamp=run_ts, csv_path=input_path)
+            from services.pipelines.feature_strategies import get_class_labels
+            pipeline = Baseline(
+                pobjective=objective,
+                run_timestamp=run_ts,
+                csv_path=input_path,
+                class_labels=get_class_labels(objective),
+            )
             pipeline.run(start_time=datetime.now())
             pipeline.save_artifacts()
 
