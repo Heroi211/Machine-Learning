@@ -307,7 +307,26 @@ Verificar com: `python scripts/maintenance/latency_report.py --slo-ms 300`
 
 ---
 
-## 10. Limitações conhecidas
+## 10. Critério de promoção de modelos
+
+Um modelo só deve ser promovido para produção quando **todas** as condições abaixo forem atendidas:
+
+| Critério | Threshold |
+|----------|-----------|
+| Métrica principal do novo run > modelo ativo | ≥ +2% |
+| PSI médio das features (drift) | < 0.10 |
+| Run com `status = completed` e artefato existente | Obrigatório |
+
+**Processo:**
+1. Rodar `drift_report.py` com CSV de treino e export de predições recentes.
+2. Confirmar PSI médio abaixo de 0.10.
+3. Comparar métricas do run candidato com `GET /processor/admin/deployments/{domain}/history`.
+4. Se aprovado: `POST /processor/admin/promote`.
+5. Em caso de problema após promoção: `POST /processor/admin/rollback`.
+
+---
+
+## 11. Limitações conhecidas
 
 - **Escopo:** apenas classificação binária tabulada. Regressão e multiclasse não suportados.
 - **Desbalanceamento:** tratado via `class_weight='balanced'` na Regressão Logística do Baseline. Estratégias de reamostragem (SMOTE) não implementadas.

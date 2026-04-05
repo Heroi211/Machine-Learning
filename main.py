@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from core.configs import settings
+from core.logging_setup import setup_root_logging
 from core.logging_api_request import setup_api_request_logging
 from api.v1 import api
 from core.middleware.request_record import request_record
 
+setup_root_logging()
 setup_api_request_logging()
 
 app = FastAPI(title=settings.project_name,version=settings.project_version)

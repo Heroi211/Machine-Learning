@@ -13,6 +13,10 @@ from models.pipeline_runs import PipelineRuns
 from services.utils import utcnow
 
 
+class RollbackError(Exception):
+    """Não existe deployment archived para restaurar no domínio."""
+
+
 class NoActiveDeploymentError(Exception):
     """Não existe modelo ativo para o domínio solicitado."""
 
@@ -84,3 +88,47 @@ async def promote_pipeline_run(
     await db.refresh(row)
     await db.refresh(row, attribute_names=["pipeline_run"])
     return row
+
+
+async def get_deployment_history(domain: str, db: AsyncSession, limit: int = 10) -> list[DeployedModels]:
+    """Retorna os últimos `limit` deployments (active + archived) para o domínio, do mais recente ao mais antigo."""
+    d = _normalize_domain(domain)
+    stmt = (
+        select(DeployedModels)
+        .where(DeployedModels.domain == d)
+        .order_by(DeployedModels.promoted_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def rollback_deployment(domain: str, db: AsyncSession) -> DeployedModels:
+    """
+    Reverte para o deployment archived mais recente do domínio.
+    Arquiva o active atual e reativa o último archived.
+    """
+    d = _normalize_domain(domain)
+
+    stmt_archived = (
+        select(DeployedModels)
+        .where(DeployedModels.domain == d, DeployedModels.status == "archived")
+        .order_by(DeployedModels.promoted_at.desc())
+        .limit(1)
+    )
+    res = await db.execute(stmt_archived)
+    previous = res.scalars().one_or_none()
+    if not previous:
+        raise RollbackError(f"Nenhum deployment archived encontrado para o domínio '{domain}'.")
+
+    await db.execute(
+        update(DeployedModels)
+        .where(DeployedModels.domain == d, DeployedModels.status == "active")
+        .values(status="archived")
+    )
+
+    previous.status = "active"
+    db.add(previous)
+    await db.commit()
+    await db.refresh(previous)
+    return previous

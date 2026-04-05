@@ -56,3 +56,22 @@ class DeployedModelResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RollbackRequest(BaseModel):
+    domain: str = Field(description="Domínio a reverter para o deployment anterior (archived mais recente).")
+
+
+class TriggerDagRequest(BaseModel):
+    objective: str = Field(description="Domínio do problema (ex.: heart_disease, churn).")
+    optimization_metric: str = Field(default="accuracy", description="Métrica para seleção do melhor modelo no FE.")
+    time_limit_minutes: int = Field(default=2, description="Orçamento de tempo para tuning (minutos).")
+    acc_target: float = Field(default=0.90, description="Alvo de performance para o tuning.")
+
+
+class TriggerDagResponse(BaseModel):
+    dag_run_id: str
+    dag_id: str
+    objective: str
+    csv_path: str
+    message: str

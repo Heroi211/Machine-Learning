@@ -1,16 +1,24 @@
 import json
 import os
+import uuid
+import httpx
 
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Form
 from starlette.responses import FileResponse
 from models.users import Users as users_models
 from core.deps import get_session, get_current_user, require_admin
+from core.configs import settings
 from schemas import processor_schemas
 from services.processor import processor_service
-from services.processor.deployment_service import NoActiveDeploymentError, promote_pipeline_run
+from services.processor.deployment_service import NoActiveDeploymentError, promote_pipeline_run, get_deployment_history, rollback_deployment, RollbackError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
+
+AIRFLOW_BASE_URL = os.environ.get("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
+AIRFLOW_USER = os.environ.get("AIRFLOW_USER", "airflow")
+AIRFLOW_PASSWORD = os.environ.get("AIRFLOW_PASSWORD", "airflow")
+ML_SHARED_PATH = os.environ.get("ML_SHARED_PATH", "ml_shared/uploads")
 
 
 @router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
@@ -65,6 +73,77 @@ async def admin_promote(
         return dep
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/admin/train/trigger-dag", status_code=status.HTTP_202_ACCEPTED, response_model=processor_schemas.TriggerDagResponse)
+async def admin_trigger_dag(
+    file: UploadFile = File(...),
+    objective: str = Form(...),
+    optimization_metric: str = Form("accuracy"),
+    time_limit_minutes: int = Form(2),
+    acc_target: float = Form(0.90),
+    admin: users_models = Depends(require_admin),
+):
+    """Grava o CSV em volume compartilhado e dispara o DAG de treino no Airflow."""
+    upload_dir = os.path.join(ML_SHARED_PATH)
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = f"{objective}_{uuid.uuid4().hex[:8]}_{file.filename}"
+    csv_path = os.path.join(upload_dir, filename)
+    content = await file.read()
+    with open(csv_path, "wb") as f:
+        f.write(content)
+
+    dag_run_id = f"manual__{objective}_{uuid.uuid4().hex[:8]}"
+    dag_conf = {
+        "objective": objective,
+        "csv_path": csv_path,
+        "optimization_metric": optimization_metric,
+        "time_limit_minutes": time_limit_minutes,
+        "acc_target": acc_target,
+        "user_id": admin.id,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{AIRFLOW_BASE_URL}/api/v1/dags/ml_training_pipeline/dagRuns",
+                json={"dag_run_id": dag_run_id, "conf": dag_conf},
+                auth=(AIRFLOW_USER, AIRFLOW_PASSWORD),
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Airflow recusou o trigger: {e.response.text}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Airflow indisponível: {str(e)}")
+
+    return processor_schemas.TriggerDagResponse(
+        dag_run_id=dag_run_id,
+        dag_id="ml_training_pipeline",
+        objective=objective,
+        csv_path=csv_path,
+        message=f"DAG disparado. Acompanhe em {AIRFLOW_BASE_URL}/dags/ml_training_pipeline/grid",
+    )
+
+
+@router.get("/admin/deployments/{domain}/history", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.DeployedModelResponse])
+async def admin_deployment_history(domain: str, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+    """Lista os últimos deployments (active + archived) do domínio, do mais recente ao mais antigo."""
+    records = await get_deployment_history(domain=domain, db=db)
+    if not records:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Nenhum deployment encontrado para o domínio '{domain}'.")
+    return records
+
+
+@router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
+async def admin_rollback(payload: processor_schemas.RollbackRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+    """Reverte para o deployment archived mais recente do domínio, arquivando o active atual."""
+    try:
+        dep = await rollback_deployment(domain=payload.domain, db=db)
+        return dep
+    except RollbackError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Rollback falhou: {str(e)}")
 
 
 def _file_response_for_run(run, pipeline_type: str) -> FileResponse:

@@ -3,11 +3,44 @@ version: "3.9"
 # ---------------------------------------------------------------------------
 # Para subir o ambiente:
 #   1. cp .env_example .env   (preencher as variáveis)
-#   2. docker compose up --build
-#   3. API disponível em http://localhost:8000/docs
-#   4. Logs em tempo real:    http://localhost:8888   (Dozzle)
-#   5. Banco via pgAdmin:     http://localhost:5050
+#   2. echo "AIRFLOW_UID=$(id -u)" >> .env
+#   3. docker compose up --build
+#   4. API disponível em:       http://localhost:8000/docs
+#   5. Airflow disponível em:   http://localhost:8080  (user: airflow / pass: airflow)
+#   6. Logs em tempo real:      http://localhost:8888  (Dozzle)
+#   7. Banco via pgAdmin:       http://localhost:5050
 # ---------------------------------------------------------------------------
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.1
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DATABASE_USER}:${DATABASE_PASS}@db_processing/${DATABASE_NAME}
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    # Variáveis repassadas aos DAGs para acesso ao projeto ML
+    ML_API_URL: http://api_processing:8000
+    ML_PROJECT_ROOT: /opt/airflow/ml_project
+    DATABASE_USER: ${DATABASE_USER}
+    DATABASE_PASS: ${DATABASE_PASS}
+    DATABASE_SERVER: db_processing
+    DATABASE_PORT: ${DATABASE_PORT}
+    DATABASE_NAME: ${DATABASE_NAME}
+    AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    # Volume compartilhado entre API e Airflow para troca de CSVs e modelos
+    - ml_shared:/opt/airflow/ml_project
+  depends_on:
+    db_processing:
+      condition: service_healthy
+  networks:
+    - nwprocessing
 
 services:
 
@@ -47,7 +80,6 @@ services:
     env_file:
       - .env
     environment:
-      # Aponta o servidor do banco para o nome do serviço interno do compose
       DATABASE_SERVER: db_processing
     depends_on:
       db_processing:
@@ -57,12 +89,13 @@ services:
     networks:
       - nwprocessing
     volumes:
-      # Persistência de dados, modelos e logs entre reinicializações
       - api_data:/var/www/data
       - api_models:/var/www/models
       - api_artifacts:/var/www/artifacts
       - api_logs:/var/www/logs
       - api_graphs:/var/www/graphs
+      # Volume compartilhado com Airflow
+      - ml_shared:/var/www/ml_shared
 
   # ---------- pgAdmin (interface web para o banco) -------------------------
   pgadmin:
@@ -95,6 +128,45 @@ services:
     networks:
       - nwprocessing
 
+  # ---------- Airflow — inicialização (roda uma vez e encerra) -------------
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true
+    restart: "no"
+
+  # ---------- Airflow — scheduler ------------------------------------------
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow_scheduler
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ---------- Airflow — webserver ------------------------------------------
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow_webserver
+    command: webserver
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
 # ---------------------------------------------------------------------------
 networks:
   nwprocessing:
@@ -108,3 +180,4 @@ volumes:
   api_artifacts:
   api_logs:
   api_graphs:
+  ml_shared:
