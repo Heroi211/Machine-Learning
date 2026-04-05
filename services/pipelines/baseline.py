@@ -58,7 +58,21 @@ class Baseline:
     - Modelo gerado serve como referência mínima; comparar sempre com o
       pipeline de Feature Engineering antes de promover para produção.
     """
-    def __init__(self, pobjective, run_timestamp: str | None = None, csv_path: str | None = None):
+    def __init__(self, pobjective, run_timestamp: str | None = None, csv_path: str | None = None, class_labels: tuple[str, str] | None = None):
+        """
+        Parameters
+        ----------
+        pobjective : str
+            Identificador do domínio (ex.: "heart_disease", "churn").
+        run_timestamp : str, optional
+            Timestamp do run para naming de artefatos. Gerado automaticamente se omitido.
+        csv_path : str, optional
+            Caminho explícito do CSV (upload via API). Se omitido, usa o mais recente em PATH_DATA.
+        class_labels : tuple[str, str], optional
+            Rótulos semânticos das classes (negativa, positiva).
+            Padrão: ("Sem <objective>", "<objective>").
+            Exemplo para churn: ("Não Churn", "Churn").
+        """
         self.path_data = ppath_data
         self.path_data_preprocessed = ppath_data_preprocessed
         self.path_model = ppath_model
@@ -68,6 +82,12 @@ class Baseline:
         self.test_size = ptest_size
         self.random_state = prandom_state
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
+        # Labels das classes: usa o padrão baseado no objective se não for fornecido
+        if class_labels is not None:
+            self.label_neg, self.label_pos = class_labels
+        else:
+            self.label_neg = f"Sem {self.objective}"
+            self.label_pos = str(self.objective)
         if run_timestamp is not None:
             self.now = run_timestamp
             self.snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_timestamp)
@@ -210,21 +230,21 @@ class Baseline:
         logger.info(f"Contagem\n {target_counts}")
         logger.info("\nPercentual:")
         for idx, pct in target_percentages.items():
-            label = f"Sem {self.objective}" if idx==0 else f"{self.objective}"
+            label = self.label_neg if idx == 0 else self.label_pos
             logger.info(f"{label} ({idx}): {pct:.2f}")
-            
+
         gr.build_report(
-            g_type=3, # PIE
+            g_type=3,  # PIE
             x_data=target_counts.values,
-            labels=[f'Sem {self.objective} (0)', f'{self.objective} (1)'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
+            labels=[f"{self.label_neg} (0)", f"{self.label_pos} (1)"],
             title="Proporção da Variável Target",
             filename=f"target_distribution_pie_{self.now}.png",
             color="coral"
         )
         gr.build_report(
-            g_type=2, 
-            x_data=[f'Sem {self.objective}', f'{self.objective}'], #No futuro, entender como tornar isso dinamico para ser usado em outros datasets
-            y_data=target_counts.values,    
+            g_type=2,
+            x_data=[self.label_neg, self.label_pos],
+            y_data=target_counts.values,
             title="Distribuição Absoluta da Target",
             ylabel="Quantidade",
             filename=f"target_distribution_bar_{self.now}.png",
