@@ -89,13 +89,7 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
     return run
 
 
-async def run_feature_engineering(
-    file: UploadFile,
-    objective: str,
-    user_id: int,
-    db: AsyncSession,
-    optimization_metric: str = "accuracy",
-) -> PipelineRuns:
+async def run_feature_engineering(file: UploadFile, objective: str, user_id: int, db: AsyncSession, optimization_metric: str = "accuracy", time_limit_minutes: int = 2, acc_target: float = 0.90) -> PipelineRuns:
     """Salva o CSV pré-processado, executa o Feature Engineering e persiste o resultado."""
     from services.pipelines.feature_engineering import FeatureEngineering
     from services.pipelines.feature_strategies import STRATEGY_REGISTRY
@@ -122,22 +116,10 @@ async def run_feature_engineering(
         try:
             run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             snapshot_path = os.path.join(settings.path_data, settings.path_logs, run_ts)
-            setup_pipeline_run_logging(
-                snapshot_path,
-                run_ts,
-                run_id=run.id,
-                objective=objective,
-                pipeline_type="feature_engineering",
-            )
+            setup_pipeline_run_logging(snapshot_path, run_ts, run_id=run.id, objective=objective, pipeline_type="feature_engineering")
             strategy = STRATEGY_REGISTRY[objective]()
-            pipeline = FeatureEngineering(
-                objective=objective,
-                strategy=strategy,
-                run_timestamp=run_ts,
-                csv_path=input_path,
-                optimization_metric=metric,
-            )
-            pipeline.run()
+            pipeline = FeatureEngineering(objective=objective, strategy=strategy, run_timestamp=run_ts, csv_path=input_path, optimization_metric=metric)
+            pipeline.run(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
 
             run.status = "completed"
             merged_metrics = dict(pipeline.tuned_metrics)

@@ -125,6 +125,8 @@ async def admin_train_feature_engineering(
     file: UploadFile = File(...),
     objective: str = Form(...),
     optimization_metric: str = Form("accuracy"),
+    time_limit_minutes: int = Form(2),
+    acc_target: float = Form(0.90),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
@@ -135,6 +137,8 @@ async def admin_train_feature_engineering(
             user_id=admin.id,
             db=db,
             optimization_metric=optimization_metric,
+            time_limit_minutes=time_limit_minutes,
+            acc_target=acc_target,
         )
         return _file_response_for_run(run, "feature_engineering")
     except HTTPException:

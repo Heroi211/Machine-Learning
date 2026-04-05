@@ -17,37 +17,18 @@ from sklearn.model_selection import train_test_split, cross_val_score, Stratifie
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline as SkPipeline
 from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.ensemble import (
-    RandomForestClassifier,
-    GradientBoostingClassifier,
-)
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    classification_report,
-)
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
 from sklearn.inspection import permutation_importance
 from scipy.stats import randint, uniform
 
 from core.configs import settings
 from core.custom_logger import setup_log
 from services.pipelines.feature_strategies.base import FeatureStrategy
-from services.pipelines.fe_hyperparameter_tuning import (
-    build_fresh_tuning_pipeline,
-    param_distributions_for,
-)
-from services.pipelines.fe_model_selection import (
-    normalize_optimization_metric,
-    result_column_for_metric,
-    select_best_model_after_training,
-    sklearn_scoring_parameter,
-    test_set_score,
-)
+from services.pipelines.fe_hyperparameter_tuning import build_fresh_tuning_pipeline, param_distributions_for
+from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, select_best_model_after_training, sklearn_scoring_parameter, test_set_score
 
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
@@ -490,7 +471,7 @@ class FeatureEngineering:
     # Orquestrador
     # ------------------------------------------------------------------
 
-    def run(self):
+    def run(self, time_limit_minutes: int, acc_target: float):
         start_time = datetime.now()
         logger.info(f"Pipeline de Feature Engineering iniciado: {start_time}")
 
@@ -506,7 +487,7 @@ class FeatureEngineering:
         self.train_models()
         logger.debug(f"Modelos treinados: {datetime.now() - start_time}")
 
-        self.tune(time_limit_minutes=2)
+        self.tune(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
         logger.debug(f"Tuning concluído: {datetime.now() - start_time}")
 
         self.evaluate_importance()
