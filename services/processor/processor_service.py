@@ -2,9 +2,9 @@ import logging
 import os
 from datetime import datetime
 
-import pandas as pd
-import numpy as np
 import joblib
+import numpy as np
+import pandas as pd
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,94 @@ from services.utils import utcnow
 logger = logging.getLogger(__name__)
 
 
-async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSession) -> PipelineRuns:
+def _sklearn_feature_names(model) -> list[str] | None:
+    """Nomes de features esperados pelo estimador sklearn (Pipeline ou estimador único)."""
+    if hasattr(model, "feature_names_in_"):
+        return list(model.feature_names_in_)
+    return None
+
+
+def _align_dataframe_to_model(model, df: pd.DataFrame) -> pd.DataFrame:
+    names = _sklearn_feature_names(model)
+    if not names:
+        return df
+    missing = [c for c in names if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "Colunas em falta para predição (alinhar ao treino): " + ", ".join(missing)
+        )
+    return df[names]
+
+
+def _baseline_clean_encode_predict(df: pd.DataFrame) -> pd.DataFrame:
+    """Espelha `Baseline.clean_and_encode` para uma linha (predição). Exige coluna `target` (dummy)."""
+    df_clean = df.copy()
+    if "dataset" in df_clean.columns:
+        df_clean = df_clean.drop(columns=["dataset"])
+    if "target" not in df_clean.columns:
+        df_clean["target"] = 0
+
+    non_numeric = df_clean.drop(columns="target").select_dtypes(exclude=[np.number]).columns.tolist()
+    num_cols = df_clean.drop(columns="target").select_dtypes(include=[np.number]).columns.tolist()
+
+    for col in non_numeric:
+        if df_clean[col].isnull().any():
+            mode = df_clean[col].mode()[0]
+            df_clean[col] = df_clean[col].fillna(mode)
+
+    for col in num_cols:
+        if df_clean[col].isnull().any():
+            median = df_clean[col].median()
+            df_clean[col] = df_clean[col].fillna(median)
+
+    if df_clean.isnull().sum().sum() > 0:
+        raise ValueError("Valores nulos após imputação — complete o payload de features.")
+
+    cat_cols = []
+    for col in non_numeric:
+        unique_vals = set(df_clean[col].unique())
+        if unique_vals <= {True, False}:
+            df_clean[col] = df_clean[col].astype(bool)
+        else:
+            cat_cols.append(col)
+
+    if cat_cols:
+        df_clean = pd.get_dummies(df_clean, columns=cat_cols, drop_first=True)
+
+    return df_clean.drop(columns=["target"])
+
+
+def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict) -> pd.DataFrame:
+    """
+    Constrói o DataFrame de entrada como no treino:
+    - feature_engineering: chaves minúsculas (como `FeatureEngineering.load_data`) + strategy.build
+    - baseline: chaves como enviadas (mesmos nomes que no CSV de treino) + clean/encode
+    """
+    ptype = run.pipeline_type
+    d = domain.strip().lower()
+
+    if ptype == "feature_engineering":
+        from services.pipelines.feature_strategies import STRATEGY_REGISTRY
+
+        if d not in STRATEGY_REGISTRY:
+            raise ValueError(f"Domínio {domain!r} sem strategy. Disponíveis: {list(STRATEGY_REGISTRY.keys())}")
+        row = {str(k).strip().lower(): v for k, v in features.items()}
+        row.pop("target", None)
+        df = pd.DataFrame([row])
+        strategy = STRATEGY_REGISTRY[d]()
+        strategy.validate(df)
+        return strategy.build(df)
+
+    if ptype == "baseline":
+        row = {str(k).strip(): v for k, v in features.items()}
+        row.pop("target", None)
+        df = pd.DataFrame([row])
+        return _baseline_clean_encode_predict(df)
+
+    raise ValueError(f"pipeline_type não suportado para predição: {ptype!r}")
+
+
+async def run_baseline(file: UploadFile, objective: str, user_id: int, db: AsyncSession) -> PipelineRuns:
     """Salva o CSV enviado, executa o Baseline e persiste o resultado."""
     from services.pipelines.baseline import Baseline
     from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
@@ -30,7 +117,7 @@ async def run_baseline(file: UploadFile,objective: str,user_id: int,db: AsyncSes
     with open(input_path, "wb") as f:
         f.write(content)
 
-    run = PipelineRuns(user_id=user_id,pipeline_type="baseline",objective=objective,status="processing",original_filename=file.filename)
+    run = PipelineRuns(user_id=user_id, pipeline_type="baseline", objective=objective, status="processing", original_filename=file.filename)
 
     async with db as session:
         session.add(run)
@@ -106,7 +193,7 @@ async def run_feature_engineering(file: UploadFile, objective: str, user_id: int
     with open(input_path, "wb") as f:
         f.write(content)
 
-    run = PipelineRuns(user_id=user_id,pipeline_type="feature_engineering",objective=objective,status="processing",original_filename=file.filename)
+    run = PipelineRuns(user_id=user_id, pipeline_type="feature_engineering", objective=objective, status="processing", original_filename=file.filename)
 
     async with db as session:
         session.add(run)
@@ -159,7 +246,8 @@ async def predict_for_domain(domain: str, features: dict, user_id: int, db: Asyn
 
         model = joblib.load(run.model_path)
 
-        df_input = pd.DataFrame([features])
+        df_input = _prepare_prediction_features(run, domain, features)
+        df_input = _align_dataframe_to_model(model, df_input)
 
         prediction_value = int(model.predict(df_input)[0])
 
