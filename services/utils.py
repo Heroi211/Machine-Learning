@@ -17,4 +17,3 @@ def utcnow() -> datetime:
     return datetime.now(pytz.UTC).replace(tzinfo=None)
 
     
-

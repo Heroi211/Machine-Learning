@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import Optional
 from datetime import datetime
+from enum import Enum
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PipelineRunResponse(BaseModel):
@@ -21,11 +23,75 @@ class PipelineRunResponse(BaseModel):
         from_attributes = True
 
 
-class PredictRequest(BaseModel):
-    domain: str = Field(
-        description="Domínio do modelo em produção (ex.: heart_disease). Deve coincidir com o objective do run promovido."
+# ---------------------------------------------------------------------------
+# Domínios ML — enum único para OpenAPI (dropdown no Swagger / clientes)
+# Alinhar novos valores a STRATEGY_REGISTRY / estratégias de FE antes de treinar.
+# ---------------------------------------------------------------------------
+
+
+class MLDomain(str, Enum):
+    """
+    Domínios de problema que o produto expõe para treino e operações.
+    Ao adicionar um valor: registar strategy em STRATEGY_REGISTRY (FE) e,
+    para predição, estender PredictRequest com Union discriminada ou schema por domínio.
+    """
+
+    heart_disease = "heart_disease"
+    churn = "churn"
+
+
+# Nome legado usado em discussões / checklist — mesmo tipo.
+PredictDomain = MLDomain
+
+
+class HeartDiseaseFeaturesInput(BaseModel):
+    """
+    Uma linha no mesmo formato do CSV pós-processado usado no treino (tipos explícitos).
+    Chaves com espaço/hífen usam alias para coincidir com o JSON.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    age: float = Field(..., description="Idade em anos")
+    trestbps: float = Field(..., description="Pressão em repouso (mmHg)")
+    chol: float = Field(..., description="Colesterol sérico (mg/dl)")
+    fbs: bool = Field(..., description="Açúcar em jejum > 120 mg/dl")
+    thalch: float = Field(..., description="Frequência cardíaca máxima alcançada")
+    exang: bool = Field(..., description="Angina induzida por exercício")
+    oldpeak: float = Field(..., description="Depressão ST induzida por exercício")
+    ca: float = Field(..., description="Número de vasos principais coloridos por fluoroscopia")
+
+    sex_Male: bool = Field(..., description="Sexo masculino (one-hot)")
+
+    cp_atypical_angina: bool = Field(..., alias="cp_atypical angina", description="Tipo de dor: angina atípica")
+    cp_non_anginal: bool = Field(..., alias="cp_non-anginal", description="Tipo de dor: não anginal")
+    cp_typical_angina: bool = Field(..., alias="cp_typical angina", description="Tipo de dor: angina típica")
+
+    restecg_normal: bool = Field(..., description="ECG em repouso: normal")
+    restecg_st_t_abnormality: bool = Field(
+        ...,
+        alias="restecg_st-t abnormality",
+        description="ECG em repouso: anormalidade ST-T",
     )
-    features: dict = Field(description="Campos do indivíduo. Ex: {'age': 55, 'chol': 250, ...}")
+
+    slope_flat: bool = Field(..., description="Inclinação do segmento ST: flat")
+    slope_upsloping: bool = Field(..., description="Inclinação do segmento ST: upsloping")
+
+    thal_normal: bool = Field(..., description="thal: normal")
+    thal_reversable_defect: bool = Field(
+        ...,
+        alias="thal_reversable defect",
+        description="thal: defeito reversível",
+    )
+
+
+class PredictRequest(BaseModel):
+    """Body válido para predição; expandir com Union discriminada quando houver mais domínios."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: MLDomain = Field(..., description="Domínio com modelo promovido em produção")
+    features: HeartDiseaseFeaturesInput = Field(..., description="Atributos do indivíduo (formato do treino)")
 
 
 class PredictResponse(BaseModel):
@@ -41,7 +107,7 @@ class PredictResponse(BaseModel):
 
 
 class PromoteRequest(BaseModel):
-    domain: str = Field(description="Domínio canónico (deve coincidir com o objective do pipeline_run)")
+    domain: MLDomain = Field(description="Domínio canónico (deve coincidir com o objective do pipeline_run)")
     pipeline_run_id: int = Field(description="ID do PipelineRuns concluído a promover")
 
 
@@ -59,11 +125,11 @@ class DeployedModelResponse(BaseModel):
 
 
 class RollbackRequest(BaseModel):
-    domain: str = Field(description="Domínio a reverter para o deployment anterior (archived mais recente).")
+    domain: MLDomain = Field(description="Domínio a reverter para o deployment anterior (archived mais recente).")
 
 
 class TriggerDagRequest(BaseModel):
-    objective: str = Field(description="Domínio do problema (ex.: heart_disease, churn).")
+    objective: MLDomain = Field(description="Domínio do problema (mesmos valores do treino / Airflow).")
     optimization_metric: str = Field(default="accuracy", description="Métrica para seleção do melhor modelo no FE.")
     time_limit_minutes: int = Field(default=2, description="Orçamento de tempo para tuning (minutos).")
     acc_target: float = Field(default=0.90, description="Alvo de performance para o tuning.")
