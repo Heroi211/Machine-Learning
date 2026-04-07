@@ -25,15 +25,19 @@ ML_SHARED_PATH = settings.ml_shared_path
 @router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
 async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = Depends(get_session), user_logged: users_models = Depends(get_current_user)):
     try:
+        features_dict = payload.features.model_dump(mode="json", by_alias=True)
         pred = await processor_service.predict_for_domain(
-            domain=payload.domain, features=payload.features, user_id=user_logged.id, db=db
+            domain=payload.domain.value, features=features_dict, user_id=user_logged.id, db=db
         )
+        prob_pct = None
+        if pred.probability is not None:
+            prob_pct = round(float(pred.probability) * 100, 2)
         return processor_schemas.PredictResponse(
             id=pred.id,
-            domain=payload.domain.strip().lower(),
+            domain=payload.domain.value,
             pipeline_run_id=pred.pipeline_run_id,
             prediction=pred.prediction,
-            probability=pred.probability,
+            probability=prob_pct,
             input_data=pred.input_data if isinstance(pred.input_data, dict) else dict(pred.input_data),
         )
     except NoActiveDeploymentError as e:
@@ -51,7 +55,7 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
 async def admin_promote(payload: processor_schemas.PromoteRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
     try:
         dep = await promote_pipeline_run(
-            domain=payload.domain, pipeline_run_id=payload.pipeline_run_id, promoted_by_user_id=admin.id, db=db
+            domain=payload.domain.value, pipeline_run_id=payload.pipeline_run_id, promoted_by_user_id=admin.id, db=db
         )
         return dep
     except ValueError as e:
@@ -60,21 +64,26 @@ async def admin_promote(payload: processor_schemas.PromoteRequest, db: AsyncSess
 
 @router.post("/admin/train/trigger-dag", status_code=status.HTTP_202_ACCEPTED, response_model=processor_schemas.TriggerDagResponse)
 async def admin_trigger_dag(
-    file: UploadFile = File(...), objective: str = Form(...), optimization_metric: str = Form("accuracy"),
-    time_limit_minutes: int = Form(2), acc_target: float = Form(0.90), admin: users_models = Depends(require_admin),
+    file: UploadFile = File(...),
+    objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
+    optimization_metric: str = Form("accuracy"),
+    time_limit_minutes: int = Form(2),
+    acc_target: float = Form(0.90),
+    admin: users_models = Depends(require_admin),
 ):
     """Grava o CSV em volume compartilhado e dispara o DAG de treino no Airflow."""
     upload_dir = os.path.join(ML_SHARED_PATH)
     os.makedirs(upload_dir, exist_ok=True)
-    filename = f"{objective}_{uuid.uuid4().hex[:8]}_{file.filename}"
+    obj = objective.value
+    filename = f"{obj}_{uuid.uuid4().hex[:8]}_{file.filename}"
     csv_path = os.path.join(upload_dir, filename)
     content = await file.read()
     with open(csv_path, "wb") as f:
         f.write(content)
 
-    dag_run_id = f"manual__{objective}_{uuid.uuid4().hex[:8]}"
+    dag_run_id = f"manual__{obj}_{uuid.uuid4().hex[:8]}"
     dag_conf = {
-        "objective": objective,
+        "objective": obj,
         "csv_path": csv_path,
         "optimization_metric": optimization_metric,
         "time_limit_minutes": time_limit_minutes,
@@ -98,19 +107,21 @@ async def admin_trigger_dag(
     return processor_schemas.TriggerDagResponse(
         dag_run_id=dag_run_id,
         dag_id="ml_training_pipeline",
-        objective=objective,
+        objective=obj,
         csv_path=csv_path,
         message=f"DAG disparado. Acompanhe em {AIRFLOW_BASE_URL}/dags/ml_training_pipeline/grid",
     )
 
 
 @router.get("/admin/deployments/{domain}/history", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.DeployedModelResponse])
-async def admin_deployment_history(domain: str, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+async def admin_deployment_history(
+    domain: processor_schemas.MLDomain, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)
+):
     """Lista os últimos deployments (active + archived) do domínio, do mais recente ao mais antigo."""
-    records = await get_deployment_history(domain=domain, db=db)
+    records = await get_deployment_history(domain=domain.value, db=db)
     if not records:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Nenhum deployment encontrado para o domínio '{domain}'."
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Nenhum deployment encontrado para o domínio '{domain.value}'."
         )
     return records
 
@@ -119,7 +130,7 @@ async def admin_deployment_history(domain: str, db: AsyncSession = Depends(get_s
 async def admin_rollback(payload: processor_schemas.RollbackRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
     """Reverte para o deployment archived mais recente do domínio, arquivando o active atual."""
     try:
-        dep = await rollback_deployment(domain=payload.domain, db=db)
+        dep = await rollback_deployment(domain=payload.domain.value, db=db)
         return dep
     except RollbackError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -149,10 +160,13 @@ def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
 
 @router.post("/admin/train/baseline", status_code=status.HTTP_201_CREATED, response_class=FileResponse)
 async def admin_train_baseline(
-    file: UploadFile = File(...), objective: str = Form(...), db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)
+    file: UploadFile = File(...),
+    objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
 ):
     try:
-        run = await processor_service.run_baseline(file=file, objective=objective, user_id=admin.id, db=db)
+        run = await processor_service.run_baseline(file=file, objective=objective.value, user_id=admin.id, db=db)
         return _file_response_for_run(run, "baseline")
     except HTTPException:
         raise
@@ -162,12 +176,17 @@ async def admin_train_baseline(
 
 @router.post("/admin/train/feature-engineering", status_code=status.HTTP_201_CREATED, response_class=FileResponse)
 async def admin_train_feature_engineering(
-    file: UploadFile = File(...), objective: str = Form(...), optimization_metric: str = Form("accuracy"),
-    time_limit_minutes: int = Form(2), acc_target: float = Form(0.90), db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin),
+    file: UploadFile = File(...),
+    objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
+    optimization_metric: str = Form("accuracy"),
+    time_limit_minutes: int = Form(2),
+    acc_target: float = Form(0.90),
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
 ):
     try:
         run = await processor_service.run_feature_engineering(
-            file=file, objective=objective, user_id=admin.id, db=db,
+            file=file, objective=objective.value, user_id=admin.id, db=db,
             optimization_metric=optimization_metric, time_limit_minutes=time_limit_minutes, acc_target=acc_target,
         )
         return _file_response_for_run(run, "feature_engineering")
