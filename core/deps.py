@@ -63,3 +63,13 @@ async def require_admin(user: users_models = Depends(get_current_user)) -> users
             detail="Acesso restrito a administradores.",
         )
     return user
+
+
+async def require_sync_training_routes_enabled(admin: users_models = Depends(require_admin)) -> users_models:
+    """Admin autenticado + treino síncrono só fora de produção (baseline / FE); em prd use o DAG (trigger-dag)."""
+    if settings.is_production:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Treino síncrono não está disponível neste ambiente. Use POST .../admin/train/trigger-dag (Airflow).",
+        )
+    return admin

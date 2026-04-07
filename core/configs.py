@@ -52,7 +52,14 @@ class Settings(BaseSettings):
     airflow_user: str = Field(default="airflow", validation_alias="AIRFLOW_USER", description="Usuário do Airflow")
     airflow_password: str = Field(default="airflow", validation_alias="AIRFLOW_PASSWORD", description="Senha do Airflow")
     ml_shared_path: str = Field(default="ml_shared/uploads", validation_alias="ML_SHARED_PATH", description="Caminho compartilhado para upload de arquivos")
-    
+
+    environment: str = Field(default="development", validation_alias="ENVIRONMENT", description="Ambiente de execução")
+
+    @property
+    def is_production(self) -> bool:
+        """Ambientes em que treino síncrono (baseline/FE via HTTP) deve ficar desligado — usar Airflow."""
+        return self.environment.strip().lower() in {"prd", "prod", "production"}
+
     def get_log_level(self) -> int:
         """Retorna o nível de logging baseado em debug""" 
         return logging.DEBUG if self.debug else logging.INFO

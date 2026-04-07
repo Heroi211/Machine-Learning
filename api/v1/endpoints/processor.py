@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
 from core.configs import settings
-from core.deps import get_current_user, get_session, require_admin
+from core.deps import get_current_user, get_session, require_admin, require_sync_training_routes_enabled
 from models.users import Users as users_models
 from schemas import processor_schemas
 from services.processor import processor_service
@@ -163,7 +163,7 @@ async def admin_train_baseline(
     file: UploadFile = File(...),
     objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
     db: AsyncSession = Depends(get_session),
-    admin: users_models = Depends(require_admin),
+    admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
     try:
         run = await processor_service.run_baseline(file=file, objective=objective.value, user_id=admin.id, db=db)
@@ -182,7 +182,7 @@ async def admin_train_feature_engineering(
     time_limit_minutes: int = Form(2),
     acc_target: float = Form(0.90),
     db: AsyncSession = Depends(get_session),
-    admin: users_models = Depends(require_admin),
+    admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
     try:
         run = await processor_service.run_feature_engineering(
