@@ -8,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
 from core.configs import settings
-from core.deps import get_current_user, get_session, require_admin, require_sync_training_routes_enabled
+from core.deps import (
+    get_current_user,
+    get_session,
+    require_admin,
+    require_airflow_api_trigger_enabled,
+    require_sync_training_routes_enabled,
+)
 from models.users import Users as users_models
 from schemas import processor_schemas
 from services.processor import processor_service
@@ -69,9 +75,9 @@ async def admin_trigger_dag(
     optimization_metric: str = Form("accuracy"),
     time_limit_minutes: int = Form(2),
     acc_target: float = Form(0.90),
-    admin: users_models = Depends(require_admin),
+    admin: users_models = Depends(require_airflow_api_trigger_enabled),
 ):
-    """Grava o CSV em volume compartilhado e dispara o DAG de treino no Airflow."""
+    """Grava o CSV em volume compartilhado e dispara o DAG (só ambientes não prod; em prd use UI do Airflow + Variables)."""
     upload_dir = os.path.join(ML_SHARED_PATH)
     os.makedirs(upload_dir, exist_ok=True)
     obj = objective.value

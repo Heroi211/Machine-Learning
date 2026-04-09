@@ -66,10 +66,26 @@ async def require_admin(user: users_models = Depends(get_current_user)) -> users
 
 
 async def require_sync_training_routes_enabled(admin: users_models = Depends(require_admin)) -> users_models:
-    """Admin autenticado + treino síncrono só fora de produção (baseline / FE); em prd use o DAG (trigger-dag)."""
+    """Admin autenticado + treino síncrono só fora de produção (baseline / FE)."""
     if settings.is_production:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Treino síncrono não está disponível neste ambiente. Use POST .../admin/train/trigger-dag (Airflow).",
+            detail=(
+                "Treino síncrono não está disponível neste ambiente. Em produção use o Airflow: "
+                "variável ml_training_pipeline_conf + CSV no volume partilhado + trigger manual do DAG."
+            ),
+        )
+    return admin
+
+
+async def require_airflow_api_trigger_enabled(admin: users_models = Depends(require_admin)) -> users_models:
+    """Disparo do DAG via API só fora de produção; em prd o fluxo é UI do Airflow + Variables."""
+    if settings.is_production:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Trigger do DAG pela API não está disponível em produção. Use a UI do Airflow: "
+                "Admin → Variables (ml_training_pipeline_conf), coloque o dataset no volume acessível ao worker e Trigger DAG."
+            ),
         )
     return admin

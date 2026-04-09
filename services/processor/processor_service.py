@@ -168,6 +168,7 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
             run.status = "failed"
             run.error_message = str(e)[:1000]
             run.completed_at = utcnow()
+            run.active = False
 
         session.add(run)
         await session.commit()
@@ -221,6 +222,7 @@ async def run_feature_engineering(file: UploadFile, objective: str, user_id: int
             run.status = "failed"
             run.error_message = str(e)[:1000]
             run.completed_at = utcnow()
+            run.active = False
 
         session.add(run)
         await session.commit()

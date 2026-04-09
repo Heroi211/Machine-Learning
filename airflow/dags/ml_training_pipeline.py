@@ -7,18 +7,24 @@ Orquestra o fluxo completo de treino de um modelo de classificação binária:
   3. Executar pipeline Feature Engineering
   4. Notificar conclusão com run_ids para decisão de promoção
 
-Disparo manual (via Swagger do Airflow ou trigger-dag da API):
-  airflow dags trigger ml_training_pipeline --conf '{
-    "objective": "heart_disease",
-    "csv_path": "/opt/airflow/ml_project/uploads/dados.csv",
-    "optimization_metric": "recall",
-    "time_limit_minutes": 30,
-    "acc_target": 0.85,
-    "user_id": 1
-  }'
+Parâmetros efetivos = merge(**defaults Airflow Variable**, **dag_run.conf**). O conf do trigger
+(API ou UI) sobrescreve a Variable — útil em dev com API; em produção costuma-se deixar o
+JSON na Variable e dar Trigger com conf vazio ou só overrides pontuais.
+
+Variable (Admin → Variables):
+  - ``ml_training_pipeline_conf``: string JSON com pelo menos objective e csv_path, ex.::
+      {"objective":"heart_disease","csv_path":"/opt/airflow/ml_shared/uploads/dados.csv",
+       "optimization_metric":"accuracy","time_limit_minutes":30,"acc_target":0.85,"user_id":1}
+
+Opcionalmente também ``ml_training_objective`` e ``ml_training_csv_path`` (strings) se
+não quiseres JSON completo — preenchem só esses dois campos quando faltam no JSON.
+
+Disparo via CLI (conf explícito):
+  airflow dags trigger ml_training_pipeline --conf '{ ... }'
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -41,13 +47,55 @@ DEFAULT_ARGS = {
 }
 
 
+def _merged_run_conf(context: dict) -> dict:
+    """
+    Defaults de Airflow Variables + overrides em dag_run.conf (trigger API/UI/CLI).
+    Quem vem por último no merge vence: conf do run sobrescreve a Variable.
+    """
+    from airflow.models import Variable
+
+    defaults: dict = {}
+    try:
+        raw = Variable.get("ml_training_pipeline_conf", default_var=None)
+        if raw:
+            defaults = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            "Airflow Variable 'ml_training_pipeline_conf' deve ser um JSON válido "
+            f"(objective, csv_path, ...): {e}"
+        ) from e
+    except Exception as e:
+        log.warning("Could not read ml_training_pipeline_conf: %s", e)
+
+    for key, var_key in (
+        ("objective", "ml_training_objective"),
+        ("csv_path", "ml_training_csv_path"),
+    ):
+        if defaults.get(key):
+            continue
+        try:
+            v = Variable.get(var_key, default_var=None)
+            if v:
+                defaults[key] = v
+        except Exception:
+            pass
+
+    conf_run = context["dag_run"].conf or {}
+    merged = {**defaults, **conf_run}
+    log.info(
+        "Conf efetiva: chaves=%s (Variable + conf do run; conf do run tem prioridade)",
+        list(merged.keys()),
+    )
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Tasks
 # ---------------------------------------------------------------------------
 
 def task_validate_input(**context) -> None:
     """Valida se o CSV existe e tem as colunas mínimas para o domínio."""
-    conf = context["dag_run"].conf or {}
+    conf = _merged_run_conf(context)
     objective = conf.get("objective")
     csv_path = conf.get("csv_path")
 
@@ -82,8 +130,14 @@ def task_validate_input(**context) -> None:
     context["task_instance"].xcom_push(key="optimization_metric", value=conf.get("optimization_metric", "accuracy"))
     context["task_instance"].xcom_push(key="time_limit_minutes", value=int(conf.get("time_limit_minutes", 2)))
     context["task_instance"].xcom_push(key="acc_target", value=float(conf.get("acc_target", 0.90)))
-
-
+    
+    log.info("Validação de input OK para domínio '%s'.", objective)
+    log.info(f"CSV path: {csv_path}")
+    log.info(f"User ID: {conf.get('user_id', 1)}")
+    log.info(f"Optimization metric: {conf.get('optimization_metric', 'accuracy')}")
+    log.info(f"Time limit minutes: {int(conf.get('time_limit_minutes', 2))}")
+    log.info(f"Acc target: {float(conf.get('acc_target', 0.90))}")
+    
 def task_run_baseline(**context) -> None:
     """Executa o pipeline Baseline e persiste o pipeline_run no banco."""
     ti = context["task_instance"]
