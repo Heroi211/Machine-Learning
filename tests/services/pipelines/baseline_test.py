@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-import services.pipelines.baseline as baseline_module
 from services.pipelines.baseline import Baseline, gr
+import services.pipelines.baseline as baseline_module
 
 
 def test_init_default_labels():
