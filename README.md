@@ -4,6 +4,8 @@ Plataforma de Machine Learning Engineering para treinamento, versionamento e inf
 
 Cobre o ciclo completo: ingestão de dados → baseline → feature engineering → promoção de modelo → API de predição → monitoramento.
 
+**Documentação consolidada (arquitetura, ambientes dev/prod, contratos de API, débitos, novos domínios):** [`docs/DOCUMENTACAO_SOLUCAO.md`](docs/DOCUMENTACAO_SOLUCAO.md).
+
 ---
 
 ## Sumário
