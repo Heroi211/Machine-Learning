@@ -9,6 +9,8 @@ from sqlalchemy.inspection import inspect
 from models.predictions import Predictions
 from models.users import Users
 from models.pipeline_runs import PipelineRuns
+from models.roles import Roles
+from models.deployed_models import DeployedModels
 from core.generic import modelsGeneric
 
 
@@ -104,7 +106,7 @@ class TestPredictionsColumns:
         assert input_data_col is not None
         assert not input_data_col.nullable
         # Check if it's JSON type
-        assert str(input_data_col.type).__class__.__name__ in ["JSON", "String"]
+        assert type(input_data_col.type).__name__ in ["JSON", "String"]
 
     def test_predictions_prediction_column(self):
         """Test that prediction column is properly defined"""
