@@ -30,11 +30,7 @@ def app_overrides(monkeypatch):
     app.dependency_overrides.clear()
 
 
-def test_app_status_route_registered():
-    assert any(route.path.endswith("/processor/predict") for route in app.routes)
-
-
-def test_predict_endpoint_smoke(client):
+def test_predict_endpoint_returns_success(client):
     payload = {
         "domain": "heart_disease",
         "features": {
@@ -66,7 +62,7 @@ def test_predict_endpoint_smoke(client):
     assert response.json()["probability"] == 80.0
 
 
-def test_predict_endpoint_invalid_payload(client):
+def test_predict_endpoint_invalid_payload_returns_422(client):
     payload = {
         "domain": "heart_disease",
         "features": {"age": 60.0}

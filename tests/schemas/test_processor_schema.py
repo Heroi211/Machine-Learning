@@ -51,6 +51,60 @@ class TestProcessorSchemas:
         with pytest.raises(ValidationError):
             PredictRequest.model_validate(payload)
 
+    def test_predict_request_rejects_invalid_domain(self):
+        payload = {
+            "domain": "invalid_domain",
+            "features": {
+                "age": 60.0,
+                "trestbps": 130.0,
+                "chol": 250.0,
+                "fbs": False,
+                "thalch": 150.0,
+                "exang": False,
+                "oldpeak": 1.5,
+                "ca": 0.0,
+                "sex_Male": True,
+                "cp_atypical angina": False,
+                "cp_non-anginal": False,
+                "cp_typical angina": True,
+                "restecg_normal": True,
+                "restecg_st-t abnormality": False,
+                "slope_flat": False,
+                "slope_upsloping": True,
+                "thal_normal": True,
+                "thal_reversable defect": False,
+            },
+        }
+
+        with pytest.raises(ValidationError):
+            PredictRequest.model_validate(payload)
+
+    def test_heart_disease_features_forbids_extra_fields(self):
+        payload = {
+            "age": 60.0,
+            "trestbps": 130.0,
+            "chol": 250.0,
+            "fbs": False,
+            "thalch": 150.0,
+            "exang": False,
+            "oldpeak": 1.5,
+            "ca": 0.0,
+            "sex_Male": True,
+            "cp_atypical angina": False,
+            "cp_non-anginal": False,
+            "cp_typical angina": True,
+            "restecg_normal": True,
+            "restecg_st-t abnormality": False,
+            "slope_flat": False,
+            "slope_upsloping": True,
+            "thal_normal": True,
+            "thal_reversable defect": False,
+            "extra_feature": 1,
+        }
+
+        with pytest.raises(ValidationError):
+            HeartDiseaseFeaturesInput.model_validate(payload)
+
 
 class TestPredictionFeaturesDataFrameSchema:
     schema = pa.DataFrameSchema(
@@ -109,3 +163,32 @@ class TestPredictionFeaturesDataFrameSchema:
         assert validated.shape == (1, 18)
         assert validated.loc[0, "age"] == 60.0
         assert bool(validated.loc[0, "thal_normal"]) is True
+
+    def test_features_dataframe_rejects_missing_required_column(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "age": 60.0,
+                    "trestbps": 130.0,
+                    "chol": 250.0,
+                    "fbs": False,
+                    "thalch": 150.0,
+                    "exang": False,
+                    "oldpeak": 1.5,
+                    "ca": 0.0,
+                    "sex_Male": True,
+                    "cp_atypical angina": False,
+                    "cp_non-anginal": False,
+                    # missing cp_typical angina intentionally
+                    "restecg_normal": True,
+                    "restecg_st-t abnormality": False,
+                    "slope_flat": False,
+                    "slope_upsloping": True,
+                    "thal_normal": True,
+                    "thal_reversable defect": False,
+                }
+            ]
+        )
+
+        with pytest.raises(pa.errors.SchemaError):
+            self.schema.validate(df)
