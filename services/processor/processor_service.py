@@ -37,41 +37,19 @@ def _align_dataframe_to_model(model, df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _baseline_clean_encode_predict(df: pd.DataFrame) -> pd.DataFrame:
-    """Espelha `Baseline.clean_and_encode` para uma linha (predição). Exige coluna `target` (dummy)."""
+    """
+    Alinha uma linha ao mesmo esquema de features do treino do Baseline.
+    Imputação e one-hot ficam no ``Pipeline`` persistido (``model.predict``).
+    """
     df_clean = df.copy()
     if "dataset" in df_clean.columns:
         df_clean = df_clean.drop(columns=["dataset"])
-    if "target" not in df_clean.columns:
-        df_clean["target"] = 0
-
-    non_numeric = df_clean.drop(columns="target").select_dtypes(exclude=[np.number]).columns.tolist()
-    num_cols = df_clean.drop(columns="target").select_dtypes(include=[np.number]).columns.tolist()
-
-    for col in non_numeric:
-        if df_clean[col].isnull().any():
-            mode = df_clean[col].mode()[0]
-            df_clean[col] = df_clean[col].fillna(mode)
-
-    for col in num_cols:
-        if df_clean[col].isnull().any():
-            median = df_clean[col].median()
-            df_clean[col] = df_clean[col].fillna(median)
-
-    if df_clean.isnull().sum().sum() > 0:
-        raise ValueError("Valores nulos após imputação — complete o payload de features.")
-
-    cat_cols = []
-    for col in non_numeric:
-        unique_vals = set(df_clean[col].unique())
-        if unique_vals <= {True, False}:
-            df_clean[col] = df_clean[col].astype(bool)
-        else:
-            cat_cols.append(col)
-
-    if cat_cols:
-        df_clean = pd.get_dummies(df_clean, columns=cat_cols, drop_first=True)
-
-    return df_clean.drop(columns=["target"])
+    if "target" in df_clean.columns:
+        df_clean = df_clean.drop(columns=["target"])
+    for col in list(df_clean.columns):
+        if df_clean[col].dtype == bool:
+            df_clean[col] = df_clean[col].astype(np.int8)
+    return df_clean
 
 
 def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict) -> pd.DataFrame:
@@ -108,8 +86,6 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
     """Salva o CSV enviado, executa o Baseline e persiste o resultado."""
     from services.pipelines.baseline import Baseline
     from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     os.makedirs(settings.path_data, exist_ok=True)
     input_path = os.path.join(settings.path_data, file.filename)

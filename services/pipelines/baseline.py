@@ -3,8 +3,11 @@ import mlflow
 import pandas as pd
 import os
 from dotenv import load_dotenv
-from sklearn.preprocessing import LabelEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline as SkPipeline
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 from core.graphs import Graphs as gr
 from core.configs import settings
 from core.custom_logger import setup_log
@@ -14,6 +17,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 import joblib
 import glob 
+import re
 
 import shutil
 
@@ -45,8 +49,9 @@ class Baseline:
     --------------------------
     - A coluna alvo (target) deve ser sempre a **última coluna** do arquivo.
     - O arquivo **não deve conter coluna de ID** (remover antes do upload).
-    - Valores ausentes são imputados automaticamente (mediana para numéricos,
-      moda para categóricos).
+    - Valores ausentes nas **features** são tratados **após o split**, dentro de um
+      ``sklearn.pipeline.Pipeline`` (mediana para numéricos, moda para categóricos),
+      evitando vazamento de estatísticas do conjunto de teste.
     - O target é binarizado: qualquer valor > 0 vira 1, 0 permanece 0.
 
     Escopo e limitações
@@ -81,6 +86,7 @@ class Baseline:
         self.objective = pobjective
         self.test_size = ptest_size
         self.random_state = prandom_state
+        self.threshold_numeric_coercion = 0.8
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
         
         if class_labels is not None:
@@ -104,7 +110,7 @@ class Baseline:
         self.y_test = None
         self.ratio = None
         self.model = None
-        
+
         logger.info(f"Objective: {self.objective}")
         logger.info(f"Random state: {self.random_state}")
         logger.info(f"Test size: {self.test_size}")
@@ -161,7 +167,128 @@ class Baseline:
     # ------------------------------------------------------
     # EDA - Análise exploratória de dados
     # ------------------------------------------------------
-        
+    
+    def analyze_convert_columns_to_numeric(
+        self,
+        df: pd.DataFrame,
+        threshold: float | None = None,
+    ) -> pd.DataFrame:
+        """
+        Diagnostica colunas com dtype 'object' que podem ser convertidas para numérico (float).
+
+        Estratégia (passe único por coluna):
+        1. Normaliza cada valor via `normalize_values_by_column`
+           (remove moeda, resolve separador decimal BR/US).
+        2. Mede a taxa de conversão sobre os valores PREENCHIDOS
+           (ignora NaN original — desacopla missing de falha de parse).
+        3. Marca `Recomenda_converter = True` quando taxa >= threshold.
+
+        """
+        threshold = self.threshold_numeric_coercion if threshold is None else threshold
+        columns = ['Coluna', 'Taxa_numerica', 'N_unicos', 'Exemplos', 'Recomenda_converter']
+        rows = []
+
+        for col in df.select_dtypes(include=['object']).columns:
+            serie = df[col]
+            preenchidos = int(serie.notna().sum())
+
+            normalized = serie.map(self.normalize_values_by_column)
+            converted = pd.to_numeric(normalized, errors='coerce')
+            convertidos = int(converted.notna().sum())
+
+            taxa = round(convertidos / preenchidos, 2) if preenchidos else 0.0
+
+            rows.append({
+                'Coluna': col,
+                'Taxa_numerica': taxa,
+                'N_unicos': int(serie.nunique(dropna=True)),
+                'Exemplos': list(serie.dropna().unique()[:3]),
+                'Recomenda_converter': taxa >= threshold,
+            })
+
+            logger.debug(
+                f"[object->numeric] col={col} taxa={taxa} "
+                f"preenchidos={preenchidos} convertidos={convertidos} "
+                f"recomenda={taxa >= threshold}"
+            )
+
+        report = pd.DataFrame(rows, columns=columns)
+        if report.empty:
+            return report
+        return report.sort_values(by='Taxa_numerica', ascending=False, ignore_index=True)
+
+    @staticmethod
+    def normalize_values_by_column(x):
+        """
+        Normaliza um valor escalar para float.
+
+        Regras:
+        - NaN/None são preservados como NaN.
+        - Remove símbolos de moeda e espaços, preserva dígitos, vírgula, ponto e sinal.
+        - '1.234,56' -> 1234.56  (formato BR com milhar)
+        - '123,45'   -> 123.45   (decimal BR)
+        - '1.234'    -> 1234     (heurística milhar quando último bloco tem 3 dígitos;
+                                  ambíguo para decimais '1.234' — documentado como limitação).
+        - Strings que falham no parse retornam None (NaN-equivalente).
+        """
+        if pd.isna(x):
+            return x
+
+        x = str(x).strip()
+        if x == "":
+            return None
+
+        x = re.sub(r'[^\d,.-]', '', x)
+
+        if ',' in x and '.' in x:
+            x = x.replace('.', '').replace(',', '.')
+        elif ',' in x:
+            x = x.replace(',', '.')
+        elif '.' in x:
+            partes = x.split('.')
+            if len(partes[-1]) == 3:
+                x = x.replace('.', '')
+
+        try:
+            return float(x)
+        except (ValueError, TypeError):
+            return None
+
+    def coerce_object_columns_to_numeric(
+        self,
+        df: pd.DataFrame,
+        relatorio: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Aplica a coerção das colunas recomendadas pelo relatório
+        (`Recomenda_converter == True`) para tipo numérico.
+        """
+        if relatorio.empty:
+            return df
+
+        colunas = relatorio.loc[relatorio['Recomenda_converter'], 'Coluna'].tolist()
+        if not colunas:
+            return df
+
+        df = df.copy()
+        for col in colunas:
+            dtype_antes = df[col].dtype
+            normalized = df[col].map(self.normalize_values_by_column)
+            numeric = pd.to_numeric(normalized, errors='coerce')
+
+            non_null = numeric.dropna()
+            is_integer_like = bool(len(non_null) and (non_null % 1 == 0).all())
+
+            df[col] = numeric.astype('Int64') if is_integer_like else numeric
+
+            nan_originais = int(df[col].isna().sum())
+            logger.info(
+                f"[coerce] col={col} dtype {dtype_antes} -> {df[col].dtype} "
+                f"n_nan={nan_originais} integer_like={is_integer_like}"
+            )
+
+        return df
+
     def missing_identifier(self):
         """
         Inicialmente como terceiro passo, identificar os missings values
@@ -178,6 +305,39 @@ class Baseline:
             logger.error(f"Valores nulos ou faltantes foram encontrados na coluna target {null_count}")
             raise ValueError(self.msg_raise)
         
+        relatorio_convertion = self.analyze_convert_columns_to_numeric(self.data)
+        logger.info(f"Relatório de conversão para numérico:\n{relatorio_convertion}")
+
+        if not relatorio_convertion.empty:
+            gr.build_report(
+                g_type=1,  # BARH
+                x_data=relatorio_convertion['Coluna'],
+                y_data=relatorio_convertion['Taxa_numerica'] * 100,
+                title="Distribuição de conversão por coluna",
+                xlabel="Porcentagem (%)",
+                filename=f"convert_object_to_numeric_{self.now}.png",
+                color="skyblue",
+            )
+
+        convertiveis = (
+            relatorio_convertion[relatorio_convertion['Recomenda_converter']]
+            if not relatorio_convertion.empty
+            else relatorio_convertion
+        )
+
+        if not convertiveis.empty:
+            logger.warning(
+                f"Colunas com dtype object convertíveis para numérico "
+                f"(taxa >= {self.threshold_numeric_coercion}): "
+                f"{convertiveis['Coluna'].tolist()}"
+            )
+            self.data = self.coerce_object_columns_to_numeric(
+                self.data, relatorio_convertion
+            )
+            logger.info(
+                "Coerção aplicada. Refinamentos por coluna serão feitos na etapa de FE."
+            )
+
         missing = pd.DataFrame({
             "Coluna" : self.data.columns,
             "Missing_count" : self.data.isnull().sum(),
@@ -290,63 +450,96 @@ class Baseline:
     # Data Preparation
     # ------------------------------------------------------   
 
-    def clean_and_encode(self):
+    @staticmethod
+    def _build_preprocess_transformer(x_train: pd.DataFrame) -> ColumnTransformer:
         """
-        Limpeza e encoding diretamente no DataFrame.
-        Gera self.data_encoded — dataset completo, limpo, pronto para split e CSV.
+        Pré-processamento aprendido apenas no treino: imputação + escala numérica,
+        imputação + one-hot em object/category. Colunas booleanas viram inteiros
+        antes do split para entrarem no ramo numérico.
         """
-        logger.info("Iniciando limpeza e encoding do DataFrame...")
+        num_cols = x_train.select_dtypes(include=[np.number]).columns.tolist()
+        cat_cols = x_train.select_dtypes(include=["object", "category"]).columns.tolist()
+        transformers: list[tuple] = []
+        if num_cols:
+            transformers.append(
+                (
+                    "num",
+                    SkPipeline(
+                        [
+                            ("imputer", SimpleImputer(strategy="median")),
+                            ("scaler", StandardScaler()),
+                        ]
+                    ),
+                    num_cols,
+                )
+            )
+        if cat_cols:
+            transformers.append(
+                (
+                    "cat",
+                    SkPipeline(
+                        [
+                            ("imputer", SimpleImputer(strategy="most_frequent")),
+                            (
+                                "ohe",
+                                OneHotEncoder(
+                                    drop="first",
+                                    sparse_output=False,
+                                    handle_unknown="ignore",
+                                ),
+                            ),
+                        ]
+                    ),
+                    cat_cols,
+                )
+            )
+        if not transformers:
+            raise ValueError(
+                "Nenhuma coluna numérica ou categórica (object/category) para modelagem."
+            )
+        return ColumnTransformer(
+            transformers=transformers,
+            remainder="drop",
+            verbose_feature_names_out=False,
+        )
+
+    def prepare_modeling_frame(self):
+        """
+        Monta o DataFrame usado no split: mesmas colunas que no treino da API,
+        sem imputação nem encoding global (isso ocorre no Pipeline após o split).
+        """
+        logger.info("Preparando frame de modelagem (sem imputação/encoding pré-split)...")
 
         df_clean = self.data.copy()
 
-        if 'dataset' in df_clean.columns:
-            df_clean.drop(columns=['dataset'], inplace=True)
+        if "dataset" in df_clean.columns:
+            df_clean.drop(columns=["dataset"], inplace=True)
             logger.info("Coluna 'dataset' removida (metadado de origem).")
 
-        non_numeric = df_clean.drop(columns='target').select_dtypes(exclude=[np.number]).columns.tolist()
-        num_cols = df_clean.drop(columns='target').select_dtypes(include=[np.number]).columns.tolist()
-
-        for col in non_numeric:
-            if df_clean[col].isnull().any():
-                mode = df_clean[col].mode()[0]
-                df_clean[col] = df_clean[col].fillna(mode)
-                logger.info(f"{col}: imputado com moda ('{mode}')")
-
-        for col in num_cols:
-            if df_clean[col].isnull().any():
-                median = df_clean[col].median()
-                df_clean[col] = df_clean[col].fillna(median)
-                logger.info(f"{col}: imputado com mediana ({median:.2f})")
-
-        remaining_nulls = df_clean.isnull().sum().sum()
-        if remaining_nulls > 0:
-            logger.error(f"Ainda existem {remaining_nulls} valores nulos após imputação")
-            raise ValueError(self.msg_raise)
-
-        logger.info("Imputação concluída — zero valores nulos")
-
-        cat_cols = []
-        for col in non_numeric:
-            unique_vals = set(df_clean[col].unique())
-            if unique_vals <= {True, False}:
-                df_clean[col] = df_clean[col].astype(bool)
-                logger.info(f"{col}: binária — convertida para bool, sem encoding.")
-            else:
-                cat_cols.append(col)
-
-        if cat_cols:
-            df_clean = pd.get_dummies(df_clean, columns=cat_cols, drop_first=True)
-            logger.info(f"One-hot encoding aplicado em: {cat_cols}")
+        feature_cols = [c for c in df_clean.columns if c != "target"]
+        for col in feature_cols:
+            if df_clean[col].dtype == bool:
+                df_clean[col] = df_clean[col].astype(np.int8)
+                logger.debug(f"{col}: bool -> int8 (ramo numérico do Pipeline)")
 
         self.data_encoded = df_clean
-        logger.info(f"DataFrame limpo e codificado: {self.data_encoded.shape}")
-        logger.debug(f"Colunas finais: {self.data_encoded.columns.tolist()}")
+        logger.info(
+            f"Frame de modelagem: {self.data_encoded.shape} "
+            "(valores ausentes nas features serão tratados no treino do Pipeline)"
+        )
+        logger.debug(f"Colunas: {self.data_encoded.columns.tolist()}")
 
     def prepare_and_train(self):
-        """Treino do modelo baseline sobre dados já limpos e codificados."""
-        logger.info("Iniciando treino do baseline...")
+        """Treino: Pipeline (pré-processamento ajustado só no treino) + Regressão Logística."""
+        logger.info("Iniciando treino do baseline (Pipeline sklearn)...")
 
-        model = LogisticRegression(random_state=self.random_state, class_weight='balanced')
+        preprocess = self._build_preprocess_transformer(self.x_train)
+        classifier = LogisticRegression(
+            random_state=self.random_state, class_weight="balanced", max_iter=1000
+        )
+        full_pipeline = SkPipeline(
+            [("preprocess", preprocess), ("classifier", classifier)]
+        )
 
         experiment_name = f"{self.objective}_baseline"
         if not mlflow.get_experiment_by_name(experiment_name):
@@ -354,8 +547,8 @@ class Baseline:
         mlflow.set_experiment(experiment_name)
         with mlflow.start_run(run_name=f"baseline_{self.objective}"):
 
-            model.fit(self.x_train, self.y_train)
-            self.model = model
+            full_pipeline.fit(self.x_train, self.y_train)
+            self.model = full_pipeline
 
             y_pred_train = self.model.predict(self.x_train)
             y_pred_test = self.model.predict(self.x_test)
@@ -370,7 +563,7 @@ class Baseline:
 
             overfitting = metrics["train_accuracy"] - metrics["test_accuracy"]
 
-            mlflow.log_params(model.get_params())
+            mlflow.log_params(self.model.get_params())
             mlflow.log_metrics(metrics)
             mlflow.log_metric("overfitting_gap", overfitting)
 
@@ -385,17 +578,18 @@ class Baseline:
             logger.info(f"Test Precision: {metrics['test_precision']:.4f}")
             logger.info(f"Test Recall:    {metrics['test_recall']:.4f}")
             logger.info(f"Overfitting:    {overfitting:.4f}")
-            logger.info("Treino e logs concluídos.")   
+            logger.info("Treino e logs concluídos.")
     
     def split_data(self):
         """
-        Divisão de treino e teste a partir do DataFrame limpo e codificado.
+        Divisão treino/teste no frame bruto (pós-EDA); imputação e encoding ocorrem
+        apenas dentro do Pipeline em ``prepare_and_train``.
         """
-        
+
         logger.info("Iniciando split data...")
-        
-        x = self.data_encoded.drop(columns='target')
-        y = self.data_encoded['target']
+
+        x = self.data_encoded.drop(columns="target")
+        y = self.data_encoded["target"]
         
         self.x_train,self.x_test,self.y_train,self.y_test = train_test_split(x,y,test_size=self.test_size,random_state=self.random_state,stratify=y)
             
@@ -410,7 +604,9 @@ class Baseline:
 
         csv_path = os.path.join(self.path_data_preprocessed, f"{self.objective}_sample_{self.now}.csv")
         self.data_encoded.to_csv(csv_path, index=False)
-        logger.info(f"Dataset pré-processado salvo em: {csv_path} ({self.data_encoded.shape})")
+        logger.info(
+            f"Dataset para modelagem (pré-Pipeline) salvo em: {csv_path} ({self.data_encoded.shape})"
+        )
 
         model_name = f"baseline_model_{self.objective}_{self.now}.joblib"
         joblib_path = os.path.join(self.path_model, model_name)
@@ -436,8 +632,8 @@ class Baseline:
         logger.debug(f"Análise da target: {datetime.now() - start_time}")
         self.outlier_analysis()
         logger.debug(f"Análise de outliers: {datetime.now() - start_time}")
-        self.clean_and_encode()
-        logger.debug(f"Limpeza e encoding: {datetime.now() - start_time}")
+        self.prepare_modeling_frame()
+        logger.debug(f"Frame de modelagem: {datetime.now() - start_time}")
         self.split_data()
         logger.debug(f"Split de dados: {datetime.now() - start_time}")
         self.prepare_and_train()
