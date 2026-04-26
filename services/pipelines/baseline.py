@@ -313,7 +313,7 @@ class Baseline:
             raise ValueError(self.msg_raise)
         
         report_convertion = self.analyze_convert_columns_to_numeric(self.data)
-        logger.info(f"Relatório de conversão para numérico:\n{relatorio_convertion}")
+        logger.info(f"Relatório de conversão para numérico:\n{report_convertion}")
 
         if not report_convertion.empty:
             gr.build_report(
@@ -368,19 +368,38 @@ class Baseline:
             )
             
     def pre_processor_churn(self):
-        
-        if self.objective == 'churn':
-            df = self.data.copy()
-            df = df.drop(columns=[df.columns.tolist().pop(0)])
-            df = df.replace({
-                'Yes': 1,
-                'No': 0,
-                'No internet service': 0,
-                'No phone service':0
-            })
-            df['TotalCharges'] = df['TotalCharges'].fillna(0)
-            self.data = df
-        
+        """
+        Ajustes específicos do *churn*: remove a **primeira coluna** do frame
+        (por posição, qualquer que seja o nome — tipicamente identificador no CSV
+        bruto), mapeia Yes/No e variantes para 0/1, imputa ``TotalCharges`` se
+        existir, e uniformiza ``object``/``category`` para texto após o *replace*.
+        """
+        if self.objective != "churn":
+            return
+
+        df = self.data.copy()
+
+        if df.shape[1] > 0:
+            df = df.drop(columns=[df.columns[0]])
+
+        df = df.replace(
+            {
+                "Yes": 1,
+                "No": 0,
+                "No internet service": 0,
+                "No phone service": 0,
+            }
+        )
+
+        if "TotalCharges" in df.columns:
+            df["TotalCharges"] = df["TotalCharges"].fillna(0)
+
+        for c in df.select_dtypes(include=["object", "category"]).columns:
+            s = df[c]
+            df[c] = s.map(lambda v: v if pd.isna(v) else str(v))
+
+        self.data = df
+
             
     def target_analysis(self):
         """
@@ -496,26 +515,73 @@ class Baseline:
     # ------------------------------------------------------   
 
     @staticmethod
-    def _build_preprocess_transformer(x_train: pd.DataFrame) -> ColumnTransformer:
+    def _should_numeric_use_imputer_only(s: pd.Series) -> bool:
         """
-        Pré-processamento aprendido apenas no treino: imputação + escala numérica,
-        imputação + one-hot em object/category. Colunas booleanas viram inteiros
-        antes do split para entrarem no ramo numérico.
+        True para colunas em que mediana + escala é desnecessária ou pior:
+        - booleanas; constantes; ou estritamente binárias 0/1 (também 0.0/1.0).
+        Tudo o resto numérico (contínuo, inteiros com 3+ valores distintos, etc.)
+        passa a ``StandardScaler`` após imputação.
+        Object/category tratam-se noutro ramo (OHE), não entram aqui.
+        """
+        if pd.api.types.is_bool_dtype(s):
+            return True
+        t = s.dropna()
+        if t.empty:
+            return True
+        u = np.unique(t.to_numpy().ravel())
+        if len(u) <= 1:
+            return True
+        if len(u) == 2:
+            return all(np.isclose(float(x), 0.0) or np.isclose(float(x), 1.0) for x in u)
+        return False
+
+    @staticmethod
+    def _split_numeric_for_scaling(
+        x_train: pd.DataFrame, num_cols: list[str]
+    ) -> tuple[list[str], list[str]]:
+        to_scale: list[str] = []
+        imputer_only: list[str] = []
+        for c in num_cols:
+            if Baseline._should_numeric_use_imputer_only(x_train[c]):
+                imputer_only.append(c)
+            else:
+                to_scale.append(c)
+        return to_scale, imputer_only
+
+    def _build_preprocess_transformer(self, x_train: pd.DataFrame) -> ColumnTransformer:
+        """
+        Pré-processamento aprendido apenas no treino, só no treino.
+        Categorias (``object`` / ``category``) vão a imputação + OHE. Numéricas:
+        a partir de ``x_train`` (sem listas fixas de nomes) separa-se o que é
+        estritamente binário/constante/booleano (só imputação mediana) do resto
+        (imputação + ``StandardScaler``). Assim, *churn*, *heart_disease* e
+        qualquer *dataset* alinham o mesmo critério.
+        Colunas booleanas do frame são convertidas a inteiros antes do split.
         """
         num_cols = x_train.select_dtypes(include=[np.number]).columns.tolist()
         cat_cols = x_train.select_dtypes(include=["object", "category"]).columns.tolist()
+        num_for_scale, num_no_scale = self._split_numeric_for_scaling(x_train, num_cols)
+
         transformers: list[tuple] = []
-        if num_cols:
+        if num_for_scale:
             transformers.append(
                 (
-                    "num",
+                    "num_scaled",
                     SkPipeline(
                         [
                             ("imputer", SimpleImputer(strategy="median")),
                             ("scaler", StandardScaler()),
                         ]
                     ),
-                    num_cols,
+                    num_for_scale,
+                )
+            )
+        if num_no_scale:
+            transformers.append(
+                (
+                    "num_passthrough",
+                    SkPipeline([("imputer", SimpleImputer(strategy="median"))]),
+                    num_no_scale,
                 )
             )
         if cat_cols:
@@ -575,15 +641,17 @@ class Baseline:
         logger.debug(f"Colunas: {self.data_encoded.columns.tolist()}")
 
     def prepare_and_train(self):
-        """Treino: Pipeline (pré-processamento ajustado só no treino) + Regressão Logística."""
+        """
+        Treino: ``ColumnTransformer`` ajusta-se só a ``x_train``; a LR
+        ajusta-se a **``x_train`` já transformado** (matriz densa/numérica),
+        não a ``x_train`` em bruto. O ``SkPipeline`` junta os dois passos para
+        ``predict``/serialização, sem chamar de novo ``Pipeline.fit`` nele.
+        """
         logger.info("Iniciando treino do baseline (Pipeline sklearn)...")
 
         preprocess = self._build_preprocess_transformer(self.x_train)
         classifier = LogisticRegression(
             random_state=self.random_state, class_weight="balanced", max_iter=1000
-        )
-        full_pipeline = SkPipeline(
-            [("preprocess", preprocess), ("classifier", classifier)]
         )
 
         experiment_name = f"{self.objective}_baseline"
@@ -593,21 +661,37 @@ class Baseline:
         with mlflow.start_run(run_name=f"baseline_{self.objective}") as _mlr:
             self.mlflow_run_id = _mlr.info.run_id
 
-            full_pipeline.fit(self.x_train, self.y_train)
-            self.model = full_pipeline
+            x_tr = preprocess.fit_transform(self.x_train)
+            classifier.fit(x_tr, self.y_train)
+            self.model = SkPipeline(
+                [("preprocess", preprocess), ("classifier", classifier)]
+            )
 
             y_pred_train = self.model.predict(self.x_train)
             y_pred_test = self.model.predict(self.x_test)
+            y_proba_train = self.model.predict_proba(self.x_train)[:, 1]
             y_proba_test = self.model.predict_proba(self.x_test)[:, 1]
 
             _zd = {"zero_division": 0}
             metrics = {
                 "train_accuracy": accuracy_score(self.y_train, y_pred_train),
+                "train_precision": precision_score(self.y_train, y_pred_train, **_zd),
+                "train_recall": recall_score(self.y_train, y_pred_train, **_zd),
+                "train_f1": f1_score(self.y_train, y_pred_train, **_zd),
                 "test_accuracy": accuracy_score(self.y_test, y_pred_test),
                 "test_f1": f1_score(self.y_test, y_pred_test, **_zd),
                 "test_precision": precision_score(self.y_test, y_pred_test, **_zd),
                 "test_recall": recall_score(self.y_test, y_pred_test, **_zd),
             }
+            if int(self.y_train.sum()) > 0 and int(len(self.y_train) - self.y_train.sum()) > 0:
+                metrics["train_pr_auc"] = float(
+                    average_precision_score(self.y_train, y_proba_train)
+                )
+            else:
+                metrics["train_pr_auc"] = float("nan")
+                logger.warning(
+                    "train_pr_auc omitido: treino sem ambas as classes (estratificação?)."
+                )
             if int(self.y_test.sum()) > 0 and int(len(self.y_test) - self.y_test.sum()) > 0:
                 metrics["test_pr_auc"] = float(
                     average_precision_score(self.y_test, y_proba_test)
@@ -628,6 +712,16 @@ class Baseline:
                 except Exception as e:
                     logger.warning("Importância LR (gráfico) não gerada: %s", e)
 
+            try:
+                gr.build_precision_recall_curve(
+                    self.y_test, y_proba_test, self.now, graph_root=self.path_graphs, split_label="test"
+                )
+                gr.build_precision_recall_curve(
+                    self.y_train, y_proba_train, self.now, graph_root=self.path_graphs, split_label="train"
+                )
+            except Exception as e:
+                logger.warning("Curvas Precision–Recall não geradas: %s", e)
+
             mlflow.log_params(self.model.get_params())
             mlflow.log_metrics(
                 {k: v for k, v in metrics.items() if not (isinstance(v, float) and np.isnan(v))}
@@ -639,13 +733,18 @@ class Baseline:
 
             mlflow.sklearn.log_model(self.model, "model")
 
-            logger.info(f"Train Accuracy: {metrics['train_accuracy']:.4f}")
-            logger.info(f"Test Accuracy:  {metrics['test_accuracy']:.4f}")
-            logger.info(f"Test F1:        {metrics['test_f1']:.4f}")
-            logger.info(f"Test Precision: {metrics['test_precision']:.4f}")
-            logger.info(f"Test Recall:    {metrics['test_recall']:.4f}")
+            logger.info(f"Train Accuracy:  {metrics['train_accuracy']:.4f}")
+            logger.info(f"Train Precision: {metrics['train_precision']:.4f}")
+            logger.info(f"Train Recall:    {metrics['train_recall']:.4f}")
+            logger.info(f"Train F1:        {metrics['train_f1']:.4f}")
+            if not np.isnan(metrics.get("train_pr_auc", float("nan"))):
+                logger.info(f"Train PR-AUC:    {metrics['train_pr_auc']:.4f}")
+            logger.info(f"Test Accuracy:   {metrics['test_accuracy']:.4f}")
+            logger.info(f"Test F1:         {metrics['test_f1']:.4f}")
+            logger.info(f"Test Precision:  {metrics['test_precision']:.4f}")
+            logger.info(f"Test Recall:     {metrics['test_recall']:.4f}")
             if not np.isnan(metrics["test_pr_auc"]):
-                logger.info(f"Test PR-AUC:    {metrics['test_pr_auc']:.4f}")
+                logger.info(f"Test PR-AUC:     {metrics['test_pr_auc']:.4f}")
             logger.info(f"Overfitting:    {overfitting:.4f}")
             logger.info("Treino e logs concluídos.")
     
@@ -672,9 +771,21 @@ class Baseline:
             os.makedirs(path, exist_ok=True)
 
         csv_path = os.path.join(self.path_data_preprocessed, f"{self.objective}_sample_{self.now}.csv")
-        self.data_encoded.to_csv(csv_path, index=False)
+        sample_out = (
+            pd.concat(
+                [
+                    self.x_train.assign(target=self.y_train),
+                    self.x_test.assign(target=self.y_test),
+                ],
+                axis=0,
+            )
+            .sort_index()
+        )
+        sample_out.to_csv(csv_path, index=False)
         logger.info(
-            f"Dataset para modelagem (pré-Pipeline) salvo em: {csv_path} ({self.data_encoded.shape})"
+            "Sample FE (pós-EDA, tal como no split/treino) → %s | %s",
+            csv_path,
+            sample_out.shape,
         )
 
         model_name = f"baseline_model_{self.objective}_{self.now}.joblib"

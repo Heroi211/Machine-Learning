@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from scipy import stats
+from sklearn.metrics import PrecisionRecallDisplay, average_precision_score
 
 from core.configs import settings
 
@@ -361,3 +362,36 @@ class Graphs:
         ax.set_title(f"Importância relativa (|coef.| LR) — top {top_k}")
         ax.set_xlabel("|coeficiente|")
         Graphs._save_fig(fig, root, f"lr_coeff_importance_{run_stamp}.png")
+
+    @staticmethod
+    def build_precision_recall_curve(
+        y_true,
+        y_score,
+        run_stamp: str,
+        graph_root: str | None = None,
+        split_label: str = "test",
+    ) -> str | None:
+        """
+        Curva precision–recall (probabilidades da classe positiva) e AP (área sob a
+        curva, equivalente ao que ``average_precision_score`` reporta para binário).
+        """
+        root = graph_root if graph_root is not None else path_graphs
+        y_true = np.asarray(y_true, dtype=int).ravel()
+        y_score = np.asarray(y_score, dtype=float).ravel()
+        if y_true.size == 0 or len(np.unique(y_true)) < 2:
+            logger.warning(
+                "PR curve (%s): necessária pelo menos duas classes em y; omitido.",
+                split_label,
+            )
+            return None
+        ap = float(average_precision_score(y_true, y_score))
+        fig, ax = plt.subplots(figsize=(7, 6))
+        PrecisionRecallDisplay.from_predictions(
+            y_true, y_score, ax=ax, name="LogisticRegression"
+        )
+        ax.set_title(f"Precision–Recall ({split_label}) — AP = {ap:.4f}")
+        ax.set_xlabel("Recall")
+        ax.set_ylabel("Precision")
+        return Graphs._save_fig(
+            fig, root, f"precision_recall_{split_label}_{run_stamp}.png"
+        )
