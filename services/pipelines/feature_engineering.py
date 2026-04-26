@@ -205,6 +205,12 @@ class FeatureEngineering:
             random_state=self.random_state,
             stratify=y,
         )
+        
+        logger.info(f"Features disponíveis: {self.feature_names}")
+        logger.info(f"Features selecionadas: {self.x_train.columns.tolist()}")
+        logger.info(f"Features teste: {self.x_test.columns.tolist()}")
+        
+        
 
         k_actual = min(k, self.x_train.shape[1])
         selector = SelectKBest(f_classif, k=k_actual)
