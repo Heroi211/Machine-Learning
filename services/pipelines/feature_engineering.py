@@ -13,10 +13,12 @@ import mlflow.sklearn
 import joblib
 
 from datetime import datetime
+from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, ParameterSampler
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline as SkPipeline
 from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
@@ -27,7 +29,7 @@ from scipy.stats import randint, uniform
 from core.configs import settings
 from core.custom_logger import setup_log
 from services.pipelines.feature_strategies.base import FeatureStrategy
-from services.pipelines.fe_hyperparameter_tuning import build_fresh_tuning_pipeline, param_distributions_for
+from services.pipelines.fe_hyperparameter_tuning import param_distributions_for
 from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, sklearn_scoring_parameter
 
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
@@ -83,6 +85,8 @@ class FeatureEngineering:
         self.y_train: pd.Series | None = None
         self.y_test: pd.Series | None = None
         self.feature_names: list[str] = []
+        self.feature_groups: dict[str, list[str]] = {"binary": [], "continuous": [], "categorical": []}
+        self.k_features = 25
 
         self.trained_models: dict = {}
         self.baseline_manifest: dict | None = None
@@ -111,6 +115,101 @@ class FeatureEngineering:
             if np.isnan(roc_auc_value) or roc_auc_value < self.min_roc_auc:
                 return False
         return True
+
+    @staticmethod
+    def _is_binary_column(series: pd.Series) -> bool:
+        non_null = series.dropna()
+        if non_null.empty:
+            return False
+        unique_values = set(non_null.unique().tolist())
+        return unique_values.issubset({0, 1, 0.0, 1.0, np.int8(0), np.int8(1), True, False})
+
+    def _classify_feature_columns(self, x_df: pd.DataFrame) -> dict[str, list[str]]:
+        categorical_cols = x_df.select_dtypes(include=["object", "category"]).columns.tolist()
+        numeric_cols = x_df.select_dtypes(include=[np.number, "bool"]).columns.tolist()
+
+        binary_cols: list[str] = []
+        continuous_cols: list[str] = []
+        for col in numeric_cols:
+            if self._is_binary_column(x_df[col]):
+                binary_cols.append(col)
+            else:
+                continuous_cols.append(col)
+
+        grouped = {"binary": binary_cols, "continuous": continuous_cols, "categorical": categorical_cols}
+        self.feature_groups = grouped
+        return grouped
+
+    def _build_preprocess_transformer(
+        self, x_train: pd.DataFrame, groups: dict[str, list[str]] | None = None
+    ) -> ColumnTransformer:
+        """
+        Pré-processamento no mesmo padrão do Baseline:
+        - binárias: passthrough (sem transformação)
+        - contínuas: StandardScaler (+ imputação mediana só se houver nulos)
+        - categóricas: OneHotEncoder (+ imputação moda só se houver nulos)
+        """
+        groups = groups or self._classify_feature_columns(x_train)
+        binary_cols = groups["binary"]
+        continuous_cols = groups["continuous"]
+        categorical_cols = groups["categorical"]
+
+        transformers: list[tuple] = []
+
+        if continuous_cols:
+            continuous_steps = []
+            has_nulls_cont = bool(x_train[continuous_cols].isna().any().any())
+            if has_nulls_cont:
+                continuous_steps.append(("imputer", SimpleImputer(strategy="median")))
+            continuous_steps.append(("scaler", StandardScaler()))
+            transformers.append(("continuous", SkPipeline(continuous_steps), continuous_cols))
+
+        if binary_cols:
+            has_nulls_bin = bool(x_train[binary_cols].isna().any().any())
+            if has_nulls_bin:
+                raise ValueError(
+                    "Colunas binárias com nulos detectadas. "
+                    "Como binárias estão em passthrough por definição, "
+                    "preencha nulos antes do treino."
+                )
+            transformers.append(("binary", "passthrough", binary_cols))
+
+        if categorical_cols:
+            categorical_steps = []
+            has_nulls_cat = bool(x_train[categorical_cols].isna().any().any())
+            if has_nulls_cat:
+                categorical_steps.append(("imputer", SimpleImputer(strategy="most_frequent")))
+            categorical_steps.append(
+                ("ohe", OneHotEncoder(drop="first", handle_unknown="ignore", sparse_output=False))
+            )
+            transformers.append(("categorical", SkPipeline(categorical_steps), categorical_cols))
+
+        if not transformers:
+            raise ValueError("Nenhuma coluna válida encontrada para pré-processamento no FE.")
+
+        return ColumnTransformer(
+            transformers=transformers,
+            remainder="drop",
+            verbose_feature_names_out=False,
+        )
+
+    def _build_model_pipeline(self, model_name: str):
+        preprocess = self._build_preprocess_transformer(self.x_train, groups=self.feature_groups)
+        model_map = {
+            "Decision Tree": DecisionTreeClassifier(random_state=self.random_state),
+            "Random Forest": RandomForestClassifier(random_state=self.random_state),
+            "SVM": SVC(kernel="rbf", probability=True, random_state=self.random_state),
+            "Gradient Boosting": GradientBoostingClassifier(random_state=self.random_state),
+        }
+        if model_name not in model_map:
+            raise ValueError(f"Modelo não suportado no FE: {model_name}")
+        return SkPipeline(
+            [
+                ("preprocess", preprocess),
+                ("selector", SelectKBest(f_classif, k=self.k_features)),
+                ("model", model_map[model_name]),
+            ]
+        )
 
     # ------------------------------------------------------------------
     # Etapa 1 — Carregar dados pré-processados (saída do baseline)
@@ -193,11 +292,12 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def select_features(self, k: int = 25):
-        logger.info("Iniciando split e seleção de features...")
+        logger.info("Iniciando split de dados para FE...")
 
         y = self.data["target"]
         x = self.data.drop(columns=["target"])
         self.feature_names = x.columns.tolist()
+        self.k_features = min(k, max(1, x.shape[1]))
 
         self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(
             x, y,
@@ -205,27 +305,18 @@ class FeatureEngineering:
             random_state=self.random_state,
             stratify=y,
         )
-        
-        logger.info(f"Features disponíveis: {self.feature_names}")
-        logger.info(f"Features selecionadas: {self.x_train.columns.tolist()}")
-        logger.info(f"Features teste: {self.x_test.columns.tolist()}")
-        
-        
 
-        k_actual = min(k, self.x_train.shape[1])
-        selector = SelectKBest(f_classif, k=k_actual)
-        selector.fit(self.x_train, self.y_train)
-
-        mask = selector.get_support()
-        selected = [n for n, keep in zip(self.feature_names, mask) if keep]
-
-        self.x_train = self.x_train[selected]
-        self.x_test = self.x_test[selected]
-        self.feature_names = selected
-
-        logger.info(f"Features selecionadas ({len(selected)}):")
-        for i, feat in enumerate(selected, 1):
-            logger.info(f"  {i}. {feat}")
+        groups = self._classify_feature_columns(self.x_train)
+        logger.info(
+            "Feature groups (pré-build): binárias=%s contínuas=%s categóricas=%s",
+            len(groups["binary"]),
+            len(groups["continuous"]),
+            len(groups["categorical"]),
+        )
+        logger.debug("Colunas binárias: %s", groups["binary"])
+        logger.debug("Colunas contínuas: %s", groups["continuous"])
+        logger.debug("Colunas categóricas: %s", groups["categorical"])
+        logger.info("k de seleção configurado para SelectKBest: %s", self.k_features)
 
     # ------------------------------------------------------------------
     # Etapa 4 — Treinamento comparativo
@@ -242,21 +333,16 @@ class FeatureEngineering:
         )
 
         model_configs = {
-            "Decision Tree": DecisionTreeClassifier(random_state=self.random_state),
-            "Random Forest": RandomForestClassifier(random_state=self.random_state),
-            "SVM": SVC(kernel="rbf", probability=True, random_state=self.random_state),
-            "Gradient Boosting": GradientBoostingClassifier(random_state=self.random_state),
+            "Decision Tree",
+            "Random Forest",
+            "SVM",
+            "Gradient Boosting",
         }
 
         results = []
 
-        for name, estimator in model_configs.items():
-            steps = []
-            if name == "SVM":
-                steps.append(("scaler", StandardScaler()))
-            steps.append(("model", estimator))
-
-            pipeline = SkPipeline(steps)
+        for name in model_configs:
+            pipeline = self._build_model_pipeline(name)
             pipeline.fit(self.x_train, self.y_train)
             cv_scores = cross_val_score(
                 pipeline, self.x_train, self.y_train, cv=cv, scoring=scoring, n_jobs=self.n_jobs
@@ -380,7 +466,7 @@ class FeatureEngineering:
                 logger.info("Tempo limite atingido — encerrando busca.")
                 break
 
-            pipeline = build_fresh_tuning_pipeline(self.best_model_name, self.random_state)
+            pipeline = self._build_model_pipeline(self.best_model_name)
             pipeline.set_params(**params)
 
             cv_scores = cross_val_score(
@@ -490,7 +576,9 @@ class FeatureEngineering:
         logger.info("Calculando importância de features...")
 
         feat_names = np.array(self.feature_names)
-
+        if hasattr(self.best_pipeline, "named_steps") and "preprocess" in self.best_pipeline.named_steps:
+            preprocess = self.best_pipeline.named_steps["preprocess"]
+            feat_names = np.array(preprocess.get_feature_names_out())
         if hasattr(self.best_pipeline, "named_steps") and "selector" in self.best_pipeline.named_steps:
             selector = self.best_pipeline.named_steps["selector"]
             if hasattr(selector, "get_support"):
@@ -605,22 +693,30 @@ class FeatureEngineering:
     # Orquestrador
     # ------------------------------------------------------------------
 
-    def run(self, time_limit_minutes: int, acc_target: float | None):
-        start_time = datetime.now()
-        logger.info(f"Pipeline de Feature Engineering iniciado: {start_time}")
-
+    def _run_data_contract_and_fe_build(self, start_time):
+        """
+        Responsabilidade: carregar contrato do baseline e construir features.
+        """
         self.load_data()
         logger.debug(f"Dados carregados: {datetime.now() - start_time}")
 
         self.build_features()
         logger.debug(f"Features criadas: {datetime.now() - start_time}")
 
+    def _run_modeling_prep_and_selection(self, start_time):
+        """
+        Responsabilidade: preparar split e selecionar modelo base.
+        """
         self.select_features()
         logger.debug(f"Features selecionadas: {datetime.now() - start_time}")
 
         self.train_models()
         logger.debug(f"Modelos treinados: {datetime.now() - start_time}")
 
+    def _run_tuning_evaluation_and_persistence(self, start_time, time_limit_minutes: int, acc_target: float | None):
+        """
+        Responsabilidade: tuning, avaliação final e persistência.
+        """
         self.tune(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
         logger.debug(f"Tuning concluído: {datetime.now() - start_time}")
 
@@ -628,6 +724,18 @@ class FeatureEngineering:
         logger.debug(f"Importância avaliada: {datetime.now() - start_time}")
 
         self.save()
+        logger.debug(f"Artefatos salvos: {datetime.now() - start_time}")
+
+    def run(self, time_limit_minutes: int, acc_target: float | None):
+        """
+        Orquestrador principal: executa FE por responsabilidades.
+        """
+        start_time = datetime.now()
+        logger.info(f"Pipeline de Feature Engineering iniciado: {start_time}")
+
+        self._run_data_contract_and_fe_build(start_time)
+        self._run_modeling_prep_and_selection(start_time)
+        self._run_tuning_evaluation_and_persistence(start_time, time_limit_minutes, acc_target)
 
         elapsed = datetime.now() - start_time
         logger.info(f"Pipeline de Feature Engineering concluído em: {elapsed}")
@@ -649,7 +757,7 @@ if __name__ == "__main__":
     pipeline = FeatureEngineering(objective=objective, strategy=strategy)
 
     try:
-        pipeline.run()
+        pipeline.run(time_limit_minutes=2, acc_target=None)
     except Exception as e:
         logger.error(f"Erro durante a execução do pipeline: {e}")
         raise
