@@ -14,7 +14,7 @@ import joblib
 
 from datetime import datetime
 from sklearn.compose import ColumnTransformer
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, ParameterSampler
+from sklearn.model_selection import train_test_split, cross_val_score, cross_validate, StratifiedKFold, ParameterSampler
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline as SkPipeline
 from sklearn.feature_selection import SelectKBest, f_classif
@@ -100,6 +100,7 @@ class FeatureEngineering:
         self.tuned_metrics: dict = {}
         self.figs_to_log: list[tuple[str, plt.Figure]] = []
         self.n_jobs = 1 if "debugpy" in sys.modules else -1
+        self.tuning_n_iter = 100
 
         for metric_name, metric_value in (
             ("min_precision", self.min_precision),
@@ -448,7 +449,7 @@ class FeatureEngineering:
         deadline = start + time_limit_minutes * 60
 
         param_distributions = param_distributions_for(self.best_model_name)
-        sampler = ParameterSampler(param_distributions, n_iter=1_000_000, random_state=self.random_state)
+        sampler = ParameterSampler(param_distributions, n_iter=self.tuning_n_iter, random_state=self.random_state)
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
 
         self.best_cv_score = -np.inf
@@ -479,18 +480,30 @@ class FeatureEngineering:
             )
             mean_cv = float(np.mean(cv_scores))
 
-            pipeline.fit(self.x_train, self.y_train)
+            guardrail_precision_cv = float("nan")
+            guardrail_roc_auc_cv = float("nan")
+            if self.min_precision is not None or self.min_roc_auc is not None:
+                scorers = {}
+                if self.min_precision is not None:
+                    scorers["precision"] = "precision"
+                if self.min_roc_auc is not None:
+                    scorers["roc_auc"] = "roc_auc"
+                cv_guard = cross_validate(
+                    pipeline,
+                    self.x_train,
+                    self.y_train,
+                    cv=cv,
+                    scoring=scorers,
+                    n_jobs=self.n_jobs,
+                )
+                if "test_precision" in cv_guard:
+                    guardrail_precision_cv = float(np.mean(cv_guard["test_precision"]))
+                if "test_roc_auc" in cv_guard:
+                    guardrail_roc_auc_cv = float(np.mean(cv_guard["test_roc_auc"]))
 
-            y_pred_t = pipeline.predict(self.x_test)
-            y_proba_t = pipeline.predict_proba(self.x_test)[:, 1] if hasattr(pipeline, "predict_proba") else None
-            precision_t = float(precision_score(self.y_test, y_pred_t, zero_division=0))
-            roc_auc_t = float("nan")
-            if y_proba_t is not None:
-                try:
-                    roc_auc_t = float(roc_auc_score(self.y_test, y_proba_t))
-                except ValueError:
-                    roc_auc_t = float("nan")
-            pass_guardrails = self._passes_guardrails(precision_t, roc_auc_t)
+            pass_guardrails = self._passes_guardrails(guardrail_precision_cv, guardrail_roc_auc_cv)
+
+            pipeline.fit(self.x_train, self.y_train)
 
             if mean_cv > best_cv_fallback:
                 best_cv_fallback = mean_cv
@@ -503,10 +516,12 @@ class FeatureEngineering:
                 tuned_pipeline = pipeline
                 elapsed = now - start
                 logger.info(
-                    "[%s] Novo melhor (guardrails ok) | cv_%s=%.4f | t=%.1fm | params=%s",
+                    "[%s] Novo melhor (guardrails ok) | cv_%s=%.4f | cv_precision=%.4f | cv_roc_auc=%.4f | t=%.1fm | params=%s",
                     i,
                     self.optimization_metric,
                     mean_cv,
+                    guardrail_precision_cv,
+                    guardrail_roc_auc_cv,
                     elapsed / 60,
                     params,
                 )
@@ -663,12 +678,15 @@ class FeatureEngineering:
                     for k, v in self.best_params.items():
                         mlflow.log_param(k, str(v))
                 mlflow.log_param("optimization_metric", self.optimization_metric)
+                mlflow.log_param("tuning_n_iter", self.tuning_n_iter)
                 if self.min_precision is not None:
                     mlflow.log_param("min_precision", float(self.min_precision))
                 if self.min_roc_auc is not None:
                     mlflow.log_param("min_roc_auc", float(self.min_roc_auc))
                 for k, v in self.guardrails_summary.items():
                     mlflow.log_param(k, bool(v))
+                if self.baseline_manifest is not None:
+                    mlflow.log_dict(self.baseline_manifest, "baseline_manifest.json")
 
                 if np.isfinite(self.best_cv_score):
                     mlflow.log_metric(f"cv_{self.optimization_metric}", float(self.best_cv_score))
