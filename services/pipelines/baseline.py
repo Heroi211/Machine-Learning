@@ -369,18 +369,14 @@ class Baseline:
             
     def pre_processor_churn(self):
         """
-        Ajustes específicos do *churn*: remove a **primeira coluna** do frame
-        (por posição, qualquer que seja o nome — tipicamente identificador no CSV
-        bruto), mapeia Yes/No e variantes para 0/1, imputa ``TotalCharges`` se
-        existir, e uniformiza ``object``/``category`` para texto após o *replace*.
+        Ajustes específicos do *churn*: mapeia Yes/No e variantes para 0/1,
+        imputa ``TotalCharges`` se existir, e uniformiza ``object``/``category``
+        para texto após o *replace*.
         """
         if self.objective != "churn":
             return
 
         df = self.data.copy()
-
-        if df.shape[1] > 0:
-            df = df.drop(columns=[df.columns[0]])
 
         df = df.replace(
             {
