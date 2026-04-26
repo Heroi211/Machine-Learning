@@ -137,7 +137,7 @@ class TriggerDagRequest(BaseModel):
     min_precision: Optional[float] = Field(default=None, description="Guardrail opcional: precisão mínima [0,1].")
     min_roc_auc: Optional[float] = Field(default=None, description="Guardrail opcional: ROC-AUC mínimo [0,1].")
     time_limit_minutes: int = Field(default=2, description="Orçamento de tempo para tuning (minutos).")
-    acc_target: float = Field(default=0.90, description="Alvo de performance para o tuning.")
+    acc_target: Optional[float] = Field(default=None, description="Alvo opcional da métrica primária no tuning.")
 
 
 class TriggerDagResponse(BaseModel):

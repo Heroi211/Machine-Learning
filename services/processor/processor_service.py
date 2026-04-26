@@ -172,7 +172,7 @@ async def run_feature_engineering(
     min_precision: float | None = None,
     min_roc_auc: float | None = None,
     time_limit_minutes: int = 2,
-    acc_target: float = 0.90,
+    acc_target: float | None = None,
 ) -> tuple[PipelineRuns, str | None]:
     """
     Baseline (mesmo ficheiro de entrada) + FE; gera um ZIP de artefatos.

@@ -329,20 +329,28 @@ class FeatureEngineering:
             ),
         }
 
-    def tune(self, time_limit_minutes: int = 60, acc_target: float = 0.90):
+    def tune(self, time_limit_minutes: int = 60, acc_target: float | None = None):
         sort_col = result_column_for_metric(self.optimization_metric)
         scoring = sklearn_scoring_parameter(self.optimization_metric)
         if not self.best_model_name:
             raise RuntimeError("tune requer train_models prévio com best_model_name definido.")
 
-        logger.info(
-            "Iniciando tuning — modelo: %s | limite: %smin | métrica: %s | alvo em %s > %s",
-            self.best_model_name,
-            time_limit_minutes,
-            self.optimization_metric,
-            sort_col,
-            acc_target,
-        )
+        if acc_target is not None:
+            logger.info(
+                "Iniciando tuning — modelo: %s | limite: %smin | métrica: %s | alvo em %s > %s",
+                self.best_model_name,
+                time_limit_minutes,
+                self.optimization_metric,
+                sort_col,
+                acc_target,
+            )
+        else:
+            logger.info(
+                "Iniciando tuning — modelo: %s | limite: %smin | métrica: %s | sem alvo explícito",
+                self.best_model_name,
+                time_limit_minutes,
+                self.optimization_metric,
+            )
 
         start = time.time()
         deadline = start + time_limit_minutes * 60
@@ -460,12 +468,13 @@ class FeatureEngineering:
         elapsed_total = time.time() - start
         logger.info(f"Tuning concluído — {n_evaluated} iterações em {elapsed_total / 60:.1f}min")
         logger.info("Melhor cv_%s: %.4f", self.optimization_metric, self.best_cv_score)
-        logger.info(
-            "Alvo (%.2f) sobre %s: %s",
-            acc_target,
-            sort_col,
-            "atingido" if self.tuned_metrics[sort_col] > acc_target else "não atingido",
-        )
+        if acc_target is not None:
+            logger.info(
+                "Alvo (%.2f) sobre %s: %s",
+                acc_target,
+                sort_col,
+                "atingido" if self.tuned_metrics[sort_col] > acc_target else "não atingido",
+            )
 
     # ------------------------------------------------------------------
     # Etapa 6 — Importância de features
@@ -590,7 +599,7 @@ class FeatureEngineering:
     # Orquestrador
     # ------------------------------------------------------------------
 
-    def run(self, time_limit_minutes: int, acc_target: float):
+    def run(self, time_limit_minutes: int, acc_target: float | None):
         start_time = datetime.now()
         logger.info(f"Pipeline de Feature Engineering iniciado: {start_time}")
 
