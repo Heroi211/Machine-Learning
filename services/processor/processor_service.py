@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import re
 from datetime import datetime
 
 import joblib
@@ -81,6 +82,60 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
         return _baseline_clean_encode_predict(df)
 
     raise ValueError(f"pipeline_type não suportado para predição: {ptype!r}")
+
+
+def _extract_timestamp_from_baseline_model_path(model_path: str | None) -> str | None:
+    if not model_path:
+        return None
+    m = re.search(r"baseline_model_[^_]+_(\d{8}_\d{6})\.joblib$", os.path.basename(model_path))
+    if m:
+        return m.group(1)
+    return None
+
+
+async def _resolve_manifest_path_for_fe(
+    db: AsyncSession,
+    objective: str,
+    manifest_path: str | None,
+    baseline_run_id: int | None,
+) -> str:
+    if manifest_path and baseline_run_id:
+        raise ValueError("Informe apenas um entre manifest_path e baseline_run_id.")
+
+    if manifest_path:
+        candidate = os.path.abspath(manifest_path)
+        if not os.path.isfile(candidate):
+            raise ValueError(f"Manifest informado não existe: {candidate}")
+        return candidate
+
+    if baseline_run_id is not None:
+        async with db as session:
+            run = await session.get(PipelineRuns, baseline_run_id)
+        if not run:
+            raise ValueError(f"baseline_run_id não encontrado: {baseline_run_id}")
+        if run.pipeline_type != "baseline":
+            raise ValueError(f"pipeline_run_id {baseline_run_id} não é baseline.")
+        if run.objective != objective:
+            raise ValueError(
+                f"baseline_run_id {baseline_run_id} com objective='{run.objective}', esperado '{objective}'."
+            )
+
+        ts = _extract_timestamp_from_baseline_model_path(run.model_path)
+        if not ts:
+            raise ValueError(
+                "Não foi possível inferir o timestamp do baseline pelo model_path. Informe manifest_path explicitamente."
+            )
+        candidate = os.path.join(settings.path_data, settings.path_logs, ts, "manifest.json")
+        if not os.path.isfile(candidate):
+            raise ValueError(
+                f"Manifest do baseline_run_id {baseline_run_id} não encontrado em: {candidate}"
+            )
+        return candidate
+
+    candidate = os.path.join(settings.path_data_preprocessed, "manifest.json")
+    if not os.path.isfile(candidate):
+        raise ValueError(f"Manifest do baseline não encontrado: {candidate}")
+    return candidate
 
 
 async def run_baseline(file: UploadFile, objective: str, user_id: int, db: AsyncSession) -> PipelineRuns:
@@ -171,6 +226,9 @@ async def run_feature_engineering(
     optimization_metric: str = "accuracy",
     min_precision: float | None = None,
     min_roc_auc: float | None = None,
+    tuning_n_iter: int | None = None,
+    manifest_path: str | None = None,
+    baseline_run_id: int | None = None,
     time_limit_minutes: int = 2,
     acc_target: float | None = None,
 ) -> tuple[PipelineRuns, str | None]:
@@ -199,10 +257,13 @@ async def run_feature_engineering(
         raise ValueError(f"Strategy '{objective}' não registrada. Disponíveis: {list(STRATEGY_REGISTRY.keys())}")
 
     os.makedirs(settings.path_data_preprocessed, exist_ok=True)
-    manifest_path = os.path.join(settings.path_data_preprocessed, "manifest.json")
-    if not os.path.isfile(manifest_path):
-        raise ValueError(f"Manifest do baseline não encontrado: {manifest_path}")
-    with open(manifest_path, "r", encoding="utf-8") as f:
+    resolved_manifest_path = await _resolve_manifest_path_for_fe(
+        db=db,
+        objective=objective,
+        manifest_path=manifest_path,
+        baseline_run_id=baseline_run_id,
+    )
+    with open(resolved_manifest_path, "r", encoding="utf-8") as f:
         baseline_manifest = json.load(f)
 
     manifest_objective = str(baseline_manifest.get("objective", "")).strip().lower()
@@ -259,7 +320,7 @@ async def run_feature_engineering(
         if baseline_input_path and os.path.isfile(baseline_input_path):
             shutil.copy2(baseline_input_path, os.path.join(b_in, os.path.basename(baseline_input_path)))
         copy_if_exists(csv_baseline, b_out)
-        copy_if_exists(manifest_path, b_out)
+        copy_if_exists(resolved_manifest_path, b_out)
         model_baseline = baseline_manifest.get("model_path")
         if model_baseline:
             copy_if_exists(os.path.abspath(model_baseline), b_out)
@@ -275,10 +336,11 @@ async def run_feature_engineering(
             strategy=strategy,
             run_timestamp=run_ts,
             csv_path=csv_baseline,
-            manifest_path=manifest_path,
+            manifest_path=resolved_manifest_path,
             optimization_metric=metric,
             min_precision=min_precision,
             min_roc_auc=min_roc_auc,
+            tuning_n_iter=tuning_n_iter,
             export_figures_dir=fe_plots,
         )
         pipeline.run(time_limit_minutes=effective_tuning_minutes, acc_target=acc_target)
@@ -302,6 +364,9 @@ async def run_feature_engineering(
             "optimization_metric": metric,
             "min_precision": min_precision,
             "min_roc_auc": min_roc_auc,
+            "tuning_n_iter": tuning_n_iter if tuning_n_iter is not None else 100,
+            "manifest_path_used": resolved_manifest_path,
+            "baseline_run_id": baseline_run_id,
             "tuning_time_limit_effective_minutes": effective_tuning_minutes,
             "tuning_time_limit_requested": time_limit_minutes,
         }

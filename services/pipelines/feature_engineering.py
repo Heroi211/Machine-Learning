@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import json
+import re
 
 import numpy as np
 import pandas as pd
@@ -56,6 +57,7 @@ class FeatureEngineering:
         optimization_metric: str = "accuracy",
         min_precision: float | None = None,
         min_roc_auc: float | None = None,
+        tuning_n_iter: int | None = None,
         export_figures_dir: str | None = None,
     ):
         self.objective = objective
@@ -100,7 +102,7 @@ class FeatureEngineering:
         self.tuned_metrics: dict = {}
         self.figs_to_log: list[tuple[str, plt.Figure]] = []
         self.n_jobs = 1 if "debugpy" in sys.modules else -1
-        self.tuning_n_iter = 100
+        self.tuning_n_iter = tuning_n_iter if tuning_n_iter is not None else 100
 
         for metric_name, metric_value in (
             ("min_precision", self.min_precision),
@@ -108,6 +110,8 @@ class FeatureEngineering:
         ):
             if metric_value is not None and not (0.0 <= metric_value <= 1.0):
                 raise ValueError(f"{metric_name} deve estar no intervalo [0, 1]. Recebido: {metric_value}")
+        if self.tuning_n_iter <= 0:
+            raise ValueError(f"tuning_n_iter deve ser > 0. Recebido: {self.tuning_n_iter}")
 
     def _passes_guardrails(self, precision_value: float, roc_auc_value: float) -> bool:
         if self.min_precision is not None and precision_value < self.min_precision:

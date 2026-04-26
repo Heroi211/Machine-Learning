@@ -136,6 +136,7 @@ class TriggerDagRequest(BaseModel):
     )
     min_precision: Optional[float] = Field(default=None, description="Guardrail opcional: precisão mínima [0,1].")
     min_roc_auc: Optional[float] = Field(default=None, description="Guardrail opcional: ROC-AUC mínimo [0,1].")
+    tuning_n_iter: Optional[int] = Field(default=None, description="Número máximo de amostras no tuning (opcional).")
     time_limit_minutes: int = Field(default=2, description="Orçamento de tempo para tuning (minutos).")
     acc_target: Optional[float] = Field(default=None, description="Alvo opcional da métrica primária no tuning.")
 
