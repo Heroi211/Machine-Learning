@@ -44,11 +44,21 @@ class FeatureEngineering:
     treinamento comparativo, tuning e persistência.
     """
 
-    def __init__(self, objective: str, strategy: FeatureStrategy, run_timestamp: str | None = None, csv_path: str | None = None, optimization_metric: str = "accuracy"):
+    def __init__(
+        self,
+        objective: str,
+        strategy: FeatureStrategy,
+        run_timestamp: str | None = None,
+        csv_path: str | None = None,
+        optimization_metric: str = "accuracy",
+        export_figures_dir: str | None = None,
+    ):
         self.objective = objective
         self.strategy = strategy
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
         self.optimization_metric = normalize_optimization_metric(optimization_metric)
+        self.export_figures_dir = export_figures_dir
+        self.mlflow_run_id: str | None = None
 
         self.path_data_preprocessed = settings.path_data_preprocessed
         self.path_model = settings.path_model
@@ -395,6 +405,10 @@ class FeatureEngineering:
             ax.set_xlabel("Importância")
             ax.set_ylabel("Feature")
             plt.tight_layout()
+            if self.export_figures_dir:
+                os.makedirs(self.export_figures_dir, exist_ok=True)
+                gini_png = os.path.join(self.export_figures_dir, "feature_importance_gini_top20.png")
+                fig.savefig(gini_png, dpi=200, bbox_inches="tight")
             self.figs_to_log.append(("feature_importance_gini_top20.png", fig))
             plt.close(fig)
         else:
@@ -422,6 +436,10 @@ class FeatureEngineering:
         ax2.set_xlabel("Queda média na métrica")
         ax2.set_ylabel("Feature")
         plt.tight_layout()
+        if self.export_figures_dir:
+            os.makedirs(self.export_figures_dir, exist_ok=True)
+            p_png = os.path.join(self.export_figures_dir, "feature_importance_permutation_top20.png")
+            fig2.savefig(p_png, dpi=200, bbox_inches="tight")
         self.figs_to_log.append(("feature_importance_permutation_top20.png", fig2))
         plt.close(fig2)
 
@@ -443,7 +461,8 @@ class FeatureEngineering:
             if not mlflow.get_experiment_by_name(experiment_name):
                 mlflow.create_experiment(experiment_name, artifact_location=settings.mlflow_artifact_root)
             mlflow.set_experiment(experiment_name)
-            with mlflow.start_run(run_name=f"fe_{self.objective}_{self.now}"):
+            with mlflow.start_run(run_name=f"fe_{self.objective}_{self.now}") as _mfe:
+                self.mlflow_run_id = _mfe.info.run_id
                 if self.best_params:
                     for k, v in self.best_params.items():
                         mlflow.log_param(k, str(v))

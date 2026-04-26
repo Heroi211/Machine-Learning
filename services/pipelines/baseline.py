@@ -116,6 +116,7 @@ class Baseline:
         self.y_test = None
         self.ratio = None
         self.model = None
+        self.mlflow_run_id: str | None = None
 
         logger.info(f"Objective: {self.objective}")
         logger.info(f"Random state: {self.random_state}")
@@ -589,7 +590,8 @@ class Baseline:
         if not mlflow.get_experiment_by_name(experiment_name):
             mlflow.create_experiment(experiment_name, artifact_location=settings.mlflow_artifact_root)
         mlflow.set_experiment(experiment_name)
-        with mlflow.start_run(run_name=f"baseline_{self.objective}"):
+        with mlflow.start_run(run_name=f"baseline_{self.objective}") as _mlr:
+            self.mlflow_run_id = _mlr.info.run_id
 
             full_pipeline.fit(self.x_train, self.y_train)
             self.model = full_pipeline
