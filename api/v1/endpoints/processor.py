@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
@@ -71,8 +72,10 @@ async def admin_promote(payload: processor_schemas.PromoteRequest, db: AsyncSess
 @router.post("/admin/train/trigger-dag", status_code=status.HTTP_202_ACCEPTED, response_model=processor_schemas.TriggerDagResponse)
 async def admin_trigger_dag(
     file: UploadFile = File(...),
-    objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
-    optimization_metric: str = Form("accuracy"),
+    objective: Literal["churn"] = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
+    optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("accuracy"),
+    min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
+    min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
     time_limit_minutes: int = Form(2),
     acc_target: float = Form(0.90),
     admin: users_models = Depends(require_airflow_api_trigger_enabled),
@@ -80,7 +83,7 @@ async def admin_trigger_dag(
     """Grava o CSV em volume compartilhado e dispara o DAG (só ambientes não prod; em prd use UI do Airflow + Variables)."""
     upload_dir = os.path.join(ML_SHARED_PATH)
     os.makedirs(upload_dir, exist_ok=True)
-    obj = objective.value
+    obj = objective
     filename = f"{obj}_{uuid.uuid4().hex[:8]}_{file.filename}"
     csv_path = os.path.join(upload_dir, filename)
     content = await file.read()
@@ -92,6 +95,8 @@ async def admin_trigger_dag(
         "objective": obj,
         "csv_path": csv_path,
         "optimization_metric": optimization_metric,
+        "min_precision": min_precision,
+        "min_roc_auc": min_roc_auc,
         "time_limit_minutes": time_limit_minutes,
         "acc_target": acc_target,
         "user_id": admin.id,
@@ -167,13 +172,13 @@ def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
 @router.post("/admin/train/baseline", status_code=status.HTTP_201_CREATED, response_class=FileResponse)
 async def admin_train_baseline(
     file: UploadFile = File(...),
-    objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
+    objective: Literal["churn"] = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
     try:
         
-        run = await processor_service.run_baseline(file=file, objective=objective.value, user_id=admin.id, db=db)
+        run = await processor_service.run_baseline(file=file, objective=objective, user_id=admin.id, db=db)
         return _file_response_for_run(run, "baseline")
     except HTTPException:
         raise
@@ -193,8 +198,10 @@ def _schedule_remove(path: str) -> None:
 async def admin_train_feature_engineering(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
-    optimization_metric: str = Form("accuracy"),
+    objective: Literal["churn"] = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
+    optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("accuracy"),
+    min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
+    min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
     time_limit_minutes: int = Form(2),
     acc_target: float = Form(0.90),
     db: AsyncSession = Depends(get_session),
@@ -202,8 +209,12 @@ async def admin_train_feature_engineering(
 ):
     try:
         run, zip_path = await processor_service.run_feature_engineering(
-            file=file, objective=objective.value, user_id=admin.id, db=db,
-            optimization_metric=optimization_metric, time_limit_minutes=time_limit_minutes, acc_target=acc_target,
+            file=file, objective=objective, user_id=admin.id, db=db,
+            optimization_metric=optimization_metric,
+            min_precision=min_precision,
+            min_roc_auc=min_roc_auc,
+            time_limit_minutes=time_limit_minutes,
+            acc_target=acc_target,
         )
         if run.status != "completed":
             if zip_path:
