@@ -172,6 +172,7 @@ async def admin_train_baseline(
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
     try:
+        
         run = await processor_service.run_baseline(file=file, objective=objective.value, user_id=admin.id, db=db)
         return _file_response_for_run(run, "baseline")
     except HTTPException:

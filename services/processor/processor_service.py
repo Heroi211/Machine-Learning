@@ -85,7 +85,13 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
 async def run_baseline(file: UploadFile, objective: str, user_id: int, db: AsyncSession) -> PipelineRuns:
     """Salva o CSV enviado, executa o Baseline e persiste o resultado."""
     from services.pipelines.baseline import Baseline
-    from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+    from sklearn.metrics import (
+        accuracy_score,
+        average_precision_score,
+        f1_score,
+        precision_score,
+        recall_score,
+    )
 
     os.makedirs(settings.path_data, exist_ok=True)
     input_path = os.path.join(settings.path_data, file.filename)
@@ -125,13 +131,17 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
 
             model = pipeline.model
             y_pred_test = model.predict(pipeline.x_test)
-
+            y_proba_test = model.predict_proba(pipeline.x_test)[:, 1]
+            _zd = {"zero_division": 0}
+            yt = pipeline.y_test
             metrics = {
-                "test_accuracy": float(accuracy_score(pipeline.y_test, y_pred_test)),
-                "test_f1": float(f1_score(pipeline.y_test, y_pred_test)),
-                "test_precision": float(precision_score(pipeline.y_test, y_pred_test)),
-                "test_recall": float(recall_score(pipeline.y_test, y_pred_test)),
+                "test_accuracy": float(accuracy_score(yt, y_pred_test)),
+                "test_f1": float(f1_score(yt, y_pred_test, **_zd)),
+                "test_precision": float(precision_score(yt, y_pred_test, **_zd)),
+                "test_recall": float(recall_score(yt, y_pred_test, **_zd)),
             }
+            if int(yt.sum()) > 0 and int(len(yt) - yt.sum()) > 0:
+                metrics["test_pr_auc"] = float(average_precision_score(yt, y_proba_test))
 
             run.status = "completed"
             run.metrics = metrics

@@ -14,7 +14,13 @@ from core.custom_logger import setup_log
 from datetime import datetime
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 import joblib
 import glob 
 import re
@@ -305,14 +311,14 @@ class Baseline:
             logger.error(f"Valores nulos ou faltantes foram encontrados na coluna target {null_count}")
             raise ValueError(self.msg_raise)
         
-        relatorio_convertion = self.analyze_convert_columns_to_numeric(self.data)
+        report_convertion = self.analyze_convert_columns_to_numeric(self.data)
         logger.info(f"Relatório de conversão para numérico:\n{relatorio_convertion}")
 
-        if not relatorio_convertion.empty:
+        if not report_convertion.empty:
             gr.build_report(
                 g_type=1,  # BARH
-                x_data=relatorio_convertion['Coluna'],
-                y_data=relatorio_convertion['Taxa_numerica'] * 100,
+                x_data=report_convertion['Coluna'],
+                y_data=report_convertion['Taxa_numerica'] * 100,
                 title="Distribuição de conversão por coluna",
                 xlabel="Porcentagem (%)",
                 filename=f"convert_object_to_numeric_{self.now}.png",
@@ -320,9 +326,9 @@ class Baseline:
             )
 
         convertiveis = (
-            relatorio_convertion[relatorio_convertion['Recomenda_converter']]
-            if not relatorio_convertion.empty
-            else relatorio_convertion
+            report_convertion[report_convertion['Recomenda_converter']]
+            if not report_convertion.empty
+            else report_convertion
         )
 
         if not convertiveis.empty:
@@ -332,7 +338,7 @@ class Baseline:
                 f"{convertiveis['Coluna'].tolist()}"
             )
             self.data = self.coerce_object_columns_to_numeric(
-                self.data, relatorio_convertion
+                self.data, report_convertion
             )
             logger.info(
                 "Coerção aplicada. Refinamentos por coluna serão feitos na etapa de FE."
@@ -360,6 +366,20 @@ class Baseline:
             color="skyblue"
             )
             
+    def pre_processor_churn(self):
+        
+        if self.objective == 'churn':
+            df = self.data.copy()
+            df = df.drop(columns=[df.columns.tolist().pop(0)])
+            df = df.replace({
+                'Yes': 1,
+                'No': 0,
+                'No internet service': 0,
+                'No phone service':0
+            })
+            df['TotalCharges'] = df['TotalCharges'].fillna(0)
+            self.data = df
+        
             
     def target_analysis(self):
         """
@@ -428,7 +448,31 @@ class Baseline:
         else:
             logger.info("✓ Dataset razoavelmente balanceado.")
             
-            
+    def view_data(self):
+        """
+        Amostra CSV + EDA churn via :class:`core.graphs.Graphs` (padrão do projeto).
+        """
+        logger.info("Iniciando visualização dos dados...")
+        os.makedirs(self.path_graphs, exist_ok=True)
+        sample_path = os.path.join(self.path_graphs, f"data_view_{self.now}.csv")
+        try:
+            self.data.head(5).to_csv(sample_path, index=False)
+            logger.info("Amostra salva em: %s", sample_path)
+        except Exception as e:
+            logger.warning("Não foi possível salvar amostra CSV: %s", e)
+
+        if str(self.objective).lower() != "churn":
+            return
+
+        gr.build_churn_view_data_eda(
+            self.data,
+            self.now,
+            self.label_neg,
+            self.label_pos,
+            graph_root=self.path_graphs,
+            model_pipeline=None,
+        )
+
     def outlier_analysis(self):
         """
         Passo 5, identificar outliers se houverem.
@@ -552,19 +596,40 @@ class Baseline:
 
             y_pred_train = self.model.predict(self.x_train)
             y_pred_test = self.model.predict(self.x_test)
+            y_proba_test = self.model.predict_proba(self.x_test)[:, 1]
 
+            _zd = {"zero_division": 0}
             metrics = {
                 "train_accuracy": accuracy_score(self.y_train, y_pred_train),
                 "test_accuracy": accuracy_score(self.y_test, y_pred_test),
-                "test_f1": f1_score(self.y_test, y_pred_test),
-                "test_precision": precision_score(self.y_test, y_pred_test),
-                "test_recall": recall_score(self.y_test, y_pred_test),
+                "test_f1": f1_score(self.y_test, y_pred_test, **_zd),
+                "test_precision": precision_score(self.y_test, y_pred_test, **_zd),
+                "test_recall": recall_score(self.y_test, y_pred_test, **_zd),
             }
+            if int(self.y_test.sum()) > 0 and int(len(self.y_test) - self.y_test.sum()) > 0:
+                metrics["test_pr_auc"] = float(
+                    average_precision_score(self.y_test, y_proba_test)
+                )
+            else:
+                metrics["test_pr_auc"] = float("nan")
+                logger.warning(
+                    "test_pr_auc omitido: conjunto de teste sem ambas as classes (use stratify ou mais dados)."
+                )
 
             overfitting = metrics["train_accuracy"] - metrics["test_accuracy"]
 
+            if str(self.objective).lower() == "churn":
+                try:
+                    gr.build_lr_coeff_importance_bars(
+                        self.model, self.now, graph_root=self.path_graphs
+                    )
+                except Exception as e:
+                    logger.warning("Importância LR (gráfico) não gerada: %s", e)
+
             mlflow.log_params(self.model.get_params())
-            mlflow.log_metrics(metrics)
+            mlflow.log_metrics(
+                {k: v for k, v in metrics.items() if not (isinstance(v, float) and np.isnan(v))}
+            )
             mlflow.log_metric("overfitting_gap", overfitting)
 
             if os.path.exists(self.path_graphs):
@@ -577,6 +642,8 @@ class Baseline:
             logger.info(f"Test F1:        {metrics['test_f1']:.4f}")
             logger.info(f"Test Precision: {metrics['test_precision']:.4f}")
             logger.info(f"Test Recall:    {metrics['test_recall']:.4f}")
+            if not np.isnan(metrics["test_pr_auc"]):
+                logger.info(f"Test PR-AUC:    {metrics['test_pr_auc']:.4f}")
             logger.info(f"Overfitting:    {overfitting:.4f}")
             logger.info("Treino e logs concluídos.")
     
@@ -628,10 +695,14 @@ class Baseline:
         logger.debug(f"Overview gerado: {datetime.now() - start_time}")
         self.missing_identifier()
         logger.debug(f"Identificados Missings: {datetime.now() - start_time}")
+        self.pre_processor_churn()
+        logger.debug(f"Pre-processamento: {datetime.now() - start_time}")
         self.target_analysis()
         logger.debug(f"Análise da target: {datetime.now() - start_time}")
         self.outlier_analysis()
         logger.debug(f"Análise de outliers: {datetime.now() - start_time}")
+        self.view_data()
+        logger.debug(f"Visualização de dados: {datetime.now() - start_time}")
         self.prepare_modeling_frame()
         logger.debug(f"Frame de modelagem: {datetime.now() - start_time}")
         self.split_data()

@@ -40,6 +40,7 @@ Campos obrigatorios:
 
 Template adicional:
 - `tasks/revisao-ml-pos-codificacao.md`: review pedagogico + profissional para treino/FE/baseline.
+- `tasks/comparativo-scripts-ml.md`: comparativo recorrente entre scripts de ML para decisao de adocao.
 
 ## Processo de Evolucao
 
