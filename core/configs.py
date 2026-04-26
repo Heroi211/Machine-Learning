@@ -55,6 +55,12 @@ class Settings(BaseSettings):
 
     environment: str = Field(default="development", validation_alias="ENVIRONMENT", description="Ambiente de execução")
 
+    sync_fe_tune_max_minutes: int = Field(
+        default=2,
+        validation_alias="SYNC_FE_TUNE_MAX_MINUTES",
+        description="Teto de minutos de tuning do FE em rotas síncronas (API, não Airflow).",
+    )
+
     @property
     def is_production(self) -> bool:
         """Ambientes em que treino síncrono (baseline/FE via HTTP) deve ficar desligado — usar Airflow."""

@@ -3,7 +3,7 @@ import os
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
@@ -181,8 +181,17 @@ async def admin_train_baseline(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Treino baseline falhou: {str(e)}")
 
 
+def _schedule_remove(path: str) -> None:
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
 @router.post("/admin/train/feature-engineering", status_code=status.HTTP_201_CREATED, response_class=FileResponse)
 async def admin_train_feature_engineering(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     objective: processor_schemas.MLDomain = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
     optimization_metric: str = Form("accuracy"),
@@ -192,11 +201,37 @@ async def admin_train_feature_engineering(
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
     try:
-        run = await processor_service.run_feature_engineering(
+        run, zip_path = await processor_service.run_feature_engineering(
             file=file, objective=objective.value, user_id=admin.id, db=db,
             optimization_metric=optimization_metric, time_limit_minutes=time_limit_minutes, acc_target=acc_target,
         )
-        return _file_response_for_run(run, "feature_engineering")
+        if run.status != "completed":
+            if zip_path:
+                _schedule_remove(zip_path)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"run_id": run.id, "error": run.error_message or "Pipeline não concluiu com sucesso."},
+            )
+        if not zip_path or not os.path.isfile(zip_path):
+            if zip_path:
+                _schedule_remove(zip_path)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Arquivo ZIP de artefatos não foi gerado após o pipeline.",
+            )
+        background_tasks.add_task(_schedule_remove, zip_path)
+        return FileResponse(
+            path=zip_path,
+            filename=f"fe_artifacts_run_{run.id}.zip",
+            media_type="application/zip",
+            status_code=status.HTTP_201_CREATED,
+            headers={
+                "X-Pipeline-Run-Id": str(run.id),
+                "X-Pipeline-Type": "feature_engineering",
+                "X-Pipeline-Objective": run.objective,
+                "X-Pipeline-Metrics": json.dumps(run.metrics, ensure_ascii=False) if run.metrics else "",
+            },
+        )
     except HTTPException:
         raise
     except ValueError as e:
