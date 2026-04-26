@@ -14,7 +14,6 @@ class ChurnFeatures(FeatureStrategy):
     """
     def __init__(self):
         self.monthly_median = None
-        self.monthly_median = df["monthlycharges"].median()
 
     def fit(self, df: pd.DataFrame):
         df = df.copy()
@@ -59,6 +58,9 @@ class ChurnFeatures(FeatureStrategy):
         missing = set(self.required_columns()) - set(out.columns)
         if missing: raise ValueError(f"Colunas obrigatórias ausentes: {missing}")
 
+        if self.monthly_median is None:
+            self.fit(out)
+
         out["is_new_customer"] = (out["tenure"] <= 12).astype(int)
         out["tenure_log"] = np.log1p(out["tenure"])
 
@@ -85,6 +87,8 @@ class ChurnFeatures(FeatureStrategy):
         out["low_engagement"] = (out["num_services"] <= 2).astype(int)
 
         out["high_cost_low_engagement"] = ((out["monthlycharges"] > self.monthly_median) & (out["num_services"] <= 2)).astype(int)
-        out["is_auto_payment"] = out["paymentmethod"].isin(["Bank transfer", "Credit card"]).astype(int)
+        out["is_auto_payment"] = (
+            out["paymentmethod"].astype(str).str.lower().str.contains("automatic", regex=False)
+        ).astype(int)
 
         return out

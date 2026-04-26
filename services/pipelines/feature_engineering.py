@@ -337,22 +337,34 @@ class FeatureEngineering:
             sort_col,
         )
 
-        model_configs = {
+        model_configs = [
             "Decision Tree",
             "Random Forest",
             "SVM",
             "Gradient Boosting",
-        }
+        ]
 
         results = []
 
         for name in model_configs:
             pipeline = self._build_model_pipeline(name)
-            pipeline.fit(self.x_train, self.y_train)
             cv_scores = cross_val_score(
                 pipeline, self.x_train, self.y_train, cv=cv, scoring=scoring, n_jobs=self.n_jobs
             )
             cv_score = float(np.mean(cv_scores))
+
+            cv_guard = cross_validate(
+                pipeline,
+                self.x_train,
+                self.y_train,
+                cv=cv,
+                scoring={"precision": "precision", "roc_auc": "roc_auc"},
+                n_jobs=self.n_jobs,
+            )
+            guardrail_precision_cv = float(np.mean(cv_guard["test_precision"]))
+            guardrail_roc_auc_cv = float(np.mean(cv_guard["test_roc_auc"]))
+
+            pipeline.fit(self.x_train, self.y_train)
             y_pred = pipeline.predict(self.x_test)
 
             metrics = {
@@ -371,9 +383,11 @@ class FeatureEngineering:
                 metrics["ROC AUC"] = roc_auc_score(self.y_test, pipeline.decision_function(self.x_test))
 
             metrics["Pass Guardrails"] = self._passes_guardrails(
-                float(metrics["Precisão"]),
-                float(metrics["ROC AUC"]) if not np.isnan(metrics["ROC AUC"]) else float("nan"),
+                guardrail_precision_cv,
+                guardrail_roc_auc_cv,
             )
+            metrics["CV Precision"] = guardrail_precision_cv
+            metrics["CV ROC AUC"] = guardrail_roc_auc_cv
 
             logger.info("=== %s === cv_%s: %.4f", name, self.optimization_metric, cv_score)
             logger.debug(f"\n{classification_report(self.y_test, y_pred)}")
