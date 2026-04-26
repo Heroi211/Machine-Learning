@@ -12,6 +12,16 @@ class ChurnFeatures(FeatureStrategy):
     """
     Feature engineering para churn em telecom (nível produção).
     """
+    def __init__(self):
+        self.monthly_median = None
+        self.monthly_median = df["monthlycharges"].median()
+
+    def fit(self, df: pd.DataFrame):
+        df = df.copy()
+        df.columns = df.columns.str.lower()
+
+        self.monthly_median = df["monthlycharges"].median()
+        return self
 
     def required_columns(self) -> list[str]:
         return [
@@ -75,6 +85,6 @@ class ChurnFeatures(FeatureStrategy):
         out["low_engagement"] = (out["num_services"] <= 2).astype(int)
 
         out["high_cost_low_engagement"] = ((out["monthlycharges"] > self.monthly_median) & (out["num_services"] <= 2)).astype(int)
-        out["is_auto_payment"] = out["paymentmethod"].isin(["bank transfer", "credit card"]).astype(int)
+        out["is_auto_payment"] = out["paymentmethod"].isin(["Bank transfer", "Credit card"]).astype(int)
 
         return out
