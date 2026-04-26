@@ -794,10 +794,15 @@ class Baseline:
             logger.info("Modelo registrado como artefato no MLflow.")
         except Exception as e:
             logger.error(f"Erro ao registrar no MLflow: {e}")
-            
-    
-    
-    def run(self, start_time):
+
+    # ------------------------------------------------------
+    # Orquestração por responsabilidade
+    # ------------------------------------------------------
+
+    def _run_ingestion_and_quality(self, start_time):
+        """
+        Responsabilidade: ingestão e qualidade inicial dos dados.
+        """
         self.load_data()
         logger.debug(f"Dados carregados: {datetime.now() - start_time}")
         self.summary_overview()
@@ -808,6 +813,11 @@ class Baseline:
         logger.debug(f"Pre-processamento: {datetime.now() - start_time}")
         self.target_analysis()
         logger.debug(f"Análise da target: {datetime.now() - start_time}")
+
+    def _run_eda_and_modeling_prep(self, start_time):
+        """
+        Responsabilidade: EDA leve e preparação do frame para modelagem.
+        """
         self.outlier_analysis()
         logger.debug(f"Análise de outliers: {datetime.now() - start_time}")
         self.view_data()
@@ -816,10 +826,23 @@ class Baseline:
         logger.debug(f"Frame de modelagem: {datetime.now() - start_time}")
         self.split_data()
         logger.debug(f"Split de dados: {datetime.now() - start_time}")
+
+    def _run_training_and_persistence(self, start_time):
+        """
+        Responsabilidade: treino, avaliação e persistência de artefatos.
+        """
         self.prepare_and_train()
         logger.debug(f"Treino do baseline: {datetime.now() - start_time}")
         self.save()
         logger.debug(f"Artefatos salvos: {datetime.now() - start_time}")
+
+    def run(self, start_time):
+        """
+        Orquestrador principal: executa as etapas por responsabilidade.
+        """
+        self._run_ingestion_and_quality(start_time)
+        self._run_eda_and_modeling_prep(start_time)
+        self._run_training_and_persistence(start_time)
     
     def save_artifacts(self):
         """
