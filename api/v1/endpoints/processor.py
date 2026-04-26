@@ -77,7 +77,7 @@ async def admin_trigger_dag(
     min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
     min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
     time_limit_minutes: int = Form(2),
-    acc_target: float = Form(0.90),
+    acc_target: float | None = Form(None),
     admin: users_models = Depends(require_airflow_api_trigger_enabled),
 ):
     """Grava o CSV em volume compartilhado e dispara o DAG (só ambientes não prod; em prd use UI do Airflow + Variables)."""
@@ -203,7 +203,7 @@ async def admin_train_feature_engineering(
     min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
     min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
     time_limit_minutes: int = Form(2),
-    acc_target: float = Form(0.90),
+    acc_target: float | None = Form(None),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
