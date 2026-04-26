@@ -197,7 +197,6 @@ def _schedule_remove(path: str) -> None:
 @router.post("/admin/train/feature-engineering", status_code=status.HTTP_201_CREATED, response_class=FileResponse)
 async def admin_train_feature_engineering(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
     objective: Literal["churn"] = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
     optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("accuracy"),
     min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
@@ -209,7 +208,7 @@ async def admin_train_feature_engineering(
 ):
     try:
         run, zip_path = await processor_service.run_feature_engineering(
-            file=file, objective=objective, user_id=admin.id, db=db,
+            objective=objective, user_id=admin.id, db=db,
             optimization_metric=optimization_metric,
             min_precision=min_precision,
             min_roc_auc=min_roc_auc,
