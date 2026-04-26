@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -130,7 +130,12 @@ class RollbackRequest(BaseModel):
 
 class TriggerDagRequest(BaseModel):
     objective: MLDomain = Field(description="Domínio do problema (mesmos valores do treino / Airflow).")
-    optimization_metric: str = Field(default="accuracy", description="Métrica para seleção do melhor modelo no FE.")
+    optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Field(
+        default="accuracy",
+        description="Métrica para seleção do melhor modelo no FE.",
+    )
+    min_precision: Optional[float] = Field(default=None, description="Guardrail opcional: precisão mínima [0,1].")
+    min_roc_auc: Optional[float] = Field(default=None, description="Guardrail opcional: ROC-AUC mínimo [0,1].")
     time_limit_minutes: int = Field(default=2, description="Orçamento de tempo para tuning (minutos).")
     acc_target: float = Field(default=0.90, description="Alvo de performance para o tuning.")
 

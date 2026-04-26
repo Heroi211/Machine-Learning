@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 import time
-import glob
+import json
 
 import numpy as np
 import pandas as pd
@@ -28,7 +28,7 @@ from core.configs import settings
 from core.custom_logger import setup_log
 from services.pipelines.feature_strategies.base import FeatureStrategy
 from services.pipelines.fe_hyperparameter_tuning import build_fresh_tuning_pipeline, param_distributions_for
-from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, select_best_model_after_training, sklearn_scoring_parameter, test_set_score
+from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, sklearn_scoring_parameter
 
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
@@ -50,13 +50,19 @@ class FeatureEngineering:
         strategy: FeatureStrategy,
         run_timestamp: str | None = None,
         csv_path: str | None = None,
+        manifest_path: str | None = None,
         optimization_metric: str = "accuracy",
+        min_precision: float | None = None,
+        min_roc_auc: float | None = None,
         export_figures_dir: str | None = None,
     ):
         self.objective = objective
         self.strategy = strategy
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
+        self._explicit_manifest_path = os.path.abspath(manifest_path) if manifest_path else None
         self.optimization_metric = normalize_optimization_metric(optimization_metric)
+        self.min_precision = min_precision
+        self.min_roc_auc = min_roc_auc
         self.export_figures_dir = export_figures_dir
         self.mlflow_run_id: str | None = None
 
@@ -79,7 +85,9 @@ class FeatureEngineering:
         self.feature_names: list[str] = []
 
         self.trained_models: dict = {}
+        self.baseline_manifest: dict | None = None
         self.results_df: pd.DataFrame | None = None
+        self.guardrails_summary: dict = {}
         self.best_model_name: str | None = None
         self.best_pipeline = None
         self.best_params: dict | None = None
@@ -89,28 +97,62 @@ class FeatureEngineering:
         self.figs_to_log: list[tuple[str, plt.Figure]] = []
         self.n_jobs = 1 if "debugpy" in sys.modules else -1
 
+        for metric_name, metric_value in (
+            ("min_precision", self.min_precision),
+            ("min_roc_auc", self.min_roc_auc),
+        ):
+            if metric_value is not None and not (0.0 <= metric_value <= 1.0):
+                raise ValueError(f"{metric_name} deve estar no intervalo [0, 1]. Recebido: {metric_value}")
+
+    def _passes_guardrails(self, precision_value: float, roc_auc_value: float) -> bool:
+        if self.min_precision is not None and precision_value < self.min_precision:
+            return False
+        if self.min_roc_auc is not None:
+            if np.isnan(roc_auc_value) or roc_auc_value < self.min_roc_auc:
+                return False
+        return True
+
     # ------------------------------------------------------------------
     # Etapa 1 — Carregar dados pré-processados (saída do baseline)
     # ------------------------------------------------------------------
 
     def load_data(self):
         logger.info("Carregando dataset pré-processado...")
+        manifest_path = self._explicit_manifest_path or os.path.join(self.path_data_preprocessed, "manifest.json")
+        if not os.path.isfile(manifest_path):
+            raise ValueError(f"Manifest não encontrado: {manifest_path}")
 
-        if self._explicit_csv_path:
-            if not os.path.isfile(self._explicit_csv_path):
-                raise ValueError(f"CSV não encontrado: {self._explicit_csv_path}")
-            file_must_modern = self._explicit_csv_path
-            logger.info(f"Arquivo CSV (rota explícita): {file_must_modern}")
-        else:
-            csv_pattern = os.path.join(self.path_data_preprocessed, "*.csv")
-            files = glob.glob(csv_pattern)
-            if not files:
-                raise ValueError(f"Nenhum CSV encontrado em {self.path_data_preprocessed}")
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        self.baseline_manifest = manifest
 
-            file_must_modern = max(files, key=os.path.getctime)
-            logger.info(f"Arquivo selecionado (modo legado — último ctime): {file_must_modern}")
+        if manifest.get("objective") != self.objective:
+            raise ValueError(
+                f"Manifest do baseline com objective='{manifest.get('objective')}', "
+                f"mas FE foi chamado para '{self.objective}'."
+            )
+        if manifest.get("sample_schema") != "raw_clean":
+            raise ValueError(
+                f"sample_schema inválido no manifest: {manifest.get('sample_schema')!r}. "
+                "Esperado: 'raw_clean'."
+            )
 
-        df = pd.read_csv(file_must_modern)
+        file_from_manifest = manifest.get("output_sample_csv_stable")
+        if not file_from_manifest:
+            raise ValueError("Manifest inválido: campo 'output_sample_csv_stable' ausente.")
+
+        csv_path = os.path.abspath(file_from_manifest)
+        if self._explicit_csv_path and os.path.abspath(self._explicit_csv_path) != csv_path:
+            logger.warning(
+                "csv_path explícito (%s) difere do manifest (%s). Usando manifest como fonte de verdade.",
+                self._explicit_csv_path,
+                csv_path,
+            )
+        if not os.path.isfile(csv_path):
+            raise ValueError(f"CSV do baseline não encontrado (manifest): {csv_path}")
+
+        logger.info(f"CSV selecionado via manifest: {csv_path}")
+        df = pd.read_csv(csv_path)
         df.columns = df.columns.str.lower()
 
         has_prefixes = any("__" in col for col in df.columns)
@@ -185,6 +227,8 @@ class FeatureEngineering:
 
     def train_models(self):
         sort_col = result_column_for_metric(self.optimization_metric)
+        scoring = sklearn_scoring_parameter(self.optimization_metric)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
         logger.info(
             "Iniciando comparação de modelos (métrica de otimização: %s → coluna %s)",
             self.optimization_metric,
@@ -208,6 +252,10 @@ class FeatureEngineering:
 
             pipeline = SkPipeline(steps)
             pipeline.fit(self.x_train, self.y_train)
+            cv_scores = cross_val_score(
+                pipeline, self.x_train, self.y_train, cv=cv, scoring=scoring, n_jobs=self.n_jobs
+            )
+            cv_score = float(np.mean(cv_scores))
             y_pred = pipeline.predict(self.x_test)
 
             metrics = {
@@ -217,6 +265,7 @@ class FeatureEngineering:
                 "Recall": recall_score(self.y_test, y_pred, zero_division=0),
                 "F1": f1_score(self.y_test, y_pred, zero_division=0),
                 "ROC AUC": np.nan,
+                "CV Score": cv_score,
             }
 
             if hasattr(pipeline, "predict_proba"):
@@ -224,25 +273,42 @@ class FeatureEngineering:
             elif hasattr(pipeline, "decision_function"):
                 metrics["ROC AUC"] = roc_auc_score(self.y_test, pipeline.decision_function(self.x_test))
 
-            logger.info("=== %s === %s: %s", name, sort_col, metrics[sort_col])
+            metrics["Pass Guardrails"] = self._passes_guardrails(
+                float(metrics["Precisão"]),
+                float(metrics["ROC AUC"]) if not np.isnan(metrics["ROC AUC"]) else float("nan"),
+            )
+
+            logger.info("=== %s === cv_%s: %.4f", name, self.optimization_metric, cv_score)
             logger.debug(f"\n{classification_report(self.y_test, y_pred)}")
 
             self.trained_models[name] = pipeline
             results.append(metrics)
 
-        self.results_df = (
-            pd.DataFrame(results).sort_values(sort_col, ascending=False).reset_index(drop=True).round(4)
-        )
+        self.results_df = pd.DataFrame(results).sort_values("CV Score", ascending=False).reset_index(drop=True).round(4)
         logger.info(f"Ranking de modelos:\n{self.results_df.to_string()}")
 
-        winner_name, winner_score, _ = select_best_model_after_training(results, self.optimization_metric)
-        self.best_model_name = winner_name
-        self.best_pipeline = self.trained_models[winner_name]
+        eligible = self.results_df[self.results_df["Pass Guardrails"] == True]
+        if not eligible.empty:
+            winner_row = eligible.iloc[0]
+            self.guardrails_summary["selection_guardrails_passed"] = True
+        else:
+            winner_row = self.results_df.iloc[0]
+            self.guardrails_summary["selection_guardrails_passed"] = False
+            logger.warning(
+                "Nenhum modelo passou nos guardrails (min_precision=%s, min_roc_auc=%s). "
+                "Selecionando melhor modelo por cv_%s.",
+                self.min_precision,
+                self.min_roc_auc,
+                self.optimization_metric,
+            )
+        self.best_model_name = str(winner_row["Modelo"])
+        self.best_pipeline = self.trained_models[self.best_model_name]
+        self.best_cv_score = float(winner_row["CV Score"])
         logger.info(
-            "Modelo selecionado para a etapa seguinte: %s (%s=%.4f)",
-            winner_name,
-            sort_col,
-            winner_score,
+            "Modelo selecionado para a etapa seguinte: %s (cv_%s=%.4f)",
+            self.best_model_name,
+            self.optimization_metric,
+            self.best_cv_score,
         )
 
     # ------------------------------------------------------------------
@@ -285,10 +351,12 @@ class FeatureEngineering:
         sampler = ParameterSampler(param_distributions, n_iter=1_000_000, random_state=self.random_state)
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
 
-        self.best_test_score = -np.inf
         self.best_cv_score = -np.inf
         self.best_params = None
         tuned_pipeline: SkPipeline | None = None
+        tuned_pipeline_fallback: SkPipeline | None = None
+        best_cv_fallback = -np.inf
+        best_params_fallback: dict | None = None
 
         n_evaluated = 0
 
@@ -312,21 +380,31 @@ class FeatureEngineering:
             mean_cv = float(np.mean(cv_scores))
 
             pipeline.fit(self.x_train, self.y_train)
-            y_pred_t = pipeline.predict(self.x_test)
-            y_proba_t = pipeline.predict_proba(self.x_test) if hasattr(pipeline, "predict_proba") else None
-            test_score = test_set_score(self.y_test, y_pred_t, y_proba_t, self.optimization_metric)
 
-            if test_score > self.best_test_score:
-                self.best_test_score = test_score
+            y_pred_t = pipeline.predict(self.x_test)
+            y_proba_t = pipeline.predict_proba(self.x_test)[:, 1] if hasattr(pipeline, "predict_proba") else None
+            precision_t = float(precision_score(self.y_test, y_pred_t, zero_division=0))
+            roc_auc_t = float("nan")
+            if y_proba_t is not None:
+                try:
+                    roc_auc_t = float(roc_auc_score(self.y_test, y_proba_t))
+                except ValueError:
+                    roc_auc_t = float("nan")
+            pass_guardrails = self._passes_guardrails(precision_t, roc_auc_t)
+
+            if mean_cv > best_cv_fallback:
+                best_cv_fallback = mean_cv
+                best_params_fallback = params
+                tuned_pipeline_fallback = pipeline
+
+            if pass_guardrails and mean_cv > self.best_cv_score:
                 self.best_cv_score = mean_cv
                 self.best_params = params
                 tuned_pipeline = pipeline
                 elapsed = now - start
                 logger.info(
-                    "[%s] Novo melhor | %s_teste=%.4f | %s_cv=%.4f | t=%.1fm | params=%s",
+                    "[%s] Novo melhor (guardrails ok) | cv_%s=%.4f | t=%.1fm | params=%s",
                     i,
-                    self.optimization_metric,
-                    test_score,
                     self.optimization_metric,
                     mean_cv,
                     elapsed / 60,
@@ -337,10 +415,10 @@ class FeatureEngineering:
                 elapsed = now - start
                 remaining = max(0.0, deadline - now)
                 logger.debug(
-                    "Iterações: %s | melhor_%s=%.4f | decorrido=%.1fm | restante=%.1fm",
+                    "Iterações: %s | melhor_cv_%s=%.4f | decorrido=%.1fm | restante=%.1fm",
                     i,
                     self.optimization_metric,
-                    self.best_test_score,
+                    self.best_cv_score,
                     elapsed / 60,
                     remaining / 60,
                 )
@@ -348,13 +426,28 @@ class FeatureEngineering:
             n_evaluated = i
 
         if tuned_pipeline is None:
-            logger.warning(
-                "Nenhuma iteração melhorou o modelo — mantendo %s da etapa comparativa.",
-                self.best_model_name,
-            )
-            tuned_pipeline = self.best_pipeline
+            self.guardrails_summary["tuning_guardrails_passed"] = False
+            if tuned_pipeline_fallback is not None:
+                logger.warning(
+                    "Nenhuma iteração do tuning passou nos guardrails (min_precision=%s, min_roc_auc=%s). "
+                    "Usando melhor configuração por cv_%s sem guardrails.",
+                    self.min_precision,
+                    self.min_roc_auc,
+                    self.optimization_metric,
+                )
+                tuned_pipeline = tuned_pipeline_fallback
+                self.best_params = best_params_fallback
+                self.best_cv_score = best_cv_fallback
+            else:
+                logger.warning(
+                    "Nenhuma iteração melhorou o modelo — mantendo %s da etapa comparativa.",
+                    self.best_model_name,
+                )
+                tuned_pipeline = self.best_pipeline
         else:
-            self.best_pipeline = tuned_pipeline
+            self.guardrails_summary["tuning_guardrails_passed"] = True
+
+        self.best_pipeline = tuned_pipeline
 
         y_pred = self.best_pipeline.predict(self.x_test)
         y_proba = (
@@ -366,7 +459,7 @@ class FeatureEngineering:
 
         elapsed_total = time.time() - start
         logger.info(f"Tuning concluído — {n_evaluated} iterações em {elapsed_total / 60:.1f}min")
-        logger.info("Melhor %s (teste): %.4f", sort_col, self.tuned_metrics[sort_col])
+        logger.info("Melhor cv_%s: %.4f", self.optimization_metric, self.best_cv_score)
         logger.info(
             "Alvo (%.2f) sobre %s: %s",
             acc_target,
@@ -466,6 +559,13 @@ class FeatureEngineering:
                 if self.best_params:
                     for k, v in self.best_params.items():
                         mlflow.log_param(k, str(v))
+                mlflow.log_param("optimization_metric", self.optimization_metric)
+                if self.min_precision is not None:
+                    mlflow.log_param("min_precision", float(self.min_precision))
+                if self.min_roc_auc is not None:
+                    mlflow.log_param("min_roc_auc", float(self.min_roc_auc))
+                for k, v in self.guardrails_summary.items():
+                    mlflow.log_param(k, bool(v))
 
                 if np.isfinite(self.best_cv_score):
                     mlflow.log_metric(f"cv_{self.optimization_metric}", float(self.best_cv_score))

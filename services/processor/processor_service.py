@@ -127,7 +127,7 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
             pipeline.save_artifacts()
 
             model_path = os.path.join(settings.path_model, f"baseline_model_{objective}_{pipeline.now}.joblib")
-            csv_path = os.path.join(settings.path_data_preprocessed, f"{objective}_sample_{pipeline.now}.csv")
+            csv_path = os.path.join(settings.path_data_preprocessed, pipeline.contract_sample_name)
 
             model = pipeline.model
             y_pred_test = model.predict(pipeline.x_test)
@@ -169,6 +169,8 @@ async def run_feature_engineering(
     user_id: int,
     db: AsyncSession,
     optimization_metric: str = "accuracy",
+    min_precision: float | None = None,
+    min_roc_auc: float | None = None,
     time_limit_minutes: int = 2,
     acc_target: float = 0.90,
 ) -> tuple[PipelineRuns, str | None]:
@@ -258,9 +260,7 @@ async def run_feature_engineering(
         pipeline_b.run(start_time=datetime.now())
 
         model_baseline = os.path.join(settings.path_model, f"baseline_model_{objective}_{pipeline_b.now}.joblib")
-        csv_baseline = os.path.join(
-            settings.path_data_preprocessed, f"{objective}_sample_{pipeline_b.now}.csv"
-        )
+        csv_baseline = os.path.join(settings.path_data_preprocessed, pipeline_b.contract_sample_name)
         _zd = {"zero_division": 0}
         yt = pipeline_b.y_test
         y_pred_bt = pipeline_b.model.predict(pipeline_b.x_test)
@@ -307,7 +307,10 @@ async def run_feature_engineering(
             strategy=strategy,
             run_timestamp=run_ts,
             csv_path=csv_baseline,
+            manifest_path=os.path.join(settings.path_data_preprocessed, "manifest.json"),
             optimization_metric=metric,
+            min_precision=min_precision,
+            min_roc_auc=min_roc_auc,
             export_figures_dir=fe_plots,
         )
         pipeline.run(time_limit_minutes=effective_tuning_minutes, acc_target=acc_target)
@@ -329,10 +332,13 @@ async def run_feature_engineering(
         merged_metrics: dict = {
             "baseline": baseline_metrics,
             "optimization_metric": metric,
+            "min_precision": min_precision,
+            "min_roc_auc": min_roc_auc,
             "tuning_time_limit_effective_minutes": effective_tuning_minutes,
             "tuning_time_limit_requested": time_limit_minutes,
         }
         merged_metrics.update(dict(pipeline.tuned_metrics))
+        merged_metrics.update(dict(pipeline.guardrails_summary))
         if pipeline.best_model_name:
             merged_metrics["best_model_name"] = pipeline.best_model_name
 
@@ -390,7 +396,6 @@ async def run_feature_engineering(
         safe_unlink(model_baseline)
         for g in glob.glob(os.path.join(settings.path_graphs, f"*{pipeline_b.now}*")):
             safe_unlink(g)
-        safe_unlink(csv_baseline)
 
     except Exception as e:
         logger.error(f"Feature Engineering falhou: {e}", exc_info=True)

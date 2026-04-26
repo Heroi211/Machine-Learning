@@ -2,6 +2,7 @@ import logging
 import mlflow
 import pandas as pd
 import os
+import json
 from dotenv import load_dotenv
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
@@ -22,7 +23,6 @@ from sklearn.metrics import (
     recall_score,
 )
 import joblib
-import glob 
 import re
 
 import shutil
@@ -78,7 +78,7 @@ class Baseline:
         run_timestamp : str, optional
             Timestamp do run para naming de artefatos. Gerado automaticamente se omitido.
         csv_path : str, optional
-            Caminho explícito do CSV (upload via API). Se omitido, usa o mais recente em PATH_DATA.
+            Caminho explícito do CSV (upload via API). Obrigatório para execução determinística.
         class_labels : tuple[str, str], optional
             Rótulos semânticos das classes (negativa, positiva).
             Padrão: ("Sem <objective>", "<objective>").
@@ -94,6 +94,9 @@ class Baseline:
         self.random_state = prandom_state
         self.threshold_numeric_coercion = 0.8
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
+        self.contract_input_name = "input.csv"
+        self.contract_sample_name = "baseline_sample.csv"
+        self.contract_manifest_name = "manifest.json"
         
         if class_labels is not None:
             self.label_neg, self.label_pos = class_labels
@@ -117,6 +120,7 @@ class Baseline:
         self.ratio = None
         self.model = None
         self.mlflow_run_id: str | None = None
+        self.feature_groups: dict[str, list[str]] | None = None
 
         logger.info(f"Objective: {self.objective}")
         logger.info(f"Random state: {self.random_state}")
@@ -125,34 +129,20 @@ class Baseline:
     def load_data(self):
         """
         Carregamento dos dados, passo 1.
-        Se `csv_path` foi passado no construtor (ex.: upload da API), usa esse ficheiro;
-        caso contrário (CLI), escolhe o CSV mais recente em `path_data` por compatibilidade.
+        Requer `csv_path` explícito para manter execução determinística.
         """
         logger.info("Iniciando Dataset...")
 
-        if self._explicit_csv_path:
-            if not os.path.isfile(self._explicit_csv_path):
-                logger.error(f"CSV não encontrado: {self._explicit_csv_path}")
-                raise ValueError(self.msg_raise)
-            self.current_csv_path = self._explicit_csv_path
-            logger.info(f"Arquivo CSV (rota explícita): {self.current_csv_path}")
-            self.data = pd.read_csv(self.current_csv_path)
-        else:
-            if not self.path_data:
-                logger.error("Path não encontrado ou valor vazio")
-                raise ValueError(self.msg_raise)
+        if not self._explicit_csv_path:
+            logger.error("csv_path é obrigatório para execução determinística do baseline.")
+            raise ValueError("Informe csv_path explícito ao iniciar o baseline.")
+        if not os.path.isfile(self._explicit_csv_path):
+            logger.error(f"CSV não encontrado: {self._explicit_csv_path}")
+            raise ValueError(self.msg_raise)
 
-            path_data = self.path_data
-            csv = os.path.join(path_data, "*.csv")
-            file = glob.glob(csv)
-            if not file:
-                logger.error(f"Nenhum arquivo CSV encontrado no caminho: {path_data}")
-                raise ValueError(self.msg_raise)
-
-            file_must_modern = max(file, key=os.path.getctime)
-            self.current_csv_path = file_must_modern
-            logger.info(f"Arquivo CSV encontrado (modo legado — último ctime): {file_must_modern}")
-            self.data = pd.read_csv(file_must_modern)
+        self.current_csv_path = self._explicit_csv_path
+        logger.info(f"Arquivo CSV (rota explícita): {self.current_csv_path}")
+        self.data = pd.read_csv(self.current_csv_path)
         self.target = self.data.columns.to_list().pop()
         
         
@@ -511,93 +501,117 @@ class Baseline:
     # ------------------------------------------------------   
 
     @staticmethod
-    def _should_numeric_use_imputer_only(s: pd.Series) -> bool:
+    def _is_binary_column(series: pd.Series) -> bool:
         """
-        True para colunas em que mediana + escala é desnecessária ou pior:
-        - booleanas; constantes; ou estritamente binárias 0/1 (também 0.0/1.0).
-        Tudo o resto numérico (contínuo, inteiros com 3+ valores distintos, etc.)
-        passa a ``StandardScaler`` após imputação.
-        Object/category tratam-se noutro ramo (OHE), não entram aqui.
+        Retorna True quando a coluna possui apenas valores binários (0/1), ignorando NaN.
         """
-        if pd.api.types.is_bool_dtype(s):
-            return True
-        t = s.dropna()
-        if t.empty:
-            return True
-        u = np.unique(t.to_numpy().ravel())
-        if len(u) <= 1:
-            return True
-        if len(u) == 2:
-            return all(np.isclose(float(x), 0.0) or np.isclose(float(x), 1.0) for x in u)
-        return False
+        non_null = series.dropna()
+        if non_null.empty:
+            return False
+        unique_values = set(non_null.unique().tolist())
+        return unique_values.issubset({0, 1, 0.0, 1.0, np.int8(0), np.int8(1)})
 
-    @staticmethod
-    def _split_numeric_for_scaling(
-        x_train: pd.DataFrame, num_cols: list[str]
-    ) -> tuple[list[str], list[str]]:
-        to_scale: list[str] = []
-        imputer_only: list[str] = []
-        for c in num_cols:
-            if Baseline._should_numeric_use_imputer_only(x_train[c]):
-                imputer_only.append(c)
+    def _classify_feature_columns(self, x_train: pd.DataFrame) -> dict[str, list[str]]:
+        """
+        Classifica colunas de features em três grupos explícitos:
+        binárias, numéricas contínuas e categóricas.
+        """
+        categorical_cols = x_train.select_dtypes(include=["object", "category"]).columns.tolist()
+        numeric_cols = x_train.select_dtypes(include=[np.number, "bool"]).columns.tolist()
+
+        binary_cols: list[str] = []
+        continuous_cols: list[str] = []
+
+        for col in numeric_cols:
+            if self._is_binary_column(x_train[col]):
+                binary_cols.append(col)
             else:
-                to_scale.append(c)
-        return to_scale, imputer_only
+                continuous_cols.append(col)
 
-    def _build_preprocess_transformer(self, x_train: pd.DataFrame) -> ColumnTransformer:
+        # validações mínimas de consistência sem duplicar regras em outros pontos
+        duplicated = (
+            set(binary_cols).intersection(continuous_cols)
+            | set(binary_cols).intersection(categorical_cols)
+            | set(continuous_cols).intersection(categorical_cols)
+        )
+        if duplicated:
+            raise ValueError(f"Classificação inconsistente de colunas: {sorted(duplicated)}")
+
+        total_grouped = len(binary_cols) + len(continuous_cols) + len(categorical_cols)
+        if total_grouped == 0:
+            raise ValueError("Nenhuma feature válida encontrada para modelagem.")
+
+        grouped = {
+            "binary": binary_cols,
+            "continuous": continuous_cols,
+            "categorical": categorical_cols,
+        }
+        self.feature_groups = grouped
+        return grouped
+
+    def _build_preprocess_transformer(
+        self, x_train: pd.DataFrame, groups: dict[str, list[str]] | None = None
+    ) -> ColumnTransformer:
         """
-        Pré-processamento aprendido apenas no treino, só no treino.
-        Categorias (``object`` / ``category``) vão a imputação + OHE. Numéricas:
-        a partir de ``x_train`` (sem listas fixas de nomes) separa-se o que é
-        estritamente binário/constante/booleano (só imputação mediana) do resto
-        (imputação + ``StandardScaler``). Assim, *churn*, *heart_disease* e
-        qualquer *dataset* alinham o mesmo critério.
-        Colunas booleanas do frame são convertidas a inteiros antes do split.
+        Pré-processamento aprendido apenas no treino.
+        - binárias: passthrough (sem transformação)
+        - contínuas: StandardScaler (+ imputação mediana só se houver nulos)
+        - categóricas: OneHotEncoder (+ imputação moda só se houver nulos)
         """
-        num_cols = x_train.select_dtypes(include=[np.number]).columns.tolist()
-        cat_cols = x_train.select_dtypes(include=["object", "category"]).columns.tolist()
-        num_for_scale, num_no_scale = self._split_numeric_for_scaling(x_train, num_cols)
+        groups = groups or self._classify_feature_columns(x_train)
+        binary_cols = groups["binary"]
+        continuous_cols = groups["continuous"]
+        categorical_cols = groups["categorical"]
 
         transformers: list[tuple] = []
-        if num_for_scale:
+        if continuous_cols:
+            has_nulls_continuous = bool(x_train[continuous_cols].isna().any().any())
+            continuous_steps = []
+            if has_nulls_continuous:
+                continuous_steps.append(("imputer", SimpleImputer(strategy="median")))
+            continuous_steps.append(("scaler", StandardScaler()))
             transformers.append(
                 (
                     "num_scaled",
-                    SkPipeline(
-                        [
-                            ("imputer", SimpleImputer(strategy="median")),
-                            ("scaler", StandardScaler()),
-                        ]
-                    ),
-                    num_for_scale,
+                    SkPipeline(continuous_steps),
+                    continuous_cols,
                 )
             )
-        if num_no_scale:
+        if binary_cols:
+            has_nulls_binary = bool(x_train[binary_cols].isna().any().any())
+            if has_nulls_binary:
+                raise ValueError(
+                    "Colunas binárias com nulos detectadas. "
+                    "Como binárias estão em passthrough por definição, "
+                    "preencha nulos antes do treino."
+                )
             transformers.append(
                 (
-                    "num_passthrough",
-                    SkPipeline([("imputer", SimpleImputer(strategy="median"))]),
-                    num_no_scale,
+                    "num_binary_passthrough",
+                    "passthrough",
+                    binary_cols,
                 )
             )
-        if cat_cols:
+        if categorical_cols:
+            has_nulls_categorical = bool(x_train[categorical_cols].isna().any().any())
+            categorical_steps = []
+            if has_nulls_categorical:
+                categorical_steps.append(("imputer", SimpleImputer(strategy="most_frequent")))
+            categorical_steps.append(
+                (
+                    "ohe",
+                    OneHotEncoder(
+                        drop="first",
+                        sparse_output=False,
+                        handle_unknown="ignore",
+                    ),
+                )
+            )
             transformers.append(
                 (
                     "cat",
-                    SkPipeline(
-                        [
-                            ("imputer", SimpleImputer(strategy="most_frequent")),
-                            (
-                                "ohe",
-                                OneHotEncoder(
-                                    drop="first",
-                                    sparse_output=False,
-                                    handle_unknown="ignore",
-                                ),
-                            ),
-                        ]
-                    ),
-                    cat_cols,
+                    SkPipeline(categorical_steps),
+                    categorical_cols,
                 )
             )
         if not transformers:
@@ -623,12 +637,6 @@ class Baseline:
             df_clean.drop(columns=["dataset"], inplace=True)
             logger.info("Coluna 'dataset' removida (metadado de origem).")
 
-        feature_cols = [c for c in df_clean.columns if c != "target"]
-        for col in feature_cols:
-            if df_clean[col].dtype == bool:
-                df_clean[col] = df_clean[col].astype(np.int8)
-                logger.debug(f"{col}: bool -> int8 (ramo numérico do Pipeline)")
-
         self.data_encoded = df_clean
         logger.info(
             f"Frame de modelagem: {self.data_encoded.shape} "
@@ -645,7 +653,18 @@ class Baseline:
         """
         logger.info("Iniciando treino do baseline (Pipeline sklearn)...")
 
-        preprocess = self._build_preprocess_transformer(self.x_train)
+        groups = self._classify_feature_columns(self.x_train)
+        logger.info(
+            "Classificação de colunas | binárias=%s contínuas=%s categóricas=%s",
+            len(groups["binary"]),
+            len(groups["continuous"]),
+            len(groups["categorical"]),
+        )
+        logger.debug("Colunas binárias: %s", groups["binary"])
+        logger.debug("Colunas contínuas: %s", groups["continuous"])
+        logger.debug("Colunas categóricas: %s", groups["categorical"])
+
+        preprocess = self._build_preprocess_transformer(self.x_train, groups=groups)
         classifier = LogisticRegression(
             random_state=self.random_state, class_weight="balanced", max_iter=1000
         )
@@ -759,15 +778,16 @@ class Baseline:
             
     def save(self):
         """
-        Salva o DataFrame pré-processado completo e o modelo treinado.
+        Salva o modelo treinado e o sample de integração com FE:
+        - sample raw limpo (sem OHE/scaler), alinhado ao contrato Baseline -> FE
+        - manifest com metadados da execução
         """
         logger.info("Iniciando o salvamento dos artefatos...")
 
         for path in [self.path_data_preprocessed, self.path_model]:
             os.makedirs(path, exist_ok=True)
 
-        csv_path = os.path.join(self.path_data_preprocessed, f"{self.objective}_sample_{self.now}.csv")
-        sample_out = (
+        sample_raw = (
             pd.concat(
                 [
                     self.x_train.assign(target=self.y_train),
@@ -777,21 +797,54 @@ class Baseline:
             )
             .sort_index()
         )
-        sample_out.to_csv(csv_path, index=False)
+        sample_stable_path = os.path.join(self.path_data_preprocessed, self.contract_sample_name)
+        sample_raw.to_csv(sample_stable_path, index=False)
         logger.info(
-            "Sample FE (pós-EDA, tal como no split/treino) → %s | %s",
-            csv_path,
-            sample_out.shape,
+            "Sample FE raw limpo (sem OHE/scaler) → %s | %s",
+            sample_stable_path,
+            sample_raw.shape,
         )
+        logger.info("Sample FE estável atualizado em: %s", sample_stable_path)
 
         model_name = f"baseline_model_{self.objective}_{self.now}.joblib"
         joblib_path = os.path.join(self.path_model, model_name)
         joblib.dump(self.model, joblib_path)
         logger.info(f"Modelo salvo em: {joblib_path}")
 
+        groups = self.feature_groups or {"binary": [], "continuous": [], "categorical": []}
+        input_snapshot_path = os.path.join(self.snapshot_path, self.contract_input_name)
+        sample_snapshot_path = os.path.join(self.snapshot_path, self.contract_sample_name)
+        manifest_snapshot_path = os.path.join(self.snapshot_path, self.contract_manifest_name)
+        manifest = {
+            "objective": self.objective,
+            "run_timestamp": self.now,
+            "input_csv_source": self.current_csv_path,
+            "input_csv_snapshot": input_snapshot_path,
+            "output_sample_csv_stable": sample_stable_path,
+            "output_sample_csv_snapshot": sample_snapshot_path,
+            "manifest_snapshot": manifest_snapshot_path,
+            "model_path": joblib_path,
+            "input_row_count": int(self.data.shape[0]) if self.data is not None else None,
+            "sample_row_count": int(sample_raw.shape[0]),
+            "sample_column_count": int(sample_raw.shape[1]),
+            "sample_schema": "raw_clean",
+            "feature_groups": groups,
+            "graphs_dir": os.path.join(self.snapshot_path, "graphs"),
+        }
+        manifest_path = os.path.join(self.path_data_preprocessed, self.contract_manifest_name)
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=True, indent=2)
+        logger.info("Manifest salvo em: %s", manifest_path)
+
         try:
-            mlflow.log_artifact(joblib_path, artifact_path="model_files")
-            logger.info("Modelo registrado como artefato no MLflow.")
+            if self.mlflow_run_id:
+                with mlflow.start_run(run_id=self.mlflow_run_id):
+                    mlflow.log_artifact(joblib_path, artifact_path="model_files")
+                    mlflow.log_artifact(sample_stable_path, artifact_path="data_contract")
+                    mlflow.log_dict(manifest, self.contract_manifest_name)
+                logger.info("Modelo, sample e manifest registrados no MLflow.")
+            else:
+                logger.warning("Run MLflow ausente; artefatos não foram registrados no tracking.")
         except Exception as e:
             logger.error(f"Erro ao registrar no MLflow: {e}")
 
@@ -847,19 +900,36 @@ class Baseline:
     def save_artifacts(self):
         """
         Arquiva o dataset original e os gráficos gerados no diretório de snapshot.
-        Limpa a pasta de entrada após o arquivamento.
+        Não remove o arquivo original da pasta de entrada.
         """
         logger.info(f"Arquivando artefatos em: {self.snapshot_path}")
+        os.makedirs(self.snapshot_path, exist_ok=True)
 
         if self.current_csv_path and os.path.exists(self.current_csv_path):
             try:
-                shutil.copy(self.current_csv_path, self.snapshot_path)
-                logger.info(f"CSV original copiado para snapshot.")
-                
-                os.remove(self.current_csv_path)
-                logger.info(f"Arquivo original removido da pasta de entrada: {self.current_csv_path}")
+                target_input = os.path.join(self.snapshot_path, self.contract_input_name)
+                shutil.copy(self.current_csv_path, target_input)
+                logger.info("CSV original copiado para snapshot: %s", target_input)
             except Exception as e:
-                logger.error(f"Erro ao mover/deletar o CSV original: {e}")
+                logger.error(f"Erro ao copiar o CSV original: {e}")
+
+        sample_src = os.path.join(self.path_data_preprocessed, self.contract_sample_name)
+        if os.path.exists(sample_src):
+            try:
+                sample_dst = os.path.join(self.snapshot_path, self.contract_sample_name)
+                shutil.copy(sample_src, sample_dst)
+                logger.info("Sample do baseline copiado para snapshot: %s", sample_dst)
+            except Exception as e:
+                logger.error("Erro ao copiar baseline_sample.csv: %s", e)
+
+        manifest_src = os.path.join(self.path_data_preprocessed, self.contract_manifest_name)
+        if os.path.exists(manifest_src):
+            try:
+                manifest_dst = os.path.join(self.snapshot_path, self.contract_manifest_name)
+                shutil.copy(manifest_src, manifest_dst)
+                logger.info("Manifest copiado para snapshot: %s", manifest_dst)
+            except Exception as e:
+                logger.error("Erro ao copiar manifest.json: %s", e)
 
         target_graphs_path = os.path.join(self.snapshot_path, "graphs")
         if os.path.exists(self.path_graphs):
@@ -872,8 +942,6 @@ class Baseline:
                     shutil.move(full_file_name, target_graphs_path)
             
             logger.info(f"Gráficos movidos para: {target_graphs_path}")
-                
-        
         
             
 if __name__=="__main__":
@@ -881,7 +949,11 @@ if __name__=="__main__":
     logger = setup_log(psnapshot_path, pagora)
     start_time = datetime.now()
     logger.info(f"Iniciando o pipeline: {start_time}")
-    pipeline = Baseline(pobjective="heart_disease")
+    csv_path = os.getenv("BASELINE_CSV_PATH")
+    if not csv_path:
+        raise ValueError("Defina BASELINE_CSV_PATH para executar o baseline no modo CLI.")
+
+    pipeline = Baseline(pobjective="heart_disease", csv_path=csv_path)
     try:
         pipeline.run(start_time)
         pipeline.save_artifacts()
