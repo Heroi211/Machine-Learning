@@ -4,7 +4,7 @@ import uuid
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
@@ -20,6 +20,7 @@ from models.users import Users as users_models
 from schemas import processor_schemas
 from services.processor import processor_service
 from services.processor.deployment_service import NoActiveDeploymentError, RollbackError, get_deployment_history, promote_pipeline_run, rollback_deployment
+from services.processor.pipeline_runs_service import list_pipeline_runs
 
 router = APIRouter()
 
@@ -123,6 +124,27 @@ async def admin_trigger_dag(
         objective=obj,
         csv_path=csv_path,
         message=f"DAG disparado. Acompanhe em {AIRFLOW_BASE_URL}/dags/ml_training_pipeline/grid",
+    )
+
+
+@router.get("/admin/runs", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.PipelineRunResponse])
+async def admin_list_pipeline_runs(
+    domain: Literal["churn"] | None = Query(None, description="Filtra pelo objective/domínio (apenas churn). Omitir para todos os objectives."),
+    pipeline_type: Literal["baseline", "feature_engineering"] | None = Query(None, description="Tipo de pipeline."),
+    run_status: Literal["processing", "completed", "failed"] | None = Query(
+        None, alias="status", description="Estado da execução."
+    ),
+    limit: int = Query(50, ge=1, le=200, description="Máximo de registos devolvidos (mais recentes primeiro)."),
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
+):
+    """Lista runs de pipeline para escolher `pipeline_run_id` em `POST /admin/promote` sem consultar o SQL direto."""
+    return await list_pipeline_runs(
+        db,
+        objective=domain,
+        pipeline_type=pipeline_type,
+        status=run_status,
+        limit=limit,
     )
 
 

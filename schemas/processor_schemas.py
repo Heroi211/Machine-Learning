@@ -16,6 +16,7 @@ class PipelineRunResponse(BaseModel):
     csv_output_path: Optional[str] = None
     metrics: Optional[dict] = None
     error_message: Optional[str] = None
+    active: bool = Field(default=True, description="Run lógico ativo no painel interno.")
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
