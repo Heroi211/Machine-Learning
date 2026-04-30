@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -19,6 +21,7 @@ from sklearn.model_selection import train_test_split, cross_val_score, cross_val
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline as SkPipeline
 from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -29,9 +32,14 @@ from scipy.stats import randint, uniform
 
 from core.configs import settings
 from core.custom_logger import setup_log
+from typing import TYPE_CHECKING, Any
+
 from services.pipelines.feature_strategies.base import FeatureStrategy
 from services.pipelines.fe_hyperparameter_tuning import param_distributions_for
 from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, sklearn_scoring_parameter
+
+if TYPE_CHECKING:
+    from services.pipelines.mlp_torch_tabular import TorchTabularMLPResult
 
 os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
@@ -59,6 +67,16 @@ class FeatureEngineering:
         min_roc_auc: float | None = None,
         tuning_n_iter: int | None = None,
         export_figures_dir: str | None = None,
+        # --- MLP PyTorch (MVP, Tech Challenge): treino paralelo ao sklearn, só no FE ---
+        enable_mlp_torch: bool = True,
+        mlp_val_fraction: float = 0.15,
+        mlp_hidden_dims: tuple[int, ...] = (64, 32),
+        mlp_dropout: float = 0.0,
+        mlp_batch_size: int = 64,
+        mlp_lr: float = 1e-3,
+        mlp_weight_decay: float = 1e-5,
+        mlp_max_epochs: int = 300,
+        mlp_early_stopping_patience: int = 20,
     ):
         self.objective = objective
         self.strategy = strategy
@@ -104,6 +122,20 @@ class FeatureEngineering:
         self.n_jobs = 1 if "debugpy" in sys.modules else -1
         self.tuning_n_iter = tuning_n_iter if tuning_n_iter is not None else 100
 
+        self.enable_mlp_torch = enable_mlp_torch
+        self.mlp_val_fraction = mlp_val_fraction
+        self.mlp_hidden_dims = mlp_hidden_dims
+        self.mlp_dropout = mlp_dropout
+        self.mlp_batch_size = mlp_batch_size
+        self.mlp_lr = mlp_lr
+        self.mlp_weight_decay = mlp_weight_decay
+        self.mlp_max_epochs = mlp_max_epochs
+        self.mlp_early_stopping_patience = mlp_early_stopping_patience
+        # Preenchidos em _run_mlp_torch_mvp (para MLflow / estudo)
+        self.mlp_torch_result: TorchTabularMLPResult | None = None
+        self.mlp_torch_hparams: dict[str, Any] = {}
+        self.mlp_torch_checkpoint_path: str | None = None
+
         for metric_name, metric_value in (
             ("min_precision", self.min_precision),
             ("min_roc_auc", self.min_roc_auc),
@@ -112,6 +144,8 @@ class FeatureEngineering:
                 raise ValueError(f"{metric_name} deve estar no intervalo [0, 1]. Recebido: {metric_value}")
         if self.tuning_n_iter <= 0:
             raise ValueError(f"tuning_n_iter deve ser > 0. Recebido: {self.tuning_n_iter}")
+        if not (0.0 < self.mlp_val_fraction < 1.0):
+            raise ValueError(f"mlp_val_fraction deve estar em (0, 1). Recebido: {self.mlp_val_fraction}")
 
     def _passes_guardrails(self, precision_value: float, roc_auc_value: float) -> bool:
         if self.min_precision is not None and precision_value < self.min_precision:
@@ -211,6 +245,7 @@ class FeatureEngineering:
         return SkPipeline(
             [
                 ("preprocess", preprocess),
+                ("remove_constant", VarianceThreshold(threshold=0.0)),
                 ("selector", SelectKBest(f_classif, k=self.k_features)),
                 ("model", model_map[model_name]),
             ]
@@ -602,6 +637,129 @@ class FeatureEngineering:
             )
 
     # ------------------------------------------------------------------
+    # Etapa 5b — MLP PyTorch (MVP, isolado do SkPipeline)
+    # ------------------------------------------------------------------
+
+    def _run_mlp_torch_mvp(self) -> None:
+        """
+        Treina um perceptrão multicamadas (PyTorch) **em paralelo** aos modelos sklearn.
+
+        **Por que existe:** requisito típico de Tech Challenge (MLP + MLflow), sem substituir
+        o modelo sklearn promovido em produção.
+
+        **O que entra:** os mesmos ``x_train`` / ``x_test`` / ``y_train`` / ``y_test`` já usados
+        no FE (pós-``select_features``), ou seja, **já com as colunas criadas pela strategy**.
+
+        **Pré-processamento:** só o ``ColumnTransformer`` (imputação, scaler, OHE) — **igual ao
+        passo ``preprocess`` dos pipelines sklearn**, mas **sem** ``VarianceThreshold``,
+        ``SelectKBest`` nem modelo. Assim o MLP vê **todas** as colunas numéricas/categóricas
+        transformadas; os Random Forest / etc. ainda reduzem dimensão com ``SelectKBest`` lá
+        dentro do ``SkPipeline``. Comparar métricas no MLflow tendo isso em mente.
+
+        **Validação:** parte do treino é separada (estratificada) para *early stopping* pela
+        loss (BCE com logits).
+
+        Se ``torch`` não estiver instalado ou ``enable_mlp_torch=False``, o passo é ignorado.
+        """
+        self.mlp_torch_result = None
+        self.mlp_torch_hparams = {}
+        self.mlp_torch_checkpoint_path = None
+
+        if not self.enable_mlp_torch:
+            logger.info("MLP PyTorch desligado (enable_mlp_torch=False).")
+            return
+        if self.x_train is None or self.x_test is None or self.y_train is None or self.y_test is None:
+            logger.warning("MLP PyTorch: split inexistente — passo ignorado.")
+            return
+
+        try:
+            import torch
+            from services.pipelines.mlp_torch_tabular import train_eval_mlp_binary_tabular
+        except ImportError as e:
+            logger.warning("MLP PyTorch indisponível (import): %s — passo ignorado.", e)
+            return
+
+        # 1) Montar o mesmo tipo de pré-processamento que o FE usa nos pipelines sklearn.
+        preprocess = self._build_preprocess_transformer(self.x_train, groups=self.feature_groups)
+        X_train_t = preprocess.fit_transform(self.x_train)
+        X_test_t = preprocess.transform(self.x_test)
+
+        def _to_float32_dense(X):
+            if hasattr(X, "toarray"):
+                X = X.toarray()
+            return np.asarray(X, dtype=np.float32)
+
+        X_train_t = _to_float32_dense(X_train_t)
+        X_test_t = _to_float32_dense(X_test_t)
+        y_all = self.y_train.to_numpy(dtype=np.int64)
+
+        # 2) Tirar um pedaço do treino para validação (early stopping), sem tocar no teste.
+        X_tr, X_val, y_tr, y_val = train_test_split(
+            X_train_t,
+            y_all,
+            test_size=self.mlp_val_fraction,
+            random_state=self.random_state,
+            stratify=y_all,
+        )
+        y_te = self.y_test.to_numpy(dtype=np.int64)
+
+        self.mlp_torch_hparams = {
+            "hidden_dims": self.mlp_hidden_dims,
+            "dropout": self.mlp_dropout,
+            "batch_size": self.mlp_batch_size,
+            "lr": self.mlp_lr,
+            "weight_decay": self.mlp_weight_decay,
+            "max_epochs": self.mlp_max_epochs,
+            "early_stopping_patience": self.mlp_early_stopping_patience,
+            "val_fraction": self.mlp_val_fraction,
+            "random_state": self.random_state,
+            "torch_version": torch.__version__,
+        }
+
+        logger.info(
+            "MLP PyTorch (MVP): treinando | shapes tr/val/te=%s %s %s | hparams=%s",
+            X_tr.shape,
+            X_val.shape,
+            X_test_t.shape,
+            {k: v for k, v in self.mlp_torch_hparams.items() if k != "torch_version"},
+        )
+
+        try:
+            self.mlp_torch_result = train_eval_mlp_binary_tabular(
+                X_tr,
+                X_val,
+                X_test_t,
+                y_tr,
+                y_val,
+                y_te,
+                random_state=self.random_state,
+                hidden_dims=self.mlp_hidden_dims,
+                dropout=self.mlp_dropout,
+                batch_size=self.mlp_batch_size,
+                lr=self.mlp_lr,
+                weight_decay=self.mlp_weight_decay,
+                max_epochs=self.mlp_max_epochs,
+                early_stopping_patience=self.mlp_early_stopping_patience,
+            )
+        except Exception as e:
+            logger.error("MLP PyTorch falhou (sklearn segue normal): %s", e, exc_info=True)
+            self.mlp_torch_result = None
+            self.mlp_torch_checkpoint_path = None
+            return
+
+        os.makedirs(self.path_model, exist_ok=True)
+        ckpt = os.path.join(self.path_model, f"pytorch_mlp_{self.objective}_{self.now}.pt")
+        torch.save(self.mlp_torch_result.state_dict, ckpt)
+        self.mlp_torch_checkpoint_path = ckpt
+        logger.info(
+            "MLP PyTorch (MVP): melhor época=%s val_loss=%.4f | test metrics=%s | checkpoint=%s",
+            self.mlp_torch_result.best_epoch,
+            self.mlp_torch_result.best_val_loss,
+            self.mlp_torch_result.metrics_test,
+            ckpt,
+        )
+
+    # ------------------------------------------------------------------
     # Etapa 6 — Importância de features
     # ------------------------------------------------------------------
 
@@ -712,6 +870,33 @@ class FeatureEngineering:
                     if v is not None and not (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
                         mlflow.log_metric(k.replace(" ", "_").lower(), float(v))
 
+                # --- MLP PyTorch (MVP): mesma run do FE para comparar curvas/métricas no MLflow ---
+                if self.mlp_torch_result is not None:
+                    mlflow.log_param("pytorch_mlp_enabled", True)
+                    mlflow.log_param("pytorch_mlp_hidden_dims", ",".join(str(d) for d in self.mlp_hidden_dims))
+                    mlflow.log_param("pytorch_mlp_dropout", float(self.mlp_dropout))
+                    mlflow.log_param("pytorch_mlp_batch_size", int(self.mlp_batch_size))
+                    mlflow.log_param("pytorch_mlp_lr", float(self.mlp_lr))
+                    mlflow.log_param("pytorch_mlp_weight_decay", float(self.mlp_weight_decay))
+                    mlflow.log_param("pytorch_mlp_max_epochs", int(self.mlp_max_epochs))
+                    mlflow.log_param("pytorch_mlp_early_stopping_patience", int(self.mlp_early_stopping_patience))
+                    mlflow.log_param("pytorch_mlp_val_fraction", float(self.mlp_val_fraction))
+                    if self.mlp_torch_hparams.get("torch_version"):
+                        mlflow.log_param("pytorch_mlp_torch_version", str(self.mlp_torch_hparams["torch_version"]))
+                    mlflow.log_metric("pytorch_mlp_best_epoch", float(self.mlp_torch_result.best_epoch))
+                    mlflow.log_metric("pytorch_mlp_best_val_loss", float(self.mlp_torch_result.best_val_loss))
+                    for split_name, metrics in (
+                        ("val", self.mlp_torch_result.metrics_val),
+                        ("test", self.mlp_torch_result.metrics_test),
+                    ):
+                        for k, v in metrics.items():
+                            if v is not None and not (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
+                                mlflow.log_metric(f"pytorch_mlp_{split_name}_{k}", float(v))
+                    if self.mlp_torch_checkpoint_path and os.path.isfile(self.mlp_torch_checkpoint_path):
+                        mlflow.log_artifact(self.mlp_torch_checkpoint_path, artifact_path="pytorch_mlp")
+                else:
+                    mlflow.log_param("pytorch_mlp_enabled", False)
+
                 for fname, fobj in self.figs_to_log:
                     try:
                         mlflow.log_figure(fobj, fname)
@@ -755,6 +940,10 @@ class FeatureEngineering:
         """
         self.tune(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
         logger.debug(f"Tuning concluído: {datetime.now() - start_time}")
+
+        # MLP PyTorch: comparável no MLflow aos sklearn; não altera best_pipeline nem artefato promovido.
+        self._run_mlp_torch_mvp()
+        logger.debug(f"MLP PyTorch (MVP): {datetime.now() - start_time}")
 
         self.evaluate_importance()
         logger.debug(f"Importância avaliada: {datetime.now() - start_time}")
