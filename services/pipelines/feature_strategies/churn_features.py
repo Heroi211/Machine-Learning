@@ -64,7 +64,8 @@ class ChurnFeatures(FeatureStrategy):
         out["is_new_customer"] = (out["tenure"] <= 12).astype(int)
         out["tenure_log"] = np.log1p(out["tenure"])
 
-        contract_mapping = {"month-to-month": 0, "one year": 1, "two year": 2}
+        contract_mapping = {'Month-to-month': 0, 'One year': 1, 'Two year': 2}
+                               
         out["contract_stability"] = out["contract"].map(contract_mapping)
 
         out["new_customer_in_mounth_contract"] = ((out["contract"] == "month-to-month") & (out["is_new_customer"])).astype(int)
