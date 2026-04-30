@@ -1,3 +1,5 @@
+"""Coordinate ML training, artifact persistence, and online predictions."""
+
 import logging
 import os
 import json
@@ -27,6 +29,7 @@ def _sklearn_feature_names(model) -> list[str] | None:
 
 
 def _align_dataframe_to_model(model, df: pd.DataFrame) -> pd.DataFrame:
+    """Return the input DataFrame ordered by the model feature names."""
     names = _sklearn_feature_names(model)
     if not names:
         return df

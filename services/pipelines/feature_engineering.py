@@ -1,3 +1,5 @@
+"""Run feature engineering, model selection, tuning, and artifact logging."""
+
 import logging
 import os
 import sys
@@ -42,9 +44,11 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 
 class FeatureEngineering:
-    """
-    Pipeline de Feature Engineering, seleção de features,
-    treinamento comparativo, tuning e persistência.
+    """Execute the feature engineering training workflow.
+
+    The workflow loads the baseline output, delegates domain-specific feature
+    creation to a ``FeatureStrategy``, compares candidate classifiers, tunes the
+    selected model, evaluates feature importance, and persists artifacts.
     """
 
     def __init__(
@@ -60,6 +64,7 @@ class FeatureEngineering:
         tuning_n_iter: int | None = None,
         export_figures_dir: str | None = None,
     ):
+        """Initialize the pipeline with domain, strategy, paths, and guardrails."""
         self.objective = objective
         self.strategy = strategy
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
@@ -114,6 +119,7 @@ class FeatureEngineering:
             raise ValueError(f"tuning_n_iter deve ser > 0. Recebido: {self.tuning_n_iter}")
 
     def _passes_guardrails(self, precision_value: float, roc_auc_value: float) -> bool:
+        """Return whether a candidate model satisfies configured guardrails."""
         if self.min_precision is not None and precision_value < self.min_precision:
             return False
         if self.min_roc_auc is not None:
@@ -221,6 +227,7 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def load_data(self):
+        """Load the baseline output CSV declared in the manifest."""
         logger.info("Carregando dataset pré-processado...")
         manifest_path = self._explicit_manifest_path or os.path.join(self.path_data_preprocessed, "manifest.json")
         if not os.path.isfile(manifest_path):
@@ -285,6 +292,7 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def build_features(self):
+        """Validate input columns and build domain-specific engineered features."""
         logger.info(f"Construindo features com strategy: {self.strategy.__class__.__name__}")
 
         self.strategy.validate(self.data)
@@ -297,7 +305,8 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def select_features(self, k: int = 25):
-        logger.info("Iniciando split de dados para FE...")
+        """Split the dataset and keep the top statistical features."""
+        logger.info("Iniciando split e seleção de features...")
 
         y = self.data["target"]
         x = self.data.drop(columns=["target"])
@@ -328,6 +337,7 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def train_models(self):
+        """Train candidate classifiers and select the best eligible model."""
         sort_col = result_column_for_metric(self.optimization_metric)
         scoring = sklearn_scoring_parameter(self.optimization_metric)
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
@@ -427,7 +437,7 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def _finalize_tuned_metrics(self, y_pred, y_proba_vec: np.ndarray | None) -> None:
-        """Preenche `tuned_metrics` a partir de predições no conjunto de teste (`y_proba_vec` = P(classe positiva))."""
+        """Populate final test metrics for the tuned model."""
         self.tuned_metrics = {
             "Acurácia": accuracy_score(self.y_test, y_pred),
             "Precisão": precision_score(self.y_test, y_pred, zero_division=0),
@@ -441,6 +451,7 @@ class FeatureEngineering:
         }
 
     def tune(self, time_limit_minutes: int = 60, acc_target: float | None = None):
+        """Tune the selected model within a fixed time budget."""
         sort_col = result_column_for_metric(self.optimization_metric)
         scoring = sklearn_scoring_parameter(self.optimization_metric)
         if not self.best_model_name:
@@ -606,6 +617,7 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def evaluate_importance(self):
+        """Compute and log feature-importance reports for the best model."""
         logger.info("Calculando importância de features...")
 
         feat_names = np.array(self.feature_names)
@@ -677,6 +689,7 @@ class FeatureEngineering:
     # ------------------------------------------------------------------
 
     def save(self):
+        """Persist the best pipeline and log metrics/artifacts to MLflow."""
         logger.info("Salvando artefatos...")
 
         os.makedirs(self.path_model, exist_ok=True)

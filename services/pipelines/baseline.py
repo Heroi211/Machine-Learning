@@ -1,3 +1,5 @@
+"""Run the baseline tabular binary classification training pipeline."""
+
 import logging
 import mlflow
 import pandas as pd
@@ -150,9 +152,7 @@ class Baseline:
         logger.debug(f"5 primeiras linhas {self.data.head(5)}")
         
     def summary_overview(self):
-        """
-        Visão geral do dataset inicial, passo 2
-        """
+        """Registra a visão geral do dataset inicial."""
         
         logger.info("Informações gerais do dataset:\n")
         logger.debug(self.data.info())
@@ -256,8 +256,8 @@ class Baseline:
         df: pd.DataFrame,
         relatorio: pd.DataFrame,
     ) -> pd.DataFrame:
-        """
-        Aplica a coerção das colunas recomendadas pelo relatório
+        """Aplica coerção nas colunas recomendadas pelo relatório.
+
         (`Recomenda_converter == True`) para tipo numérico.
         """
         if relatorio.empty:
@@ -287,9 +287,7 @@ class Baseline:
         return df
 
     def missing_identifier(self):
-        """
-        Inicialmente como terceiro passo, identificar os missings values
-        """
+        """Identifica e reporta valores ausentes no dataset."""
         
         logger.info("Inicializando a identificação dos missings values")
         
@@ -358,8 +356,9 @@ class Baseline:
             )
             
     def pre_processor_churn(self):
-        """
-        Ajustes específicos do *churn*: mapeia Yes/No e variantes para 0/1,
+        """Aplica ajustes específicos do dominio churn.
+
+        Mapeia Yes/No e variantes para 0/1,
         imputa ``TotalCharges`` se existir, e uniformiza ``object``/``category``
         para texto após o *replace*.
         """
@@ -388,9 +387,7 @@ class Baseline:
 
             
     def target_analysis(self):
-        """
-        Neste passo 4, analisamos a fonte de dados identificando a variável target
-        """
+        """Analisa, renomeia e binariza a variável alvo."""
         
         logger.info("Iniciando a análise da target")
 
@@ -625,8 +622,9 @@ class Baseline:
         )
 
     def prepare_modeling_frame(self):
-        """
-        Monta o DataFrame usado no split: mesmas colunas que no treino da API,
+        """Monta o DataFrame usado no split.
+
+        Mantem as mesmas colunas que no treino da API,
         sem imputação nem encoding global (isso ocorre no Pipeline após o split).
         """
         logger.info("Preparando frame de modelagem (sem imputação/encoding pré-split)...")
@@ -645,8 +643,9 @@ class Baseline:
         logger.debug(f"Colunas: {self.data_encoded.columns.tolist()}")
 
     def prepare_and_train(self):
-        """
-        Treino: ``ColumnTransformer`` ajusta-se só a ``x_train``; a LR
+        """Treina o baseline com transformacoes ajustadas apenas no treino.
+
+        ``ColumnTransformer`` ajusta-se só a ``x_train``; a LR
         ajusta-se a **``x_train`` já transformado** (matriz densa/numérica),
         não a ``x_train`` em bruto. O ``SkPipeline`` junta os dois passos para
         ``predict``/serialização, sem chamar de novo ``Pipeline.fit`` nele.
@@ -764,8 +763,9 @@ class Baseline:
             logger.info("Treino e logs concluídos.")
     
     def split_data(self):
-        """
-        Divisão treino/teste no frame bruto (pós-EDA); imputação e encoding ocorrem
+        """Divide o frame bruto em treino e teste.
+
+        Imputação e encoding ocorrem
         apenas dentro do Pipeline em ``prepare_and_train``.
         """
 
@@ -777,8 +777,8 @@ class Baseline:
         self.x_train,self.x_test,self.y_train,self.y_test = train_test_split(x,y,test_size=self.test_size,random_state=self.random_state,stratify=y)
             
     def save(self):
-        """
-        Salva o modelo treinado e o sample de integração com FE:
+        """Salva o modelo treinado e o sample de integracao com FE.
+
         - sample raw limpo (sem OHE/scaler), alinhado ao contrato Baseline -> FE
         - manifest com metadados da execução
         """
@@ -963,8 +963,3 @@ if __name__=="__main__":
     except Exception as e:
         logger.error(f"Erro durante a execução do pipeline: {e}")
         raise ValueError("Pipeline interrompido devido a um erro.")
-    
-    
-
-        
-        

@@ -1,3 +1,5 @@
+"""Expose user management and password reset routes."""
+
 from fastapi import APIRouter,HTTPException,status,Depends,Response
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
@@ -19,6 +21,7 @@ router = APIRouter()
 #GET users
 @router.get('/', response_model=List[users_schemas.usersGetData],status_code=status.HTTP_200_OK)
 async def get_users(db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """List all active users visible to the current user."""
     try:
             users:List[users_schemas.usersGetData] = await users_service.select_all_users(db)
             return users
@@ -27,6 +30,7 @@ async def get_users(db:AsyncSession = Depends(get_session),user_logged :users_mo
 #GET user
 @router.get('/{id_user}',response_model=users_schemas.usersGetData,status_code=status.HTTP_200_OK)
 async def get_user(id_user : int, db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Return a single user by ID."""
     try:
         user:users_schemas.usersGetData | None = await users_service.select_user(id_user,db)
     except HTTPException as e:
@@ -39,6 +43,7 @@ async def get_user(id_user : int, db:AsyncSession = Depends(get_session),user_lo
 #PUT user
 @router.put('/{id_user}',status_code=status.HTTP_200_OK)
 async def put_user(id_user:int,payload:users_schemas.users_update, db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)): 
+    """Update user fields supplied in the request body."""
     try:
         
         user_id = id_user
@@ -56,6 +61,7 @@ async def put_user(id_user:int,payload:users_schemas.users_update, db:AsyncSessi
 #DELETE user
 @router.delete('/{id_user}',status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(id_user,db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Soft-delete a user by ID."""
     try:
         user = await users_service.drop_user(id_user,db)
         if user:
@@ -69,6 +75,7 @@ async def delete_user(id_user,db:AsyncSession = Depends(get_session),user_logged
 #Forgot Password - Send Email
 @router.post('/forgot-password/{email}',status_code=status.HTTP_200_OK)
 async def forgot_password(email:str,db:AsyncSession = Depends(get_session)):
+    """Generate and send a password reset token for one email address."""
     try:
         token = await users_service.generate_reset_token(email,db)
         await users_service.send_email(email,token)
@@ -78,6 +85,7 @@ async def forgot_password(email:str,db:AsyncSession = Depends(get_session)):
 #Reset Password
 @router.post('/reset-password',status_code=status.HTTP_200_OK)
 async def reset_password(token: str, password: str, db: AsyncSession = Depends(get_session)):
+    """Reset a user password when the provided reset token is valid."""
     try:
         user:users_schemas.users_update = await users_service.get_user_by_reset_token(token, db)
         if not user or user.reset_password_expires < datetime.datetime.now():

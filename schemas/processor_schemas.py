@@ -1,3 +1,5 @@
+"""Define Pydantic schemas for processor training, deployment, and prediction."""
+
 from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
@@ -6,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class PipelineRunResponse(BaseModel):
+    """Represent persisted metadata for one pipeline run."""
+
     id: int
     user_id: int
     pipeline_type: str
@@ -95,6 +99,8 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
+    """Represent the response returned after a prediction is persisted."""
+
     id: int
     domain: str
     pipeline_run_id: int
@@ -107,11 +113,15 @@ class PredictResponse(BaseModel):
 
 
 class PromoteRequest(BaseModel):
+    """Represent a request to promote a completed run as active."""
+
     domain: MLDomain = Field(description="Domínio canónico (deve coincidir com o objective do pipeline_run)")
     pipeline_run_id: int = Field(description="ID do PipelineRuns concluído a promover")
 
 
 class DeployedModelResponse(BaseModel):
+    """Represent a deployed model row returned by admin operations."""
+
     id: int
     domain: str
     pipeline_run_id: int
@@ -125,10 +135,14 @@ class DeployedModelResponse(BaseModel):
 
 
 class RollbackRequest(BaseModel):
+    """Represent a request to roll back a domain deployment."""
+
     domain: MLDomain = Field(description="Domínio a reverter para o deployment anterior (archived mais recente).")
 
 
 class TriggerDagRequest(BaseModel):
+    """Represent Airflow DAG trigger parameters."""
+
     objective: MLDomain = Field(description="Domínio do problema (mesmos valores do treino / Airflow).")
     optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Field(
         default="accuracy",
@@ -142,6 +156,8 @@ class TriggerDagRequest(BaseModel):
 
 
 class TriggerDagResponse(BaseModel):
+    """Represent the response after an Airflow DAG trigger request."""
+
     dag_run_id: str
     dag_id: str
     objective: str

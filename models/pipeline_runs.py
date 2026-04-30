@@ -1,9 +1,13 @@
+"""Define the ORM model for ML pipeline execution records."""
+
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric
 
 
 class PipelineRuns(modelsGeneric):
+    """Store metadata, metrics, and artifact paths for one training run."""
+
     __tablename__ = "pipeline_runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

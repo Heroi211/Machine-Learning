@@ -22,10 +22,12 @@ class NoActiveDeploymentError(Exception):
 
 
 def _normalize_domain(domain: str) -> str:
+    """Normalize domain names before persistence or lookup."""
     return domain.strip().lower()
 
 
 async def get_active_deployment(domain: str, db: AsyncSession) -> DeployedModels | None:
+    """Return the active deployment for a domain, if it exists."""
     d = _normalize_domain(domain)
     stmt = (
         select(DeployedModels)

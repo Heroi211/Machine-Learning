@@ -1,259 +1,635 @@
-# Documentação da solução — Machine Learning Engineering
+# Documentacao da Solucao - Machine Learning Engineering
 
-Documento de referência consolidado: arquitetura, contratos de API, ambientes, orquestração, observabilidade, débitos técnicos e evolução (incluindo **novos domínios de problema**).
+Documento tecnico-operacional do projeto. Ele consolida arquitetura, configuracao, contratos de API, pipelines de ML, persistencia, orquestracao, observabilidade e pontos de evolucao.
 
-**Complementos:** `RELATORIO_TECNICO.md` (EDA, métricas, limitações académicas), `CHECKLIST_PROJETO.md`, `CHECKLIST_QUESTIONAMENTOS.md`, `CHECKLIST_TESTES.md`.
+Complementos uteis:
 
----
-
-## 1. Visão geral
-
-### 1.1 Objetivo do produto
-
-Plataforma para **classificação binária em dados tabulares**, cobrindo:
-
-- Treino (Baseline e Feature Engineering com estratégia por domínio).
-- Registo de runs, promoção e rollback de modelos por **domínio** (`heart_disease`, `churn` no enum; churn em evolução no FE).
-- **API de predição** autenticada, com payload validado (Pydantic).
-- Orquestração opcional via **Apache Airflow** (DAG `ml_training_pipeline`).
-- Manutenção offline: relatórios de **latência** e **drift (PSI)**.
-
-### 1.2 Stack principal
-
-| Área | Tecnologia |
-|------|------------|
-| API | FastAPI, Pydantic v2, JWT |
-| Dados | PostgreSQL (async SQLAlchemy), CSV |
-| ML | scikit-learn, MLflow (artefatos locais) |
-| Orquestração | Airflow 2.x (DAG manual) |
-| Infra | Docker Compose |
-
-### 1.3 Prefixo da API
-
-Todas as rotas HTTP ficam sob **`{PROJECT_VERSION}`** (ex.: `/v1`), configurado em `core/configs.py` → `settings.project_version`. Nos exemplos abaixo usa-se **`/v1`** como placeholder.
+- [`../README.md`](../README.md): guia rapido de setup e uso.
+- [`MANUAL_DO_USUARIO.md`](MANUAL_DO_USUARIO.md): fluxo em linguagem funcional.
+- [`OBSERVABILIDADE_E_MANUTENCAO.md`](OBSERVABILIDADE_E_MANUTENCAO.md): logs, latencia e drift.
+- [`RELATORIO_TECNICO.md`](RELATORIO_TECNICO.md): EDA, metricas e discussoes tecnicas.
+- [`CHECKLIST_PROJETO.md`](CHECKLIST_PROJETO.md): pendencias e evolucoes.
 
 ---
 
-## 2. Arquitetura em camadas
+## 1. Visao geral
 
-| Camada | Localização | Função |
-|--------|-------------|--------|
-| Endpoints | `api/v1/endpoints/` | HTTP, autenticação, dependências de ambiente |
-| Schemas | `schemas/` | Contratos de entrada/saída, enums (`MLDomain`) |
-| Serviços | `services/processor/` | Treino síncrono, predição, deployments |
-| Pipelines | `services/pipelines/` | Baseline, FE, `STRATEGY_REGISTRY` por domínio |
-| Modelos ORM | `models/` | `PipelineRuns`, `DeployedModels`, `Predictions`, etc. |
-| Config | `core/configs.py` | `Settings`, `ENVIRONMENT`, `is_production` |
-| Dependências | `core/deps.py` | Sessão DB, utilizador, admin, gates dev/prod |
+O projeto e uma plataforma de Machine Learning Engineering para **classificacao binaria tabular**. O fluxo principal e:
 
-### 2.1 Fluxo lógico (alto nível)
-
-```
-CSV → [Baseline / FE] → pipeline_runs (métricas, modelo)
-      → POST /admin/promote → deployed_models (active por domínio)
-      → POST /predict → predictions
-
-Manutenção: scripts/maintenance/*.py → artifacts/reports/
+```text
+CSV de treino
+  -> Pipeline Baseline
+  -> Pipeline Feature Engineering
+  -> registro em pipeline_runs
+  -> promocao em deployed_models
+  -> predicao via API
+  -> auditoria em predictions
+  -> monitoramento offline de latencia e drift
 ```
 
----
+### 1.1 Objetivos
 
-## 3. Ambientes: desenvolvimento vs produção
+- Treinar modelos baseline e modelos com engenharia de features.
+- Registrar runs, metricas, artefatos e erros.
+- Promover um modelo ativo por dominio.
+- Servir predicoes autenticadas.
+- Manter historico de deployments e permitir rollback.
+- Coletar logs de requisicao e gerar relatorios offline.
 
-Configuração via **`ENVIRONMENT`** (ex.: `development`, `staging`, `prd`, `production`, `prod`). A propriedade **`settings.is_production`** considera produção quando o valor normalizado está em `{ prd, prod, production }`.
+### 1.2 Stack
 
-### 3.1 Comportamento por ambiente
-
-| Funcionalidade | Não produção | Produção |
-|----------------|--------------|----------|
-| `POST .../admin/train/baseline` | Permitido (admin + `require_sync_training_routes_enabled`) | **403** — usar Airflow |
-| `POST .../admin/train/feature-engineering` | Idem | **403** |
-| `POST .../admin/train/trigger-dag` | Permitido (admin + `require_airflow_api_trigger_enabled`) | **403** — disparar DAG só pela **UI do Airflow** |
-| `POST .../predict` | Permitido (utilizador autenticado) | **Permitido** — serving em produção |
-
-### 3.2 Produção: treino sem API de trigger
-
-1. Colocar o **CSV** num caminho visível pelo worker Airflow (volume partilhado, ex. `ml_shared/...`).
-2. **Admin → Variables** no Airflow: configurar **`ml_training_pipeline_conf`** (JSON) e/ou **`ml_training_objective`**, **`ml_training_csv_path`** (ver docstring em `airflow/dags/ml_training_pipeline.py`).
-3. **Trigger DAG** na UI (conf vazio `{}` ou overrides pontuais). O DAG faz merge: **defaults das Variables** + **`dag_run.conf`**.
-
-### 3.3 Desenvolvimento
-
-- Treino **síncrono** (baseline/FE) para debug linha a linha.
-- **Trigger do DAG pela API** com upload de ficheiro e `conf` gerado automaticamente.
+| Camada | Tecnologia |
+|--------|------------|
+| API | FastAPI, Pydantic v2 |
+| Auth | JWT Bearer, `python-jose`, `passlib` |
+| Persistencia | PostgreSQL, SQLAlchemy async, `asyncpg` |
+| ML | pandas, scikit-learn, MLflow, joblib |
+| Orquestracao | Apache Airflow |
+| Infra local | Docker Compose |
+| Observabilidade | logs JSONL, Dozzle, scripts de manutencao |
 
 ---
 
-## 4. Contratos da API (processor)
+## 2. Estado atual dos dominios
 
-Todas as rotas `.../processor/...` exigem **Bearer JWT** salvo onde indicado. Rotas `/processor/admin/*` exigem **administrador** (`role_id` de administrador).
+O codigo tem estrutura para multiplos dominios, mas ha desalinhamentos importantes:
 
-### 4.1 Resumo das rotas
+| Componente | Estado atual |
+|------------|--------------|
+| `MLDomain` | `heart_disease`, `churn` |
+| `STRATEGY_REGISTRY` | registra apenas `heart_disease` |
+| Rotas HTTP de treino | `objective: Literal["churn"]` |
+| Schema de predicao | features estritas de `heart_disease` |
+| Labels de classe | `heart_disease` e `churn` em `CLASS_LABELS` |
 
-| Método | Rota (após `/v1`) | Auth | Descrição |
-|--------|-------------------|------|-----------|
-| POST | `/processor/predict` | Utilizador | Body JSON `PredictRequest`: `domain` (`MLDomain`), `features` (schema estrito para `heart_disease`). |
-| POST | `/processor/admin/promote` | Admin | JSON: `domain`, `pipeline_run_id`. |
-| POST | `/processor/admin/rollback` | Admin | JSON: `domain`. |
-| GET | `/processor/admin/deployments/{domain}/history` | Admin | Histórico de deployments do domínio. |
-| POST | `/processor/admin/train/baseline` | Admin + não prod | Multipart: `file`, `objective` (enum). |
-| POST | `/processor/admin/train/feature-engineering` | Admin + não prod | Multipart + parâmetros de tuning. |
-| POST | `/processor/admin/train/trigger-dag` | Admin + não prod | Multipart: CSV + forms; dispara Airflow REST. |
+Impacto:
 
-### 4.2 Predição (`POST /processor/predict`)
+- O fluxo de Feature Engineering exige strategy registrada. Hoje isso existe para `heart_disease`.
+- As rotas HTTP de treino aceitam, pela validacao da API, apenas `churn`; nesse estado, o FE tende a falhar por falta de `ChurnFeatures`.
+- A predicao esta tipada para `heart_disease`, mesmo com enum contendo `churn`.
 
-- **Request:** `domain` + `features` alinhados ao modelo treinado (para `heart_disease`, campos numéricos/booleanos e one-hot com aliases para chaves com espaço/hífen no JSON).
-- **Validação:** `extra="forbid"` nos modelos Pydantic — chaves extra são rejeitadas.
-- **Resposta:** `prediction`, `probability` (percentagem 0–100 quando disponível), `input_data`, `pipeline_run_id`, etc.
-- **Erros típicos:** `404` se não existir deployment ativo para o domínio; `422` se o JSON não cumprir o schema.
+Antes de demonstrar o fluxo completo por HTTP, alinhar uma destas alternativas:
 
-### 4.3 Promoção
-
-- Exige run com **`status == completed`**, **`PipelineRuns.active == True`**, ficheiro de modelo existente, e `objective` coerente com o `domain`.
-- Em falha de treino síncrono, **`active`** é posto a **`False`** e o run não é elegível.
-
-### 4.4 OpenAPI / Swagger
-
-- **`MLDomain`**: enum exposto (`heart_disease`, `churn`) para forms e bodies onde aplicável.
-- Documentação interativa: `{BASE_URL}/docs` (ex.: `http://localhost:8000/docs`).
+1. Permitir `heart_disease` nas rotas de treino; ou
+2. Implementar e registrar `ChurnFeatures`; e
+3. Ajustar `PredictRequest` para suportar schemas por dominio.
 
 ---
 
-## 5. Pipelines de ML
+## 3. Arquitetura
 
-### 5.1 Baseline
+### 3.1 Camadas
 
-- **Contrato CSV:** última coluna = **`target`**, sem coluna de ID (convenção do projeto).
-- Apenas **classificação binária**.
-- EDA, imputação, encoding, regressão logística, métricas de teste, MLflow.
+| Camada | Local | Responsabilidade |
+|--------|-------|------------------|
+| Entrada HTTP | `api/v1/endpoints/` | Rotas, status codes, dependencias de auth/admin/ambiente |
+| Contratos | `schemas/` | Modelos Pydantic, enums e responses |
+| Servicos | `services/processor/` | Treino, promocao, rollback, predicao e bundles |
+| Pipelines ML | `services/pipelines/` | Baseline, FE, selecao/tuning, strategies |
+| Persistencia | `models/` | ORM das tabelas |
+| Configuracao | `core/configs.py` | Variaveis de ambiente e paths |
+| Auth/deps | `core/auth.py`, `core/deps.py` | JWT, usuario atual, gates admin/producao |
+| Logs | `core/logging_*`, `core/custom_logger.py` | Logging raiz, HTTP e pipelines |
+| Airflow | `airflow/dags/ml_training_pipeline.py` | Orquestracao manual de treino |
+| Manutencao | `scripts/maintenance/` | Latencia e drift offline |
 
-### 5.2 Feature Engineering
+### 3.2 Fluxo de predicao
 
-- Entrada: CSV já no formato esperado pela **estratégia do domínio** (após baseline ou pré-processamento).
-- **`STRATEGY_REGISTRY`**: mapeia `objective` → classe `FeatureStrategy` (ex.: `heart_disease` → `HeartDiseaseFeatures`).
-- Tuning com limite de tempo e métrica configurável.
+```text
+POST /processor/predict
+  -> valida JWT
+  -> valida body Pydantic
+  -> busca deployed_models active por domain
+  -> carrega joblib de pipeline_runs.model_path
+  -> prepara/alinha features
+  -> model.predict / predict_proba
+  -> grava predictions
+  -> retorna PredictResponse
+```
 
-### 5.3 Registo de runs
+### 3.3 Fluxo de treino sincrono
 
-- Tabela **`pipeline_runs`**: tipo de pipeline, objective, status, métricas, caminhos de artefatos, `error_message` em falhas.
-- **Nota:** o DAG Airflow **ainda não persiste** linhas em `pipeline_runs` — apenas as rotas síncronas da API criam esses registos. Alinhar DAG ↔ BD é um débito conhecido.
+```text
+POST /processor/admin/train/baseline
+  -> salva CSV em PATH_DATA
+  -> cria pipeline_runs(status=processing)
+  -> executa Baseline
+  -> salva modelo/CSV/metricas
+  -> atualiza status completed ou failed
 
----
-
-## 6. Airflow
-
-- **DAG:** `ml_training_pipeline` — `validate_input` → `run_baseline` → `run_fe` → `notify_complete`.
-- **Parâmetros:** merge de **Airflow Variables** + **`dag_run.conf`** (conf do trigger tem prioridade).
-- **Logs:** detalhe por task na UI do Airflow; Dozzle mostra sobretudo stdout dos contentores — ver secção 8.
-
----
-
-## 7. Gestão de modelos e domínios
-
-- **`deployed_models`:** no máximo um registo **active** por domínio (lógica no serviço de deployment).
-- **Histórico** e **rollback** permitem comparar versões e reverter para o deployment archived mais recente.
-
----
-
-## 8. Observabilidade
-
-| Instrumento | Conteúdo |
-|-------------|----------|
-| `logs/api_requests/access.jsonl` | Latência, método, path, status (middleware configurável). |
-| `scripts/maintenance/latency_report.py` | Agregações e SLO (ex.: p95 de `/predict`). |
-| `scripts/maintenance/drift_report.py` | PSI entre referência e produção. |
-| Dozzle | Logs por contentor (porta típica `8888` no Compose). |
-| Airflow UI | Logs por task do DAG. |
-
-**Limitação:** logs finos das tasks ML podem ir para ficheiros no worker; nem tudo aparece no Dozzle sem configurar logging para stdout no Airflow.
-
----
-
-## 9. Débitos técnicos (estado atual)
-
-| Débito | Impacto | Notas |
-|--------|---------|--------|
-| DAG não grava `PipelineRuns` | Treino “oficial” só Airflow não alimenta a mesma tabela que a API usa para promote | Persistir runs nas tasks ou job assíncrono. |
-| `churn` no enum sem strategy FE completa | FE com `churn` falha até haver classe em `STRATEGY_REGISTRY` | Completar `ChurnFeatures` + testes. |
-| Critérios de promoção no relatório vs código | Documentação fala em Δmétrica ≥ 2% e PSI; promoção valida run completo e ficheiros | Automatizar gates de negócio se necessário. |
-| `load_dotenv()` disperso vs `Settings` | Possível redundância em módulos legados | Centralizar env (ver checklist de questionamentos). |
-| MLflow em SQLite local | Adequado a dev; concorrência limitada em equipa | Servidor MLflow partilhado em produção. |
-| Checklist projeto: itens P1/P2 abertos | Ex.: listagem de runs, `reason` em promote | Ver `CHECKLIST_PROJETO.md`. |
+POST /processor/admin/train/feature-engineering
+  -> salva CSV temporario
+  -> cria pipeline_runs(status=processing)
+  -> executa Baseline interno
+  -> executa FeatureEngineering
+  -> monta ZIP de artefatos
+  -> grava model_path e metricas no run
+```
 
 ---
 
-## 10. Melhorias futuras sugeridas
+## 4. Configuracao
 
-1. **Persistência unificada:** qualquer caminho de treino (API síncrona ou DAG) gera `pipeline_runs` coerente e IDs rastreáveis até ao promote.
-2. **Predict multi-domínio:** `Union` discriminada por `domain` ou endpoints por domínio; feature store ou contratos versionados.
-3. **Filas de trabalho:** Celery/RQ para treinos longos sem bloquear API (se voltar a expor treino pesado via HTTP).
-4. **Observabilidade:** exportar métricas (Prometheus), traces; alinhar logs ML ao stdout em prd para agregadores.
-5. **Segurança:** rate limit em `/predict`, auditoria de promote/rollback com campo `reason`.
-6. **Testes automatizados:** CI com subset do `CHECKLIST_TESTES.md`.
+As configuracoes sao carregadas por `Settings` em `core/configs.py`, a partir de `.env`.
 
----
+### 4.1 Variaveis essenciais
 
-## 11. Incluir um novo domínio de problema
+| Variavel | Descricao |
+|----------|-----------|
+| `PROJECT_NAME` | Titulo da aplicacao FastAPI |
+| `PROJECT_VERSION` | Prefixo das rotas, por exemplo `/v1` |
+| `DATABASE_USER`, `DATABASE_PASS`, `DATABASE_SERVER`, `DATABASE_PORT`, `DATABASE_NAME` | Conexao PostgreSQL |
+| `SECRET`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT |
+| `TEST_SIZE`, `RANDOM_STATE` | Parametros globais dos splits |
+| `PATH_DATA`, `PATH_DATA_PREPROCESSED`, `PATH_MODEL`, `PATH_GRAPHS`, `PATH_LOGS` | Paths de artefatos |
+| `MLFLOW_TRACKING_URI`, `MLFLOW_ARTIFACT_ROOT` | Tracking local do MLflow |
+| `ENVIRONMENT` | Controla gates de producao |
+| `SYNC_FE_TUNE_MAX_MINUTES` | Teto de tuning em rotas sincronas |
+| `PATH_API_REQUEST_LOGS` | Destino dos logs HTTP JSONL |
+| `PATH_MAINTENANCE_REPORTS` | Saida dos relatorios |
+| `AIRFLOW_BASE_URL`, `AIRFLOW_USER`, `AIRFLOW_PASSWORD` | Integracao com Airflow REST |
+| `ML_SHARED_PATH` | Volume compartilhado API/Airflow para uploads |
 
-Objetivo: suportar um novo `objective` (ex.: `fraud`, `credit_risk`) mantendo o padrão **binário tabular** e a arquitetura atual.
+### 4.2 Ambientes
 
-### 11.1 Checklist técnico
+`settings.is_production` retorna verdadeiro quando `ENVIRONMENT` normalizado for:
 
-1. **`MLDomain` (`schemas/processor_schemas.py`)**  
-   - Adicionar membro ao enum (ex.: `fraud = "fraud"`).  
-   - O Swagger passa a listar o valor automaticamente.
+```text
+prd, prod, production
+```
 
-2. **Feature Engineering — `STRATEGY_REGISTRY` (`services/pipelines/feature_strategies/`)**  
-   - Implementar classe `FeatureStrategy` com `validate`, `build`, colunas esperadas.  
-   - Registar: `"fraud": FraudFeatures` (nome do ficheiro/classe ao critério do projeto).
+Nesses ambientes:
 
-3. **Labels (`get_class_labels` / `CLASS_LABELS`)**  
-   - Definir tuplo (negativo, positivo) para gráficos e Baseline.
-
-4. **Baseline**  
-   - Garantir CSV respeita convenção (última coluna `target`).  
-   - Dataset de treino e pré-processamento alinhados ao domínio.
-
-5. **Predição (`POST /predict`)**  
-   - Hoje o body é centrado em `HeartDiseaseFeaturesInput`. Para outro domínio é necessário **um destes desenhos**:  
-   - **A)** Modelo Pydantic novo (ex.: `FraudFeaturesInput`) + **`Union`** discriminada por `domain` em `PredictRequest`; ou  
-   - **B)** Endpoint separado `POST /processor/predict/fraud`; ou  
-   - **C)** `features` como JSON validado por schema dinâmico (menos tipagem no Swagger).  
-   - Ajustar `processor_service.predict_for_domain` / `_prepare_prediction_features` se a estratégia de pré-processamento for diferente.
-
-6. **Airflow / Variables**  
-   - O DAG já usa `objective` no `conf`; após registo no registry, `validate_input` aceita o novo domínio se o CSV tiver colunas validadas pela strategy.
-
-7. **Testes manuais**  
-   - Fluxo: baseline (dev) ou DAG → FE → promote → predict com deployment ativo.
-
-8. **Documentação e dados**  
-   - Atualizar README / relatório com origem do dataset e limitações do domínio.
-
-### 11.2 Armadilhas comuns
-
-- Esquecer o enum **`MLDomain`** → cliente pode enviar strings válidas na BD mas rejeitadas na API.  
-- **FE** sem strategy → `ValueError` na rota síncrona.  
-- **Predict:** nomes de features do modelo (`feature_names_in_`) devem bater com o que o pré-processamento gera (ordem/alinhamento em `processor_service`).
+- `/processor/admin/train/baseline` retorna `403`;
+- `/processor/admin/train/feature-engineering` retorna `403`;
+- `/processor/admin/train/trigger-dag` retorna `403`;
+- `/processor/predict`, promocao, historico e rollback continuam disponiveis conforme permissao.
 
 ---
 
-## 12. Referência rápida de URLs (desenvolvimento local)
+## 5. Banco de dados
 
-| Serviço | URL típica |
-|---------|------------|
-| Swagger | http://localhost:8000/docs |
-| Airflow | http://localhost:8080 |
-| pgAdmin | http://localhost:5050 |
-| Dozzle | http://localhost:8888 |
+O schema inicial esta em `init_db/database.sql`.
 
-Credenciais e portas podem variar — ver `.env` e `docker-compose.yaml`.
+### 5.1 Tabelas principais
+
+| Tabela | Funcao |
+|--------|-------|
+| `roles` | Perfis do sistema (`User`, `Administrator`) |
+| `users` | Usuarios autenticados |
+| `pipeline_runs` | Execucoes de treino, metricas, paths e status |
+| `deployed_models` | Modelo ativo/arquivado por dominio |
+| `predictions` | Auditoria de predicoes realizadas |
+
+### 5.2 Campos importantes
+
+`pipeline_runs`:
+
+- `pipeline_type`: `baseline` ou `feature_engineering`.
+- `objective`: dominio usado no treino.
+- `status`: `processing`, `completed` ou `failed`.
+- `model_path`: arquivo joblib usado para promocao/predicao.
+- `csv_output_path`: CSV gerado pelo baseline, quando aplicavel.
+- `metrics`: JSON de metricas.
+- `error_message`: erro truncado em falhas.
+- `active`: usado para elegibilidade de promocao.
+
+`deployed_models`:
+
+- `domain`: dominio canonicamente normalizado.
+- `pipeline_run_id`: run promovido.
+- `status`: `active` ou `archived`.
+- `metrics_snapshot`: copia das metricas no momento da promocao.
+
+Ha um indice unico parcial para impedir mais de um deployment ativo por dominio:
+
+```sql
+CREATE UNIQUE INDEX uq_deployed_models_one_active_per_domain
+ON public.deployed_models (domain)
+WHERE status = 'active' AND active IS TRUE;
+```
 
 ---
 
-## 13. Manutenção deste documento
+## 6. Autenticacao e autorizacao
 
-- Alterações de produto (gates por ambiente, novos endpoints) devem refletir-se aqui e nos checklists.  
-- O **`RELATORIO_TECNICO.md`** mantém o foco em EDA, métricas e entrega académica; este ficheiro é a **visão operacional e de integração** da solução.
+### 6.1 Rotas de auth
 
-*Última consolidação: alinhada ao código e aos checklists do repositório (ambientes, MLDomain, DAG com Variables, `PipelineRuns`, contratos Pydantic).*
+Prefixo: `/v1/auth`.
+
+| Metodo | Rota | Descricao |
+|--------|------|-----------|
+| `POST` | `/signup` | Cria usuario comum |
+| `POST` | `/authenticate` | Retorna JWT Bearer |
+| `GET` | `/logged` | Retorna usuario atual |
+
+`signup` ignora promocao de papel no payload: novos usuarios ficam com `role_id=1` por padrao do modelo.
+
+### 6.2 Papeis
+
+| Papel | ID | Uso |
+|-------|----|-----|
+| Usuario | `1` | Pode autenticar e predizer |
+| Administrador | `2` | Pode treinar, promover, rollback e gerenciar roles |
+
+Rotas administrativas usam `require_admin`.
+
+---
+
+## 7. API do processador
+
+Prefixo: `/v1/processor`.
+
+| Metodo | Rota | Permissao | Retorno |
+|--------|------|-----------|---------|
+| `POST` | `/predict` | Usuario autenticado | `PredictResponse` |
+| `POST` | `/admin/promote` | Admin | `DeployedModelResponse` |
+| `POST` | `/admin/rollback` | Admin | `DeployedModelResponse` |
+| `GET` | `/admin/deployments/{domain}/history` | Admin | Lista de deployments |
+| `POST` | `/admin/train/baseline` | Admin + nao prod | CSV (`FileResponse`) |
+| `POST` | `/admin/train/feature-engineering` | Admin + nao prod | ZIP (`FileResponse`) |
+| `POST` | `/admin/train/trigger-dag` | Admin + nao prod | `TriggerDagResponse` |
+
+### 7.1 Predicao
+
+Request:
+
+```json
+{
+  "domain": "heart_disease",
+  "features": {
+    "age": 55,
+    "trestbps": 140,
+    "chol": 250,
+    "fbs": false,
+    "thalch": 150,
+    "exang": false,
+    "oldpeak": 1.5,
+    "ca": 0,
+    "sex_Male": true,
+    "cp_atypical angina": false,
+    "cp_non-anginal": true,
+    "cp_typical angina": false,
+    "restecg_normal": true,
+    "restecg_st-t abnormality": false,
+    "slope_flat": false,
+    "slope_upsloping": true,
+    "thal_normal": true,
+    "thal_reversable defect": false
+  }
+}
+```
+
+Notas:
+
+- `features` usa `extra="forbid"`; chaves extras geram `422`.
+- Campos com espaco ou hifen usam aliases Pydantic.
+- A probabilidade e convertida para percentual (`0.82` vira `82.0`).
+- Se nao houver deployment ativo, a API retorna `404`.
+
+### 7.2 Promocao
+
+Request:
+
+```json
+{
+  "domain": "heart_disease",
+  "pipeline_run_id": 123
+}
+```
+
+Validacoes em `deployment_service.promote_pipeline_run`:
+
+- run existe e esta ativo;
+- `status == "completed"`;
+- `run.objective` coincide com `domain`;
+- `model_path` existe no filesystem;
+- deployment ativo anterior e arquivado.
+
+### 7.3 Rollback
+
+Request:
+
+```json
+{
+  "domain": "heart_disease"
+}
+```
+
+Reativa o deployment `archived` mais recente do dominio e arquiva o atual.
+
+### 7.4 Treino baseline
+
+Multipart:
+
+| Campo | Tipo | Descricao |
+|-------|------|-----------|
+| `file` | CSV | Dataset de treino |
+| `objective` | string | No codigo atual, validado como `churn` |
+
+Resposta:
+
+- corpo: CSV pre-processado;
+- headers:
+  - `X-Pipeline-Run-Id`;
+  - `X-Pipeline-Type`;
+  - `X-Pipeline-Objective`;
+  - `X-Pipeline-Metrics`.
+
+### 7.5 Treino Feature Engineering
+
+Multipart:
+
+| Campo | Tipo | Padrao |
+|-------|------|--------|
+| `file` | CSV | obrigatorio |
+| `objective` | string | validado atualmente como `churn` |
+| `optimization_metric` | enum | `accuracy` |
+| `min_precision` | float opcional | `null` |
+| `min_roc_auc` | float opcional | `null` |
+| `time_limit_minutes` | int | `2` |
+| `acc_target` | float opcional | `null` |
+
+Metricas aceitas:
+
+```text
+accuracy, precision, recall, f1, roc_auc
+```
+
+Resposta:
+
+- corpo: ZIP com artefatos;
+- headers `X-Pipeline-*`.
+
+---
+
+## 8. Pipelines de ML
+
+### 8.1 Baseline
+
+Classe: `services/pipelines/baseline.py::Baseline`.
+
+Responsabilidades:
+
+- carregar CSV de caminho explicito;
+- detectar target como ultima coluna;
+- recusar target nulo;
+- converter colunas `object` que parecam numericas;
+- binarizar target (`> 0` vira `1`);
+- separar treino/teste com `train_test_split`;
+- imputar numericos/categoricos dentro do pipeline sklearn;
+- one-hot encoding para categoricas;
+- treinar `LogisticRegression(class_weight="balanced")`;
+- salvar modelo e CSV de amostra;
+- registrar metricas e artefatos no MLflow quando possivel.
+
+Contrato:
+
+- classificacao binaria;
+- sem coluna de ID;
+- target na ultima coluna;
+- cabecalho obrigatorio.
+
+### 8.2 Feature Engineering
+
+Classe: `services/pipelines/feature_engineering.py::FeatureEngineering`.
+
+Responsabilidades:
+
+- carregar CSV pre-processado via manifest do baseline;
+- validar dominio por `FeatureStrategy`;
+- criar features especificas do dominio;
+- selecionar features com `SelectKBest(f_classif)`;
+- comparar modelos:
+  - Decision Tree;
+  - Random Forest;
+  - SVM RBF;
+  - Gradient Boosting;
+- aplicar guardrails opcionais (`min_precision`, `min_roc_auc`);
+- tuning com `ParameterSampler` e budget de tempo;
+- calcular importancia de features;
+- salvar melhor pipeline em joblib;
+- registrar metricas e figuras no MLflow.
+
+### 8.3 Strategy de dominio
+
+Contrato base: `services/pipelines/feature_strategies/base.py::FeatureStrategy`.
+
+Metodos obrigatorios:
+
+- `required_columns()`;
+- `created_features()`;
+- `build(df)`.
+
+Strategy implementada:
+
+| Dominio | Classe | Colunas minimas |
+|---------|--------|-----------------|
+| `heart_disease` | `HeartDiseaseFeatures` | `age`, `chol` |
+
+Features criadas para `heart_disease` incluem:
+
+- `age_squared`;
+- `cholesterol_to_age`;
+- `max_hr_pct`;
+- `bp_chol_ratio`;
+- `fbs_flag`;
+- `exang_flag`;
+- `stress_index`;
+- `age_decade`;
+- `risk_interaction`;
+- `high_st_depression_flag`.
+
+---
+
+## 9. Airflow
+
+DAG: `airflow/dags/ml_training_pipeline.py`.
+
+### 9.1 Tasks
+
+```text
+validate_input -> run_baseline -> run_fe -> notify_complete
+```
+
+| Task | Funcao |
+|------|-------|
+| `validate_input` | Valida existencia do CSV e colunas minimas da strategy |
+| `run_baseline` | Executa `Baseline` |
+| `run_fe` | Executa `FeatureEngineering` |
+| `notify_complete` | Loga resumo e proximo passo de promocao |
+
+### 9.2 Parametros
+
+O DAG combina Airflow Variables com `dag_run.conf`. O `dag_run.conf` tem prioridade.
+
+Variable principal:
+
+```text
+ml_training_pipeline_conf
+```
+
+Exemplo:
+
+```json
+{
+  "objective": "heart_disease",
+  "csv_path": "/opt/airflow/ml_shared/uploads/dados.csv",
+  "optimization_metric": "accuracy",
+  "time_limit_minutes": 30,
+  "acc_target": 0.85,
+  "user_id": 1
+}
+```
+
+### 9.3 Observacao operacional
+
+O DAG importa modulos do projeto a partir de `ML_PROJECT_ROOT`. Em ambiente containerizado, garanta que o codigo do projeto esteja visivel ao worker Airflow nesse caminho, alem do CSV compartilhado. Caso contrario, imports como `services.pipelines...` falham.
+
+---
+
+## 10. Observabilidade
+
+### 10.1 Logs HTTP
+
+Middleware: `core/middleware/request_record.py`.
+
+Destino padrao:
+
+```text
+logs/api_requests/access.jsonl
+```
+
+Cada linha contem dados como:
+
+- timestamp;
+- metodo;
+- path;
+- status;
+- duracao em ms;
+- request_id;
+- cliente;
+- erro, se houver.
+
+### 10.2 Logs de pipeline
+
+Destino padrao:
+
+```text
+data/logs/<timestamp>/pipeline_<timestamp>.txt
+```
+
+O logger principal e `ml.pipeline`.
+
+### 10.3 Relatorio de latencia
+
+Script:
+
+```bash
+python scripts/maintenance/latency_report.py --slo-ms 300
+```
+
+Saida: CSV em `artifacts/reports/`.
+
+SLO atual:
+
+| Rota | Metrica | Limite |
+|------|---------|--------|
+| `POST /processor/predict` | p95 | `< 300ms` |
+
+### 10.4 Relatorio de drift
+
+Script:
+
+```bash
+python scripts/maintenance/drift_report.py \
+  --train-csv data/referencia.csv \
+  --predictions-csv exports/predictions.csv
+```
+
+Usa PSI:
+
+| PSI | Status |
+|-----|--------|
+| `< 0.10` | `ok` |
+| `0.10 - 0.25` | `warning` |
+| `> 0.25` | `critical` |
+
+O drift nao roda em tempo real no endpoint de predicao.
+
+---
+
+## 11. Criterio de promocao recomendado
+
+O codigo valida integridade minima do run e do artefato. A regra de negocio recomendada para decidir promocao e:
+
+| Criterio | Recomendacao |
+|----------|--------------|
+| Run concluido | Obrigatorio |
+| Artefato em `model_path` | Obrigatorio |
+| Dominio igual ao objective | Obrigatorio |
+| Metrica principal | Candidato deve superar ativo, idealmente >= 2% |
+| Drift PSI medio | Idealmente `< 0.10` |
+| Latencia | p95 de `/predict` dentro do SLO |
+
+Processo:
+
+1. Treinar modelo candidato.
+2. Conferir metricas do run.
+3. Comparar com historico de deployments.
+4. Rodar drift/latencia quando houver dados suficientes.
+5. Promover.
+6. Monitorar.
+7. Fazer rollback em caso de regressao.
+
+---
+
+## 12. Como adicionar um novo dominio
+
+Checklist tecnico:
+
+1. Adicionar o valor em `MLDomain` (`schemas/processor_schemas.py`).
+2. Criar uma classe em `services/pipelines/feature_strategies/`.
+3. Implementar `required_columns`, `created_features` e `build`.
+4. Registrar a classe em `STRATEGY_REGISTRY`.
+5. Adicionar labels em `CLASS_LABELS`.
+6. Ajustar as rotas de treino para aceitar o novo `objective`.
+7. Criar schema Pydantic de predicao para o dominio.
+8. Ajustar `PredictRequest` para `Union` discriminada ou endpoint por dominio.
+9. Criar exemplos de payload e CSV.
+10. Testar: baseline -> FE -> promote -> predict -> rollback.
+
+---
+
+## 13. Debitos e riscos conhecidos
+
+| Item | Impacto | Acao sugerida |
+|------|---------|---------------|
+| Rotas de treino aceitam apenas `churn`, mas FE registra `heart_disease` | Quebra fluxo HTTP de FE | Alinhar `Literal` com `MLDomain` e registry |
+| `churn` sem `ChurnFeatures` | FE de churn falha | Implementar strategy |
+| Predicao tipada apenas para heart disease | Multi-dominio incompleto | Usar `Union` por dominio ou endpoints separados |
+| Airflow pode nao enxergar codigo do projeto no container | DAG falha em imports | Montar/copy do projeto para `ML_PROJECT_ROOT` |
+| Drift e latencia agregada sao offline | Sem alertas automaticos | Agendar scripts ou integrar APM |
+| MLflow local SQLite | Limitado para equipe/producao | Usar tracking server compartilhado |
+| Criterios de promocao nao automatizados | Admin pode promover sem gate de negocio | Implementar validacoes de metrica/drift no promote |
+
+---
+
+## 14. Referencia de arquivos
+
+| Arquivo | Papel |
+|---------|------|
+| `main.py` | Inicializa FastAPI e inclui routers |
+| `core/configs.py` | Settings e `database_url` |
+| `api/v1/api.py` | Agrega routers |
+| `api/v1/endpoints/processor.py` | Rotas de treino, predict, promote, rollback |
+| `services/processor/processor_service.py` | Orquestracao de treino/predicao |
+| `services/processor/deployment_service.py` | Regras de promocao e rollback |
+| `services/pipelines/baseline.py` | Pipeline baseline |
+| `services/pipelines/feature_engineering.py` | Pipeline FE |
+| `services/pipelines/feature_strategies/` | Strategies por dominio |
+| `schemas/processor_schemas.py` | Contratos do processador |
+| `init_db/database.sql` | Schema inicial |
+| `docker-compose.yaml` | Ambiente local completo |
+| `airflow/dags/ml_training_pipeline.py` | DAG de treino |
+| `scripts/maintenance/` | Relatorios operacionais |

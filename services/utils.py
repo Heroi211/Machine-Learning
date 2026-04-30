@@ -1,9 +1,12 @@
+"""Provide shared datetime utilities."""
+
 import pytz
 from datetime import datetime, time
 from typing import Optional
 
 
 def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Convert a datetime to naive UTC, assuming Sao Paulo time if naive."""
     if dt is None:
         return None
 
@@ -14,6 +17,7 @@ def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt_utc
 
 def utcnow() -> datetime:
+    """Return the current time as a naive UTC datetime."""
     return datetime.now(pytz.UTC).replace(tzinfo=None)
 
     

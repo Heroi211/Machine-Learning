@@ -67,6 +67,7 @@ def _load_predictions_features(path: Path) -> pd.DataFrame:
 
 
 def main() -> None:
+    """Run the drift report command-line workflow."""
     parser = argparse.ArgumentParser(description="Drift treino vs predições (CSV)")
     parser.add_argument("--train-csv", required=True, type=Path, help="CSV de treino (referência)")
     parser.add_argument("--predictions-csv", required=True, type=Path, help="Export de predictions ou features")

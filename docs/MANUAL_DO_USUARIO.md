@@ -34,6 +34,8 @@ Quem entra na aplicação **só** como consumidor precisa de **conta** e do **mo
 
 Objetivo: ter um **modelo treinado** e **ativo** para um **domínio** (tema), por exemplo `heart_disease`. O **domínio** deve ser **o mesmo nome** que usam no treino (objetivo) e depois na predição.
 
+> Nota técnica do estado atual: a arquitetura já prevê `heart_disease` e `churn`, mas o código ainda precisa alinhar as rotas de treino, as strategies de Feature Engineering e o schema de predição para suportar os dois domínios ponta a ponta. Consulte `DOCUMENTACAO_SOLUCAO.md` antes de demonstrar o fluxo completo.
+
 ### Passo A — Treinar (opcional: baseline; depois ou direto: engenharia de features)
 
 O administrador envia dados em ficheiro **CSV** e indica o **objetivo** (domínio).  

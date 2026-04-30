@@ -1,3 +1,5 @@
+"""Expose role management routes."""
+
 from fastapi import APIRouter,HTTPException, status,Depends,Response
 from schemas import roles_schemas as roles_schemas
 from models.roles import Roles as roles_models
@@ -16,6 +18,7 @@ router = APIRouter()
 #POST role
 @router.post('/',status_code=status.HTTP_201_CREATED,response_model=roles_schemas.role)
 async def post_role(role:roles_schemas.role,db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Create a new role when the current user is an administrator."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             new_role:roles_models = await roles_service.register_role(role,db)
@@ -28,6 +31,7 @@ async def post_role(role:roles_schemas.role,db:AsyncSession = Depends(get_sessio
 #GET roles
 @router.get('/',status_code=status.HTTP_200_OK,response_model=List[roles_schemas.role])
 async def get_roles(db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """List all roles when the current user is an administrator."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             roles:List[roles_schemas.role] = await roles_service.select_all_roles(db)
@@ -39,6 +43,7 @@ async def get_roles(db:AsyncSession = Depends(get_session),user_logged :users_mo
 #GET role
 @router.get('/{id_role}',status_code=status.HTTP_200_OK, response_model=roles_schemas.role)
 async def get_role(id_role:int, db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Return one role by ID when the current user is an administrator."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             role = await roles_service.select_role(id_role,db)
@@ -54,6 +59,7 @@ async def get_role(id_role:int, db:AsyncSession = Depends(get_session),user_logg
 #PUT role
 @router.put('/{id_role}',status_code=status.HTTP_202_ACCEPTED,response_model=roles_schemas.role)
 async def put_role(id_role:int, role:roles_schemas.role_update,db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Update one role by ID when the current user is an administrator."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             role_update:roles_schemas.role = await roles_service.update_role(id_role,role,db)
@@ -67,6 +73,7 @@ async def put_role(id_role:int, role:roles_schemas.role_update,db:AsyncSession =
 #DELETE role
 @router.delete('/{id_role}',status_code=status.HTTP_202_ACCEPTED)
 async def delete_role(id_role:int,db:AsyncSession= Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Delete one role by ID when the current user is an administrator."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             deleted = await roles_service.drop_role(id_role,db)

@@ -1,3 +1,5 @@
+"""Define the base contract for domain feature engineering strategies."""
+
 from abc import ABC, abstractmethod
 import pandas as pd
 import logging

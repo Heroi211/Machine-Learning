@@ -1,5 +1,4 @@
-"""
-DAG: ml_training_pipeline
+"""DAG: ml_training_pipeline.
 
 Orquestra o fluxo completo de treino de um modelo de classificação binária:
   1. Validar CSV de entrada (colunas mínimas do domínio)

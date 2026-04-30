@@ -1,3 +1,5 @@
+"""Expose authentication routes for signup, login, and current user lookup."""
+
 from fastapi import APIRouter,HTTPException,status,Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
@@ -18,6 +20,7 @@ router = APIRouter()
 #POST user / signup
 @router.post('/signup', response_model=users_schemas.users,status_code=status.HTTP_201_CREATED)
 async def signup(user: users_schemas.users_create,db:AsyncSession = Depends(get_session)):
+    """Create a new user account with the default role."""
     try:
         new_user:users_models = await auth_service.register_user(user,db)
         return new_user
@@ -27,6 +30,7 @@ async def signup(user: users_schemas.users_create,db:AsyncSession = Depends(get_
 #POST Login
 @router.post('/authenticate',status_code=status.HTTP_200_OK)
 async def login(form_data:OAuth2PasswordRequestForm = Depends(),db:AsyncSession = Depends(get_session)):
+    """Authenticate credentials and return a bearer access token."""
     user = await auth_service.authorize(form_data.username,form_data.password,db)
     logger.info(f"User: {user}")
     if not user:
@@ -38,4 +42,5 @@ async def login(form_data:OAuth2PasswordRequestForm = Depends(),db:AsyncSession 
 #GET Logged
 @router.get('/logged', response_model=users_schemas.users,status_code=status.HTTP_200_OK)
 async def get_logged(user_logged :users_models = Depends(get_current_user)):
+    """Return the user associated with the current bearer token."""
     return user_logged

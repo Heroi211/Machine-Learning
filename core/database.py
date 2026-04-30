@@ -1,3 +1,5 @@
+"""Create the async SQLAlchemy engine, session factory, and declarative base."""
+
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.ext.asyncio import AsyncEngine

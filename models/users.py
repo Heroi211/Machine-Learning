@@ -1,8 +1,12 @@
+"""Define the users ORM model."""
+
 from sqlalchemy import Column,Integer, String, Boolean,Date,ForeignKey,Null,DateTime
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric
 
 class Users(modelsGeneric):
+    """Represent an authenticated application user."""
+
     __tablename__ = 'users'
     id = Column(Integer,autoincrement=True,primary_key=True)
     password = Column(String(255),nullable=False)
@@ -12,8 +16,3 @@ class Users(modelsGeneric):
     
     #relação da FK pra apontar o relacionamento de role para usuario
     role = relationship("Roles",lazy='joined',back_populates='user')
-
-    
-    
- 
-    

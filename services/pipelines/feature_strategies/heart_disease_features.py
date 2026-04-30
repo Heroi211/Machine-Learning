@@ -1,3 +1,5 @@
+"""Implement heart disease domain feature engineering rules."""
+
 import pandas as pd
 import numpy as np
 import logging
@@ -16,9 +18,11 @@ class HeartDiseaseFeatures(FeatureStrategy):
     """
 
     def required_columns(self) -> list[str]:
+        """Return the minimum columns required by the strategy."""
         return ["age", "chol"]
 
     def created_features(self) -> list[str]:
+        """Return the feature names that this strategy can create."""
         return [
             "age_squared",
             "cholesterol_to_age",
@@ -33,6 +37,7 @@ class HeartDiseaseFeatures(FeatureStrategy):
         ]
 
     def build(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Return a copy of the input with heart disease features added."""
         out = df.copy()
         cols = set(out.columns)
 

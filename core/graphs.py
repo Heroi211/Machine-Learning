@@ -1,3 +1,5 @@
+"""Build and persist static EDA and model evaluation graphs."""
+
 import logging
 import os
 
@@ -18,6 +20,8 @@ path_graphs = settings.path_graphs
 
 
 class Graphs:
+    """Provide graph factory methods used by the ML pipelines."""
+
     @staticmethod
     def _ensure_dir(base: str) -> None:
         if not os.path.exists(base):
@@ -371,8 +375,9 @@ class Graphs:
         graph_root: str | None = None,
         split_label: str = "test",
     ) -> str | None:
-        """
-        Curva precision–recall (probabilidades da classe positiva) e AP (área sob a
+        """Gera curva precision-recall e average precision.
+
+        Usa probabilidades da classe positiva e AP (area sob a
         curva, equivalente ao que ``average_precision_score`` reporta para binário).
         """
         root = graph_root if graph_root is not None else path_graphs

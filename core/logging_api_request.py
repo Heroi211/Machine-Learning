@@ -20,6 +20,7 @@ class JsonAccessFormatter(logging.Formatter):
     """Uma linha JSON por registro quando `access_payload` está em `extra`."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Serialize structured access payloads as JSON strings."""
         payload = getattr(record, "access_payload", None)
         if payload is not None:
             return json.dumps(payload, ensure_ascii=False)

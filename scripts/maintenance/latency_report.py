@@ -104,6 +104,7 @@ def _build_summary(df: pd.DataFrame, label: str, slo_p95_ms: float) -> dict:
 
 
 def main() -> None:
+    """Run the latency summary command-line workflow."""
     parser = argparse.ArgumentParser(description="Relatório de latência da API")
     parser.add_argument(
         "--slo-ms",

@@ -1,3 +1,5 @@
+"""Expose processor routes for prediction, training, and deployment control."""
+
 import json
 import os
 import uuid
@@ -31,6 +33,7 @@ ML_SHARED_PATH = settings.ml_shared_path
 
 @router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
 async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = Depends(get_session), user_logged: users_models = Depends(get_current_user)):
+    """Return a prediction from the active deployment for the requested domain."""
     try:
         features_dict = payload.features.model_dump(mode="json", by_alias=True)
         pred = await processor_service.predict_for_domain(
@@ -60,6 +63,7 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
 
 @router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=processor_schemas.DeployedModelResponse)
 async def admin_promote(payload: processor_schemas.PromoteRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+    """Promote a completed pipeline run as the active model for its domain."""
     try:
         dep = await promote_pipeline_run(
             domain=payload.domain.value, pipeline_run_id=payload.pipeline_run_id, promoted_by_user_id=admin.id, db=db
@@ -81,7 +85,7 @@ async def admin_trigger_dag(
     acc_target: float | None = Form(None),
     admin: users_models = Depends(require_airflow_api_trigger_enabled),
 ):
-    """Grava o CSV em volume compartilhado e dispara o DAG (só ambientes não prod; em prd use UI do Airflow + Variables)."""
+    """Store an uploaded CSV in shared storage and trigger the Airflow DAG."""
     upload_dir = os.path.join(ML_SHARED_PATH)
     os.makedirs(upload_dir, exist_ok=True)
     obj = objective
@@ -130,7 +134,7 @@ async def admin_trigger_dag(
 async def admin_deployment_history(
     domain: processor_schemas.MLDomain, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)
 ):
-    """Lista os últimos deployments (active + archived) do domínio, do mais recente ao mais antigo."""
+    """List recent active and archived deployments for a domain."""
     records = await get_deployment_history(domain=domain.value, db=db)
     if not records:
         raise HTTPException(
@@ -141,7 +145,7 @@ async def admin_deployment_history(
 
 @router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
 async def admin_rollback(payload: processor_schemas.RollbackRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
-    """Reverte para o deployment archived mais recente do domínio, arquivando o active atual."""
+    """Roll a domain back to its most recent archived deployment."""
     try:
         dep = await rollback_deployment(domain=payload.domain.value, db=db)
         return dep
@@ -152,7 +156,7 @@ async def admin_rollback(payload: processor_schemas.RollbackRequest, db: AsyncSe
 
 
 def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
-    """Devolve o CSV em disco no corpo da resposta + metadados em cabeçalhos HTTP."""
+    """Build a CSV response with pipeline metadata headers."""
     if run.status != "completed":
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"run_id": run.id, "error": run.error_message})
     if not run.csv_output_path or not os.path.isfile(run.csv_output_path):
@@ -178,6 +182,7 @@ async def admin_train_baseline(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
+    """Run the synchronous baseline training pipeline for an uploaded CSV."""
     try:
         
         run = await processor_service.run_baseline(file=file, objective=objective, user_id=admin.id, db=db)
@@ -189,6 +194,7 @@ async def admin_train_baseline(
 
 
 def _schedule_remove(path: str) -> None:
+    """Remove a temporary file if it still exists."""
     try:
         if path and os.path.isfile(path):
             os.remove(path)
@@ -211,6 +217,7 @@ async def admin_train_feature_engineering(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
+    """Run synchronous feature engineering and return the artifact bundle."""
     try:
         run, zip_path = await processor_service.run_feature_engineering(
             objective=objective, user_id=admin.id, db=db,

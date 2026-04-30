@@ -1,3 +1,5 @@
+"""Define the ORM model for promoted model deployments."""
+
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric

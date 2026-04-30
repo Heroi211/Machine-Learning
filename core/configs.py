@@ -1,3 +1,5 @@
+"""Load and validate application settings from environment variables."""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
 import logging
@@ -67,11 +69,12 @@ class Settings(BaseSettings):
         return self.environment.strip().lower() in {"prd", "prod", "production"}
 
     def get_log_level(self) -> int:
-        """Retorna o nível de logging baseado em debug""" 
+        """Retorna o nível de logging baseado em debug."""
         return logging.DEBUG if self.debug else logging.INFO
     
     @model_validator(mode="after")
     def set_database_url(self):
+        """Build the async SQLAlchemy database URL after validation."""
         self.database_url = (
             f"postgresql+asyncpg://{self.database_user}:"
             f"{self.database_pass}@{self.database_server}:"

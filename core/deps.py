@@ -1,3 +1,5 @@
+"""Define FastAPI dependencies for database sessions and authorization."""
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import Session
@@ -12,10 +14,13 @@ from pydantic import BaseModel
 from sqlalchemy.future import select
 
 class TokenData(BaseModel):
+    """Represent the JWT subject extracted from a bearer token."""
+
     username:Optional[str] = None
 
 
 async def get_session():
+    """Yield an async database session and close it after request handling."""
     session : AsyncSession = Session()
     try:
         yield session
@@ -23,6 +28,7 @@ async def get_session():
         await session.close()
         
 async def get_current_user(db:Session = Depends(get_session),token:str = Depends(oauth2_scheme)) -> users_models:
+    """Resolve the authenticated user from the bearer token."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Não foi possível autenticar o usuario.",
@@ -57,6 +63,7 @@ async def get_current_user(db:Session = Depends(get_session),token:str = Depends
 
 
 async def require_admin(user: users_models = Depends(get_current_user)) -> users_models:
+    """Return the current user only when it has administrator privileges."""
     if user.role_id != Roles.ADMINISTRATOR:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

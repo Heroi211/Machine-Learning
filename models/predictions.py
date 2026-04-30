@@ -1,9 +1,13 @@
+"""Define the ORM model for persisted prediction events."""
+
 from sqlalchemy import Column, Integer, Float, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric
 
 
 class Predictions(modelsGeneric):
+    """Store one prediction request, output, probability, and lineage."""
+
     __tablename__ = "predictions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

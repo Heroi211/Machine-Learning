@@ -1,3 +1,5 @@
+"""Provide database and password-reset operations for users."""
+
 from models.users import Users as users_models
 from schemas import users_schemas as users_schemas
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,7 @@ from models.roles import Roles as roles_models
 
 
 async def select_all_users(db:AsyncSession) -> List[users_schemas.usersGetData]:
+    """Return active users with display role labels."""
     async with db as session:
         querie = select(users_models).order_by(users_models.id.asc()).filter(users_models.active==True)
         resultset = await session.execute(querie)
@@ -40,6 +43,7 @@ async def select_all_users(db:AsyncSession) -> List[users_schemas.usersGetData]:
         return users_list
     
 async def select_user(id_user:int,db:AsyncSession) -> users_schemas.usersGetData | None:
+    """Return one active user by ID with a display role label."""
     async with db as session:
         querie = select(users_models).filter(users_models.id==id_user,users_models.active==True)
         resultset = await session.execute(querie)
@@ -60,6 +64,7 @@ async def select_user(id_user:int,db:AsyncSession) -> users_schemas.usersGetData
         
 
 async def update_user(id_user:int,user:dict,db:AsyncSession) -> bool:
+    """Update one active user from a dictionary of changed fields."""
     async with db as session:
         querie = select(users_models).filter(users_models.id == id_user,users_models.active==True)
         resultset = await session.execute(querie)
@@ -81,6 +86,7 @@ async def update_user(id_user:int,user:dict,db:AsyncSession) -> bool:
             
     
 async def drop_user(id_user:int, db:AsyncSession):
+    """Deactivate one active user by ID."""
     async with db as session:
         querie = select(users_models).filter(users_models.id==int(id_user),users_models.active==True)
         result_set = await session.execute(querie)
@@ -93,6 +99,7 @@ async def drop_user(id_user:int, db:AsyncSession):
         return None
             
 async def get_user_by_email(email:str,db:AsyncSession):
+    """Return an active user by email or raise 404."""
     async with db as session:
         querie = select(users_models).filter(users_models.email==email,users_models.active==True)
         resultset = await session.execute(querie)
@@ -103,6 +110,7 @@ async def get_user_by_email(email:str,db:AsyncSession):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     
 async def generate_reset_token(email:str,db:AsyncSession):
+    """Generate and persist a temporary password reset token."""
     async with db as session:
         user:users_schemas.users = await get_user_by_email(email,db)
         token = secrets.token_urlsafe(16)
@@ -113,6 +121,7 @@ async def generate_reset_token(email:str,db:AsyncSession):
         return token
 
 async def send_email(email: str,token:str):
+    """Send a password reset email containing a tokenized reset link."""
     # configuração do servidor de email
     sender_email = "gabrieldrumond211@gmail.com"
     receiver_email = email
@@ -149,6 +158,7 @@ async def send_email(email: str,token:str):
     return True
     
 async def get_user_by_reset_token(token: str, db: AsyncSession):
+    """Return an active user matching a reset token or raise 404."""
     async with db as session:
         query = select(users_models).filter(users_models.reset_password_token == token,users_models.active==True)
         resultset = await session.execute(query)
@@ -161,5 +171,4 @@ async def get_user_by_reset_token(token: str, db: AsyncSession):
         
         
         
-
 

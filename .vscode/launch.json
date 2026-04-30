@@ -28,10 +28,13 @@
             "type": "debugpy",
             "request": "launch",
             "module": "uvicorn",
-            "args": [
+             "args": [
                 "main:app",
-                "--reload"
+                "--reload",
+                "--port",
+                "8001"
             ],
+            // "python": "${workspaceFolder}/venv/bin/python",
             "jinja": true
         }
     ]
