@@ -60,10 +60,24 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
 
 
 @router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=processor_schemas.DeployedModelResponse)
-async def admin_promote(payload: processor_schemas.PromoteRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+async def admin_promote(
+    domain: Literal["churn"] = Form(..., description="Domínio / objective do run (lista fechada)."),
+    pipeline_run_id: int = Form(..., description="ID do PipelineRuns concluído (GET /admin/runs)."),
+    pipeline_type: Literal["feature_engineering"] = Form(
+        ...,
+        description="Tipo de pipeline. Apenas feature engineering é elegível para deploy.",
+    ),
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
+):
+    """Promove o joblib de um run de feature engineering concluído para inferência em ``/predict`` neste domínio."""
     try:
         dep = await promote_pipeline_run(
-            domain=payload.domain.value, pipeline_run_id=payload.pipeline_run_id, promoted_by_user_id=admin.id, db=db
+            domain=domain,
+            pipeline_run_id=pipeline_run_id,
+            promoted_by_user_id=admin.id,
+            pipeline_type=pipeline_type,
+            db=db,
         )
         return dep
     except ValueError as e:
@@ -162,10 +176,14 @@ async def admin_deployment_history(
 
 
 @router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
-async def admin_rollback(payload: processor_schemas.RollbackRequest, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)):
+async def admin_rollback(
+    domain: Literal["churn"] = Form(..., description="Domínio a reverter (deployment archived mais recente)."),
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
+):
     """Reverte para o deployment archived mais recente do domínio, arquivando o active atual."""
     try:
-        dep = await rollback_deployment(domain=payload.domain.value, db=db)
+        dep = await rollback_deployment(domain=domain, db=db)
         return dep
     except RollbackError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

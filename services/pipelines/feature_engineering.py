@@ -780,7 +780,7 @@ class FeatureEngineering:
         return feat_names
 
     def _export_fe_bundle(self, joblib_path: str) -> str:
-        """Pasta com comparação de modelos, resumo PyTorch e CSV da matriz que entra no classificador."""
+        """Pasta com comparação de modelos, resumo PyTorch, CSV pré-transform (pós-strategy) e pós-transform (entrada do modelo)."""
         bundle = os.path.join(
             os.path.dirname(os.path.abspath(joblib_path)),
             f"fe_export_{self.objective}_{self.now}",
@@ -789,6 +789,13 @@ class FeatureEngineering:
 
         if self.results_df is not None:
             self.results_df.to_csv(os.path.join(bundle, "model_selection_comparison.csv"), index=False)
+
+        df_pre_tr = self.x_train.copy()
+        df_pre_tr["target"] = self.y_train
+        df_pre_te = self.x_test.copy()
+        df_pre_te["target"] = self.y_test
+        df_pre_tr.to_csv(os.path.join(bundle, "train_features_pre_transform.csv"), index=False)
+        df_pre_te.to_csv(os.path.join(bundle, "test_features_pre_transform.csv"), index=False)
 
         kv_rows: list[tuple[str, str]] = []
         kv_rows.append(("pytorch_mvp_enabled", str(self.mlp_torch_result is not None)))

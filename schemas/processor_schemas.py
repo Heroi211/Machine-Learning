@@ -107,11 +107,6 @@ class PredictResponse(BaseModel):
         from_attributes = True
 
 
-class PromoteRequest(BaseModel):
-    domain: MLDomain = Field(description="Domínio canónico (deve coincidir com o objective do pipeline_run)")
-    pipeline_run_id: int = Field(description="ID do PipelineRuns concluído a promover")
-
-
 class DeployedModelResponse(BaseModel):
     id: int
     domain: str
@@ -123,10 +118,6 @@ class DeployedModelResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class RollbackRequest(BaseModel):
-    domain: MLDomain = Field(description="Domínio a reverter para o deployment anterior (archived mais recente).")
 
 
 class TriggerDagRequest(BaseModel):

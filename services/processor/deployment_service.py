@@ -44,13 +44,17 @@ async def promote_pipeline_run(
     domain: str,
     pipeline_run_id: int,
     promoted_by_user_id: int,
+    pipeline_type: str,
     db: AsyncSession,
 ) -> DeployedModels:
     """
     Arquiva o deployment ativo anterior do domínio e cria um novo como active.
-    Exige que o run exista, esteja completed e que objective case-insensitive == domain.
+    ``pipeline_type`` deve ser ``feature_engineering`` e o run na BD tem de coincidir.
     """
     d = _normalize_domain(domain)
+    pt = pipeline_type.strip().lower()
+    if pt != "feature_engineering":
+        raise ValueError("Apenas pipeline_type='feature_engineering' pode ser promovido.")
 
     stmt_run = select(PipelineRuns).where(PipelineRuns.id == pipeline_run_id, PipelineRuns.active==True)
     res = await db.execute(stmt_run)
@@ -59,6 +63,11 @@ async def promote_pipeline_run(
         raise ValueError(f"PipelineRun {pipeline_run_id} não encontrado.")
     if run.status != "completed":
         raise ValueError(f"PipelineRun {pipeline_run_id} não está concluído (status={run.status}).")
+    if run.pipeline_type != pt:
+        raise ValueError(
+            f"PipelineRun {pipeline_run_id} é do tipo '{run.pipeline_type}', "
+            f"mas foi pedida promoção como '{pt}'."
+        )
     if _normalize_domain(run.objective) != d:
         raise ValueError(
             f"Domínio '{domain}' não coincide com o objective do run ('{run.objective}')."

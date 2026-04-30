@@ -68,12 +68,12 @@ class ChurnFeatures(FeatureStrategy):
                                
         out["contract_stability"] = out["contract"].map(contract_mapping)
 
-        out["new_customer_in_mounth_contract"] = ((out["contract"] == "month-to-month") & (out["is_new_customer"])).astype(int)
-        out["risk_payment_monthly"] = ((out["paymentmethod"] == "electronic check") & (out["contract"] == "month-to-month")).astype(int)
+        out["new_customer_in_mounth_contract"] = ((out["contract"] == "Month-to-month") & (out["is_new_customer"])).astype(int)
+        out["risk_payment_monthly"] = ((out["paymentmethod"] == "Electronic check") & (out["contract"] == "Month-to-month")).astype(int)
         out["new_customer_risk_payment_monthly"] = (out["risk_payment_monthly"] & out["is_new_customer"]).astype(int)
 
-        out["fiber_high_cost"] = ((out["internetservice"] == "fiber optic") & (out["monthlycharges"] > self.monthly_median)).astype(int)
-        out["fiber_premium_monthly"] = ((out["internetservice"] == "fiber optic") & (out["contract"] == "month-to-month")).astype(int)
+        out["fiber_high_cost"] = ((out["internetservice"] == "Fiber optic") & (out["monthlycharges"] > self.monthly_median)).astype(int)
+        out["fiber_premium_monthly"] = ((out["internetservice"] == "Fiber optic") & (out["contract"] == "Month-to-month")).astype(int)
         out["fiber_premium_monthly_new_customer"] = (out["fiber_premium_monthly"] & out["is_new_customer"]).astype(int)
 
         out["avg_ticket"] = out["totalcharges"] / (out["tenure"] + 1)
