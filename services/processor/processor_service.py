@@ -2,6 +2,7 @@ import logging
 import os
 import json
 import re
+import shutil
 from datetime import datetime
 
 import joblib
@@ -347,6 +348,11 @@ async def run_feature_engineering(
 
         fe_joblib = os.path.join(settings.path_model, f"best_{objective}_{pipeline.now}.joblib")
         copy_if_exists(fe_joblib, fe_d)
+        # Conteúdo de _export_fe_bundle (CSVs + resumo PyTorch) — entra no ZIP em 20_feature_engineering/fe_export/
+        fe_export_src = os.path.join(settings.path_model, f"fe_export_{objective}_{pipeline.now}")
+        if os.path.isdir(fe_export_src):
+            fe_export_dst = os.path.join(fe_d, "fe_export")
+            shutil.copytree(fe_export_src, fe_export_dst, dirs_exist_ok=True)
         with open(os.path.join(fe_d, "best_model_name.txt"), "w", encoding="utf-8") as tf:
             tf.write(pipeline.best_model_name or "")
 

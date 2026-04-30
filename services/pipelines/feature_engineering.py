@@ -763,17 +763,76 @@ class FeatureEngineering:
     # Etapa 6 — Importância de features
     # ------------------------------------------------------------------
 
+    def _model_input_column_names(self) -> np.ndarray:
+        """Nomes das colunas na matriz que entra no classificador (pós preprocess + VT + SelectKBest)."""
+        feat_names = np.array(self.feature_names)
+        steps = getattr(self.best_pipeline, "named_steps", {})
+        if "preprocess" in steps:
+            feat_names = np.array(steps["preprocess"].get_feature_names_out())
+        if "remove_constant" in steps:
+            vt = steps["remove_constant"]
+            if hasattr(vt, "get_support"):
+                feat_names = feat_names[vt.get_support()]
+        if "selector" in steps:
+            selector = steps["selector"]
+            if hasattr(selector, "get_support"):
+                feat_names = feat_names[selector.get_support()]
+        return feat_names
+
+    def _export_fe_bundle(self, joblib_path: str) -> str:
+        """Pasta com comparação de modelos, resumo PyTorch e CSV da matriz que entra no classificador."""
+        bundle = os.path.join(
+            os.path.dirname(os.path.abspath(joblib_path)),
+            f"fe_export_{self.objective}_{self.now}",
+        )
+        os.makedirs(bundle, exist_ok=True)
+
+        if self.results_df is not None:
+            self.results_df.to_csv(os.path.join(bundle, "model_selection_comparison.csv"), index=False)
+
+        kv_rows: list[tuple[str, str]] = []
+        kv_rows.append(("pytorch_mvp_enabled", str(self.mlp_torch_result is not None)))
+        for k, v in sorted(self.mlp_torch_hparams.items()):
+            kv_rows.append((f"pytorch_hparam_{k}", str(v)))
+        ckpt = self.mlp_torch_checkpoint_path
+        kv_rows.append(("pytorch_checkpoint_path", "" if ckpt is None else str(ckpt)))
+        if self.mlp_torch_result is not None:
+            kv_rows.append(("pytorch_best_epoch", str(int(self.mlp_torch_result.best_epoch))))
+            kv_rows.append(("pytorch_best_val_loss", str(float(self.mlp_torch_result.best_val_loss))))
+            for k, v in self.mlp_torch_result.metrics_val.items():
+                kv_rows.append((f"pytorch_metrics_val_{k}", str(float(v))))
+            for k, v in self.mlp_torch_result.metrics_test.items():
+                kv_rows.append((f"pytorch_metrics_test_{k}", str(float(v))))
+        pd.DataFrame(kv_rows, columns=["key", "value"]).to_csv(
+            os.path.join(bundle, "pytorch_mvp_summary.csv"),
+            index=False,
+        )
+
+        pre = self.best_pipeline[:-1]
+        Xtr = pre.transform(self.x_train)
+        Xte = pre.transform(self.x_test)
+        cols = self._model_input_column_names()
+        if len(cols) != Xtr.shape[1]:
+            logger.warning(
+                "fe_export: %s nomes vs %s colunas na matriz; usando f0..fN.",
+                len(cols),
+                Xtr.shape[1],
+            )
+            cols = np.array([f"f{i}" for i in range(Xtr.shape[1])])
+        df_tr = pd.DataFrame(Xtr, columns=cols)
+        df_tr["target"] = self.y_train.to_numpy()
+        df_te = pd.DataFrame(Xte, columns=cols)
+        df_te["target"] = self.y_test.to_numpy()
+        df_tr.to_csv(os.path.join(bundle, "train_model_input.csv"), index=False)
+        df_te.to_csv(os.path.join(bundle, "test_model_input.csv"), index=False)
+
+        logger.info("FE exportado em: %s", bundle)
+        return bundle
+
     def evaluate_importance(self):
         logger.info("Calculando importância de features...")
 
-        feat_names = np.array(self.feature_names)
-        if hasattr(self.best_pipeline, "named_steps") and "preprocess" in self.best_pipeline.named_steps:
-            preprocess = self.best_pipeline.named_steps["preprocess"]
-            feat_names = np.array(preprocess.get_feature_names_out())
-        if hasattr(self.best_pipeline, "named_steps") and "selector" in self.best_pipeline.named_steps:
-            selector = self.best_pipeline.named_steps["selector"]
-            if hasattr(selector, "get_support"):
-                feat_names = feat_names[selector.get_support()]
+        feat_names = self._model_input_column_names()
 
         model_step = (
             self.best_pipeline.named_steps.get("model", self.best_pipeline)
@@ -810,8 +869,16 @@ class FeatureEngineering:
             random_state=self.random_state,
             n_jobs=self.n_jobs,
         )
+        perm_feat_names = np.array(self.x_test.columns.tolist())
+        if perm_feat_names.shape[0] != perm.importances_mean.shape[0]:
+            logger.warning(
+                "Colunas de x_test (%s) ≠ n_features da permutação (%s). Usando rótulos genéricos.",
+                perm_feat_names.shape[0],
+                perm.importances_mean.shape[0],
+            )
+            perm_feat_names = np.array([f"feature_{i}" for i in range(perm.importances_mean.shape[0])])
         perm_df = pd.DataFrame({
-            "feature": feat_names,
+            "feature": perm_feat_names,
             "importance": perm.importances_mean,
             "std": perm.importances_std,
         }).sort_values("importance", ascending=False)
@@ -842,6 +909,12 @@ class FeatureEngineering:
         joblib_path = os.path.join(self.path_model, f"best_{self.objective}_{self.now}.joblib")
         joblib.dump(self.best_pipeline, joblib_path)
         logger.info(f"Modelo salvo em: {joblib_path}")
+
+        fe_bundle_dir: str | None = None
+        try:
+            fe_bundle_dir = self._export_fe_bundle(joblib_path)
+        except Exception as e:
+            logger.error("Falha ao exportar bundle FE (CSV/comparação/PyTorch): %s", e, exc_info=True)
 
         try:
             experiment_name = f"{self.objective}_feature_engineering"
@@ -905,6 +978,8 @@ class FeatureEngineering:
 
                 mlflow.sklearn.log_model(self.best_pipeline, artifact_path="sklearn_model")
                 mlflow.log_artifact(joblib_path, artifact_path="joblib")
+                if fe_bundle_dir and os.path.isdir(fe_bundle_dir):
+                    mlflow.log_artifacts(fe_bundle_dir, artifact_path="fe_export")
 
             logger.info(f"Resultados registrados no MLflow (experimento: {experiment_name})")
         except Exception as e:
