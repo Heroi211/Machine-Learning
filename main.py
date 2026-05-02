@@ -1,3 +1,11 @@
+"""Entrypoint da API na raiz do repo; adiciona ``src/`` ao ``sys.path``."""
+from pathlib import Path
+import sys
+
+_SRC = Path(__file__).resolve().parent / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 from fastapi import FastAPI
 from core.configs import settings
 from core.logging_setup import setup_root_logging

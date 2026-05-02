@@ -38,13 +38,13 @@ Todas as rotas HTTP ficam sob **`{PROJECT_VERSION}`** (ex.: `/v1`), configurado 
 
 | Camada | Localização | Função |
 |--------|-------------|--------|
-| Endpoints | `api/v1/endpoints/` | HTTP, autenticação, dependências de ambiente |
-| Schemas | `schemas/` | Contratos de entrada/saída, enums (`MLDomain`) |
-| Serviços | `services/processor/` | Treino síncrono, predição, deployments |
-| Pipelines | `services/pipelines/` | Baseline, FE, `STRATEGY_REGISTRY` por domínio |
-| Modelos ORM | `models/` | `PipelineRuns`, `DeployedModels`, `Predictions`, etc. |
-| Config | `core/configs.py` | `Settings`, `ENVIRONMENT`, `is_production` |
-| Dependências | `core/deps.py` | Sessão DB, utilizador, admin, gates dev/prod |
+| Endpoints | `src/api/v1/endpoints/` | HTTP, autenticação, dependências de ambiente |
+| Schemas | `src/schemas/` | Contratos de entrada/saída, enums (`MLDomain`) |
+| Serviços | `src/services/processor/` | Treino síncrono, predição, deployments |
+| Pipelines | `src/services/pipelines/` | Baseline, FE, `STRATEGY_REGISTRY` por domínio |
+| Modelos ORM | `src/models/` | `PipelineRuns`, `DeployedModels`, `Predictions`, etc. |
+| Config | `src/core/configs.py` | `Settings`, `ENVIRONMENT`, `is_production` |
+| Dependências | `src/core/deps.py` | Sessão DB, utilizador, admin, gates dev/prod |
 
 ### 2.1 Fluxo lógico (alto nível)
 
@@ -53,7 +53,7 @@ CSV → [Baseline / FE] → pipeline_runs (métricas, modelo)
       → POST /admin/promote → deployed_models (active por domínio)
       → POST /predict → predictions
 
-Manutenção: scripts/maintenance/*.py → artifacts/reports/
+Manutenção: `src/scripts/maintenance/*.py` → `src/artifacts/reports/` (por omissão)
 ```
 
 ---

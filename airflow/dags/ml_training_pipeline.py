@@ -30,6 +30,8 @@ import logging
 import os
 import sys
 
+from pathlib import Path
+
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -37,8 +39,22 @@ from airflow.operators.python import PythonOperator
 log = logging.getLogger(__name__)
 
 ML_PROJECT_ROOT = os.environ.get("ML_PROJECT_ROOT", "/opt/airflow/ml_project")
-if ML_PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, ML_PROJECT_ROOT)
+ML_CODE_ROOT = os.environ.get("ML_CODE_ROOT", "").strip()
+
+
+def _bootstrap_ml_sys_path() -> None:
+    """Imports ``services`` / ``core`` vivem em ``src/`` (montado em ``ML_CODE_ROOT`` no compose)."""
+    code_root = ML_CODE_ROOT
+    if not code_root:
+        _candidate = Path(__file__).resolve().parents[2] / "src"
+        if _candidate.is_dir():
+            code_root = str(_candidate)
+    for p in (ML_PROJECT_ROOT, code_root):
+        if p and p not in sys.path:
+            sys.path.insert(0, p)
+
+
+_bootstrap_ml_sys_path()
 
 DEFAULT_ARGS = {
     "owner": "ml-engineering",

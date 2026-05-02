@@ -1,6 +1,12 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
 import logging
+
+# Raiz do repositório (este ficheiro: repo/src/core/configs.py)
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 class Settings(BaseSettings):
     """
@@ -9,17 +15,36 @@ class Settings(BaseSettings):
 
     extra='ignore': o mesmo .env serve à API e ao Docker Compose; variáveis como
     AIRFLOW_UID, PGADMIN_*, TIMEZONE não pertencem ao Settings e são ignoradas.
+
+    Caminhos por omissão assumem árvore com código e dados em ``src/`` (ver README).
     """
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file_encoding="utf-8",
+        env_file=(
+            str(_REPO_ROOT / ".env"),
+            ".env",
+        ),
+        case_sensitive=False,
+        extra="ignore",
+    )
     
-    # Caminhos
-    path_data: str = Field(default="data/",validation_alias="PATH_DATA",description="Path para dados brutos")
-    path_data_preprocessed: str = Field(default="data/pre_processed/",validation_alias="PATH_DATA_PREPROCESSED")
-    path_model: str = Field(default="models/",validation_alias="PATH_MODEL")
-    path_graphs: str = Field(default="graphs/",validation_alias="PATH_GRAPHS")
-    path_logs: str = Field(default="logs/",validation_alias="PATH_LOGS")
-    mlflow_tracking_uri: str = Field(default="sqlite:///artifacts/mlruns/mlflow.db",validation_alias="MLFLOW_TRACKING_URI")
-    mlflow_artifact_root: str = Field(default="artifacts/mlruns",validation_alias="MLFLOW_ARTIFACT_ROOT")
+    # Caminhos (relativos ao CWD; no Docker, WORKDIR é a raiz do repo em /var/www)
+    path_data: str = Field(default="src/data/", validation_alias="PATH_DATA", description="Path para dados brutos")
+    path_data_preprocessed: str = Field(
+        default="src/data/pre_processed/", validation_alias="PATH_DATA_PREPROCESSED"
+    )
+    path_model: str = Field(
+        default="src/artifacts/models/",
+        validation_alias="PATH_MODEL",
+        description="Joblibs sklearn (não confundir com o pacote ORM ``models``).",
+    )
+    path_graphs: str = Field(default="src/graphs/", validation_alias="PATH_GRAPHS")
+    path_logs: str = Field(default="logs/", validation_alias="PATH_LOGS")
+    mlflow_tracking_uri: str = Field(
+        default="sqlite:///src/artifacts/mlruns/mlflow.db",
+        validation_alias="MLFLOW_TRACKING_URI",
+    )
+    mlflow_artifact_root: str = Field(default="src/artifacts/mlruns", validation_alias="MLFLOW_ARTIFACT_ROOT")
     
     debug: bool = Field(default=False,validation_alias="DEBUG",description="Ativa modo debug"    )
     test_size: float = Field(default=0.2,validation_alias="TEST_SIZE",description="Proporção de teste (0.0 a 1.0)")
@@ -46,7 +71,11 @@ class Settings(BaseSettings):
     path_api_request_logs: str = Field(default="logs/api_requests", validation_alias="PATH_API_REQUEST_LOGS", description="Diretório dos arquivos access.jsonl (rotação automática)")
     log_http_requests_max_bytes: int = Field(default=5_242_880, validation_alias="LOG_HTTP_REQUESTS_MAX_BYTES", description="Tamanho máximo de access.jsonl antes da rotação (~5 MiB)")
     log_http_requests_backup_count: int = Field(default=5, validation_alias="LOG_HTTP_REQUESTS_BACKUP_COUNT", description="Número de arquivos access.jsonl.* retidos após rotação")
-    path_maintenance_reports: str = Field(default="artifacts/reports", validation_alias="PATH_MAINTENANCE_REPORTS", description="Saídas dos scripts de manutenção (latência, drift, relatórios)")
+    path_maintenance_reports: str = Field(
+        default="src/artifacts/reports",
+        validation_alias="PATH_MAINTENANCE_REPORTS",
+        description="Saídas dos scripts de manutenção (latência, drift, relatórios)",
+    )
 
     airflow_base_url: str = Field(default="http://airflow-webserver:8080", validation_alias="AIRFLOW_BASE_URL", description="URL base do Airflow")
     airflow_user: str = Field(default="airflow", validation_alias="AIRFLOW_USER", description="Usuário do Airflow")

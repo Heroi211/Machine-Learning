@@ -270,7 +270,7 @@ Acesse **http://localhost:8888** (Dozzle) para visualizar os logs de todos os co
 
 Logs persistidos em volume:
 - `logs/api_requests/access.jsonl` — uma linha JSON por requisição HTTP
-- `data/logs/<timestamp>/pipeline_<timestamp>.txt` — log de cada execução de pipeline
+- `src/data/logs/<timestamp>/pipeline_<timestamp>.txt` — log de cada execução de pipeline (treinos sob `PATH_DATA`/`PATH_LOGS`)
 
 ### Relatório de latência
 ```bash
@@ -306,35 +306,38 @@ Gera CSV em `artifacts/reports/drift_psi_<timestamp>.csv` com PSI por feature e 
 
 ## 8. Estrutura do projeto
 
+O **código FastAPI + pipelines ML** está sob **`src/`** (equivalente ao `src/` pedido em materiais tipo Tech Challenge). Docker, Airflow e `docker-compose` ficam na **raiz** do repositório.
+
 ```
-├── api/v1/endpoints/       # Rotas HTTP (auth, users, roles, processor, health)
-├── core/                   # Config, auth, logging, middleware, deps
-├── docker/                 # Dockerfiles (api, db, pgadmin)
-├── docs/                   # Documentação e checklists
-├── init_db/                # SQL de inicialização do banco
-├── models/                 # ORM SQLAlchemy (users, roles, pipeline_runs, deployed_models, predictions)
-├── schemas/                # Schemas Pydantic de entrada e saída
-├── scripts/maintenance/    # Scripts offline: latency_report, drift_report
-├── services/
-│   ├── pipelines/          # Baseline, FeatureEngineering, strategies por domínio
-│   └── processor/          # processor_service, deployment_service
-├── docker-compose.yaml
-├── main.py                 # Entrypoint FastAPI
-└── .env_example            # Template de variáveis de ambiente
+├── src/
+│   ├── api/v1/endpoints/   # Rotas HTTP (auth, users, roles, processor, health)
+│   ├── core/               # Config, auth, logging, middleware, deps
+│   ├── models/             # ORM SQLAlchemy
+│   ├── schemas/            # Pydantic
+│   ├── services/           # Pipelines ML, processor, auth
+│   ├── data/               # CSVs, pre_processed, logs de pipeline (opcional no VCS)
+│   ├── artifacts/          # MLflow (mlruns), modelos .joblib, relatórios
+│   ├── graphs/             # Gráficos exportados pelo baseline/FE
+│   └── scripts/maintenance/
+├── airflow/                # DAGs (fora de src)
+├── docker/
+├── docs/
+├── init_db/
+├── main.py                 # FastAPI — faz `sys.path` → `src/`
+├── docker-compose.yaml     # API: volumes em /var/www/src/... e /var/www/logs
+└── .env_example
 ```
 
 ### 8.1 Pastas do Tech Challenge e deste repo
 
-Em materiais académicos costuma pedir-se `src/`, `data/`, `models/`, `tests/`, `notebooks/`, `docs/`. Aqui a organização é a de **app + pipelines**, equivalente em espírito mas com nomes diferentes:
-
 | Pedido habitual (TC) | Onde está aqui |
 |----------------------|----------------|
-| `src/` (código da solução) | `api/`, `core/`, `services/`, `schemas/` — API FastAPI, config, pipelines ML e contratos Pydantic |
-| `data/` | `data/` (CSVs, pastas de logs sob `data/logs/` conforme treino) |
-| `models/` (pesos / artefactos ML) | Diretório configurável por `PATH_MODEL` no `.env` (por omissão `models/` na raiz) — **não confundir** com a pasta `models/` do repositório, que é o **ORM** SQLAlchemy |
-| `tests/` | A cargo de outro membro da equipa (estrutura `pytest` planeada) |
-| `notebooks/` | Opcional; EDA pode viver em notebooks fora do repo ou em pastas como `reference/` |
-| `docs/` | `docs/` (inclui `DOCUMENTACAO_SOLUCAO.md`, checklists) |
+| `src/` (código) | **`src/`** — `api/`, `core/`, `services/`, `schemas/` (+ ORM em `src/models/`) |
+| `data/` | **`src/data/`** por omissão (`PATH_*` no `.env`) |
+| `models/` (pesos ML) | **`src/artifacts/models/`** (`PATH_MODEL`) — não confundir com `src/models/` (ORM) |
+| `tests/` | Outro membro (`pytest` planeado) |
+| `notebooks/` | Opcional (`reference/`, etc.) |
+| `docs/` | `docs/` na raiz |
 
 ---
 
@@ -374,3 +377,52 @@ Um modelo só deve ser promovido para produção quando **todas** as condições
 - **Drift:** monitoramento offline (script manual/agendado), sem alertas em tempo real no predict.
 - **Orquestração:** treinos executados na thread HTTP. Integração com Airflow prevista — ver `docs/CHECKLIST_PROJETO.md` Bloco 3.
 - **MLflow:** tracking local (SQLite). Para uso em equipe, configurar servidor MLflow externo via `MLFLOW_TRACKING_URI`.
+
++------------------------------------------------------------------------------------------+
+|                              MÁQUINA / DOCKER HOST                                        |
+|                                                                                          |
+|  +------------------+       +----------------------------------------------------------+|
+|  | Cliente          |       |  Rede Docker (ex.: nwprocessing)                        ||
+|  | (Browser / curl) |       |                                                           ||
+|  +--------+---------+       |  +-------------------------+     +----------------------+  ||
+|           |                 |  | API FastAPI (:8000)      |     | PostgreSQL (:5432)    |  ||
+|           | HTTPS/HTTP      |  | main.py + pacote em src/ |     | users, roles, runs,   |  ||
+|           v                 |  |  /v1/auth  (JWT)         |     | deployments, predicts |  ||
+|  +------------------+      |  |  /v1/processor          |<--->|                       |  ||
+|  | Swagger / Insomnia   |   |  |    train, runs,        |     +----------------------+  ||
+|  +------------------+      |  |    promote, predict      |                               ||
+|                             |  |  /v1/health            |                               ||
+|                             |  +------------+------------+                               ||
+|                             |               |                                             ||
+|                             |               v                                             ||
+|                             |  +-------------------------+    +-------------------------+  ||
+|                             |  | Volumes API             |    | Airflow                 |  ||
+|                             |  |  src/data               |    |  Web :8080 / Scheduler  |  ||
+|                             |  |  src/artifacts (joblib,|    |  DAG: Baseline -> FE    |  ||
+|                             |  |            mlruns…)     |    |  Imports: pasta src     |  ||
+|                             |  |  logs/api_requests      |    |    montada (ml_code)    |  ||
+|                             |  |  ml_shared (upload CSV) |<-->+  Volume ml_project       |  ||
+|                             |  |                         |    |  (mesmo vol. que API    |  ||
+|                             |  |                         |    |   chama ml_shared)      |  ||
+|                             |  +-------------------------+    +-------------------------+  ||
+|                             |                                                             ||
+|                             |  +----------+    +----------+  (opcional)                  ||
+|                             |  | pgAdmin  |    | Dozzle   |                               ||
+|                             |  | :5050    |    | :8888    |                               ||
+|                             |  +----------+    +----------+                               ||
+|                             +----------------------------------------------------------+|
++------------------------------------------------------------------------------------------+
+
+Fluxo de negócio (resumo):
+
+  CSV  --->  [ Baseline ]  --->  manifest + sample  --->  [ Feature Engineering ]
+                |                                              |
+                +------------ MLflow (métricas, artefactos) --+
+                |
+  Admin  --->  POST promote (run FE)  --->  modelo ativo no domínio
+                |
+  Utilizador -> POST predict  --->  joblib + resposta (predição / prob)
+
+Legenda:
+  <-->  lê/escreve na mesma base ou no mesmo volume conforme configuração
+  API   trabalho síncrono; Airflow orquestra o mesmo tipo de pipelines no worker
