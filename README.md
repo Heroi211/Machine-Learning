@@ -17,14 +17,17 @@ Cobre o ciclo completo: ingestão de dados → baseline → feature engineering 
    - [4.1 Criar conta e autenticar](#41-criar-conta-e-autenticar)
    - [4.2 Treino Baseline (admin)](#42-treino-baseline-admin)
    - [4.3 Treino Feature Engineering (admin)](#43-treino-feature-engineering-admin)
-   - [4.4 Promover modelo (admin)](#44-promover-modelo-admin)
-   - [4.5 Predição (consumidor)](#45-predição-consumidor)
+   - [4.4 Listar pipeline runs (admin)](#44-listar-pipeline-runs-admin)
+   - [4.5 Promover modelo (admin)](#45-promover-modelo-admin)
+   - [4.6 Predição (consumidor)](#46-predição-consumidor)
 5. [Contrato do CSV de treino](#5-contrato-do-csv-de-treino)
 6. [Domínios disponíveis](#6-domínios-disponíveis)
 7. [Monitoramento e manutenção](#7-monitoramento-e-manutenção)
 8. [Estrutura do projeto](#8-estrutura-do-projeto)
+   - [8.1 Pastas do Tech Challenge e deste repo](#81-pastas-do-tech-challenge-e-deste-repo)
 9. [SLO definido](#9-slo-definido)
-10. [Limitações conhecidas](#10-limitações-conhecidas)
+10. [Critério de promoção de modelos](#10-critério-de-promoção-de-modelos)
+11. [Limitações conhecidas](#11-limitações-conhecidas)
 
 ---
 
@@ -154,27 +157,50 @@ Anotar o `pipeline_run_id` do cabeçalho de resposta.
 
 ---
 
-### 4.4 Promover modelo (admin)
+### 4.4 Listar pipeline runs (admin)
+
+Lista execuções (`pipeline_runs`) para escolher o `pipeline_run_id` na promoção, com filtros opcionais (`domain` = **apenas `churn`** se quiser filtrar, `pipeline_type`, `status`, `limit`). Resposta ordenada por `created_at` (mais recentes primeiro).
+
+```bash
+curl -s -X GET "http://localhost:8000/v1/processor/admin/runs?domain=churn&pipeline_type=feature_engineering&status=completed&limit=20" \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+Para ver todos os runs recentes sem filtro de domínio, omita os query params ou use apenas `limit`.
+
+---
+
+### 4.5 Promover modelo (admin)
 
 Torna um run concluído o modelo **ativo** para o domínio. Apenas modelos promovidos são usados em predições.
+
+**Quem pode ser promovido:** apenas runs de **`feature_engineering`** com `status` concluído (`pipeline_type` no formulário). Runs só de baseline **não** entram em `/predict` por este fluxo.
 
 ```bash
 curl -X POST http://localhost:8000/v1/processor/admin/promote \
   -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "domain": "heart_disease",
-    "pipeline_run_id": <ID_DO_RUN>
-  }'
+  -F "domain=churn" \
+  -F "pipeline_run_id=<ID_DO_RUN>" \
+  -F "pipeline_type=feature_engineering"
 ```
 
-> `domain` deve ser idêntico ao `objective` usado no treino.
+> `domain` deve ser idêntico ao `objective` usado no treino (hoje o promote está alinhado ao fluxo **churn** no Swagger).
+
+#### O que a rota `/predict` carrega de facto (sklearn vs PyTorch)
+
+| Aspeto | Comportamento neste projeto |
+|--------|-----------------------------|
+| **Artefacto em produção** | Ficheiro **`.joblib`** gerado pelo FE: `sklearn.pipeline.Pipeline` (pré-processamento + modelo selecionado no tuning, ex. Random Forest). A API faz `joblib.load` e usa `predict` / `predict_proba`. |
+| **MLP (PyTorch)** | Treinada no mesmo pipeline de FE para **comparação**; métricas e artefactos opcionais vão para o **MLflow**. **Não** é este tensor o que o `POST /predict` carrega hoje. Servir a MLP exigiria outro desenho (ex. TorchScript/ONNX + alinhamento ao mesmo pré-processamento). |
+| **Rastreio** | O run promovido continua ligado a um `pipeline_run_id`; o joblib apontado em `model_path` é o que vale para inferência. |
 
 ---
 
-### 4.5 Predição (consumidor)
+### 4.6 Predição (consumidor)
 
 Qualquer usuário autenticado pode prever, desde que haja um modelo promovido para o domínio.
+
+O corpo segue o **domínio** e o schema de `features` definidos no Swagger (ex. **churn**: atributos brutos alinhados ao treino; não enviar colunas pós–one-hot). O modelo executado é sempre o **Pipeline sklearn** do run promovido, conforme a tabela acima.
 
 ```bash
 curl -X POST http://localhost:8000/v1/processor/predict \
@@ -281,7 +307,7 @@ Gera CSV em `artifacts/reports/drift_psi_<timestamp>.csv` com PSI por feature e 
 ## 8. Estrutura do projeto
 
 ```
-├── api/v1/endpoints/       # Rotas HTTP (auth, users, roles, processor)
+├── api/v1/endpoints/       # Rotas HTTP (auth, users, roles, processor, health)
 ├── core/                   # Config, auth, logging, middleware, deps
 ├── docker/                 # Dockerfiles (api, db, pgadmin)
 ├── docs/                   # Documentação e checklists
@@ -296,6 +322,19 @@ Gera CSV em `artifacts/reports/drift_psi_<timestamp>.csv` com PSI por feature e 
 ├── main.py                 # Entrypoint FastAPI
 └── .env_example            # Template de variáveis de ambiente
 ```
+
+### 8.1 Pastas do Tech Challenge e deste repo
+
+Em materiais académicos costuma pedir-se `src/`, `data/`, `models/`, `tests/`, `notebooks/`, `docs/`. Aqui a organização é a de **app + pipelines**, equivalente em espírito mas com nomes diferentes:
+
+| Pedido habitual (TC) | Onde está aqui |
+|----------------------|----------------|
+| `src/` (código da solução) | `api/`, `core/`, `services/`, `schemas/` — API FastAPI, config, pipelines ML e contratos Pydantic |
+| `data/` | `data/` (CSVs, pastas de logs sob `data/logs/` conforme treino) |
+| `models/` (pesos / artefactos ML) | Diretório configurável por `PATH_MODEL` no `.env` (por omissão `models/` na raiz) — **não confundir** com a pasta `models/` do repositório, que é o **ORM** SQLAlchemy |
+| `tests/` | A cargo de outro membro da equipa (estrutura `pytest` planeada) |
+| `notebooks/` | Opcional; EDA pode viver em notebooks fora do repo ou em pastas como `reference/` |
+| `docs/` | `docs/` (inclui `DOCUMENTACAO_SOLUCAO.md`, checklists) |
 
 ---
 

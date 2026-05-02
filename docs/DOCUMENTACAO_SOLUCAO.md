@@ -92,8 +92,8 @@ Todas as rotas `.../processor/...` exigem **Bearer JWT** salvo onde indicado. Ro
 
 | Método | Rota (após `/v1`) | Auth | Descrição |
 |--------|-------------------|------|-----------|
-| POST | `/processor/predict` | Utilizador | Body JSON `PredictRequest`: `domain` (`MLDomain`), `features` (schema estrito para `heart_disease`). |
-| POST | `/processor/admin/promote` | Admin | JSON: `domain`, `pipeline_run_id`. |
+| POST | `/processor/predict` | Utilizador | Body JSON `PredictRequest`: `domain` (`MLDomain`) + `features` (schema por domínio, ex. `ChurnFeaturesInput`). |
+| POST | `/processor/admin/promote` | Admin | **Form:** `domain`, `pipeline_run_id`, `pipeline_type` (`feature_engineering` apenas). |
 | POST | `/processor/admin/rollback` | Admin | JSON: `domain`. |
 | GET | `/processor/admin/deployments/{domain}/history` | Admin | Histórico de deployments do domínio. |
 | POST | `/processor/admin/train/baseline` | Admin + não prod | Multipart: `file`, `objective` (enum). |
@@ -102,13 +102,15 @@ Todas as rotas `.../processor/...` exigem **Bearer JWT** salvo onde indicado. Ro
 
 ### 4.2 Predição (`POST /processor/predict`)
 
-- **Request:** `domain` + `features` alinhados ao modelo treinado (para `heart_disease`, campos numéricos/booleanos e one-hot com aliases para chaves com espaço/hífen no JSON).
+- **Modelo executado:** o deployment ativo aponta para um run de **feature engineering**; a API carrega o **`.joblib`** (`sklearn.pipeline.Pipeline`) e chama `predict` / `predict_proba`. A **MLP PyTorch** do mesmo fluxo de FE é comparada no **MLflow**; **não** é o artefacto servido por esta rota na arquitetura actual.
+- **Request:** `domain` + `features` alinhados ao modelo treinado (ex.: `churn` com atributos brutos; `heart_disease` com campos no formato do treino / one-hot e aliases onde aplicável).
 - **Validação:** `extra="forbid"` nos modelos Pydantic — chaves extra são rejeitadas.
 - **Resposta:** `prediction`, `probability` (percentagem 0–100 quando disponível), `input_data`, `pipeline_run_id`, etc.
 - **Erros típicos:** `404` se não existir deployment ativo para o domínio; `422` se o JSON não cumprir o schema.
 
 ### 4.3 Promoção
 
+- **Elegibilidade:** apenas runs com **`pipeline_type == feature_engineering`** (campo obrigatório no formulário de promote). Runs só **baseline** não servem para tornar modelo activo em `/predict` por este fluxo.
 - Exige run com **`status == completed`**, **`PipelineRuns.active == True`**, ficheiro de modelo existente, e `objective` coerente com o `domain`.
 - Em falha de treino síncrono, **`active`** é posto a **`False`** e o run não é elegível.
 
