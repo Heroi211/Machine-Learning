@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 from services.pipelines.feature_strategies.base import FeatureStrategy
 from services.pipelines.fe_hyperparameter_tuning import param_distributions_for
 from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, sklearn_scoring_parameter
+from services.utils import log_training_csv_to_active_run
 
 if TYPE_CHECKING:
     from services.pipelines.mlp_torch_tabular import TorchTabularMLPResult
@@ -87,6 +88,7 @@ class FeatureEngineering:
         self.min_roc_auc = min_roc_auc
         self.export_figures_dir = export_figures_dir
         self.mlflow_run_id: str | None = None
+        self._training_csv_path_resolved: str | None = None
 
         self.path_data_preprocessed = settings.path_data_preprocessed
         self.path_model = settings.path_model
@@ -291,6 +293,7 @@ class FeatureEngineering:
             raise ValueError(f"CSV do baseline não encontrado (manifest): {csv_path}")
 
         logger.info(f"CSV selecionado via manifest: {csv_path}")
+        self._training_csv_path_resolved = csv_path
         df = pd.read_csv(csv_path)
         df.columns = df.columns.str.lower()
 
@@ -930,6 +933,12 @@ class FeatureEngineering:
             mlflow.set_experiment(experiment_name)
             with mlflow.start_run(run_name=f"fe_{self.objective}_{self.now}") as _mfe:
                 self.mlflow_run_id = _mfe.info.run_id
+                log_training_csv_to_active_run(
+                    self._training_csv_path_resolved,
+                    df=None,
+                    dataset_name=f"{self.objective}_fe_baseline_sample_csv",
+                    context="training",
+                )
                 if self.best_params:
                     for k, v in self.best_params.items():
                         mlflow.log_param(k, str(v))

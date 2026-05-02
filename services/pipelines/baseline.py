@@ -27,6 +27,8 @@ import re
 
 import shutil
 
+from services.utils import log_training_csv_to_active_run
+
 
 load_dotenv()
 
@@ -675,6 +677,12 @@ class Baseline:
         mlflow.set_experiment(experiment_name)
         with mlflow.start_run(run_name=f"baseline_{self.objective}") as _mlr:
             self.mlflow_run_id = _mlr.info.run_id
+            log_training_csv_to_active_run(
+                self.current_csv_path,
+                df=self.data,
+                dataset_name=f"{self.objective}_baseline_training_csv",
+                context="training",
+            )
 
             x_tr = preprocess.fit_transform(self.x_train)
             classifier.fit(x_tr, self.y_train)
