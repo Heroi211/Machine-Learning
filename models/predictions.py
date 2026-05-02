@@ -1,4 +1,4 @@
-"""Define the ORM model for persisted prediction events."""
+"""Define o modelo ORM para eventos de predição persistidos."""
 
 from sqlalchemy import Column, Integer, Float, ForeignKey, JSON
 from sqlalchemy.orm import relationship
@@ -6,7 +6,7 @@ from core.generic import modelsGeneric
 
 
 class Predictions(modelsGeneric):
-    """Store one prediction request, output, probability, and lineage."""
+    """Armazena entrada, saida, probabilidade e linhagem de uma predicao."""
 
     __tablename__ = "predictions"
 

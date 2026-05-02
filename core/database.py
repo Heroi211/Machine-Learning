@@ -1,4 +1,4 @@
-"""Create the async SQLAlchemy engine, session factory, and declarative base."""
+"""Cria o mecanismo do SQLAlchemy assincrono, a factory de sessoes e a base declarativa."""
 
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.configs import settings
 from sqlalchemy.ext.declarative import declarative_base
 
-engine:AsyncEngine = create_async_engine(settings.database_url, echo=False, future=True, pool_pre_ping=True)
+engine: AsyncEngine = create_async_engine(settings.database_url, echo=False, future=True, pool_pre_ping=True)
 
 Session: AsyncSession = sessionmaker(
     autocommit=False,

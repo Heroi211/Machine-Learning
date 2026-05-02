@@ -1,11 +1,9 @@
-"""Build and persist static EDA and model evaluation graphs."""
+"""Constroi e persiste graficos estaticos de EDA e avaliacao de modelos."""
 
 import logging
 import os
 
 import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,12 +13,14 @@ from sklearn.metrics import PrecisionRecallDisplay, average_precision_score
 
 from core.configs import settings
 
+matplotlib.use("Agg")
+
 logger = logging.getLogger(__name__)
 path_graphs = settings.path_graphs
 
 
 class Graphs:
-    """Provide graph factory methods used by the ML pipelines."""
+    """Fornece metodos de criacao de graficos usados pelos pipelines de ML."""
 
     @staticmethod
     def _ensure_dir(base: str) -> None:
@@ -157,8 +157,12 @@ class Graphs:
         model_pipeline=None,
     ) -> None:
         """
-        Conjunto de visualizações EDA para churn. Salva PNGs em ``graph_root`` (default: settings.path_graphs).
-        ``model_pipeline``: se for um ``Pipeline`` sklearn já ajustado (preprocess+classifier), gera importância por |coef.|.
+        Gera visualizações de EDA para churn.
+
+        Salva arquivos PNG em ``graph_root``. Quando ``graph_root`` não é
+        informado, usa ``settings.path_graphs``. Se ``model_pipeline`` for um
+        ``Pipeline`` sklearn já ajustado (preprocessamento + classificador),
+        também gera a importância relativa por ``|coef.|``.
         """
         root = graph_root if graph_root is not None else path_graphs
         Graphs._ensure_dir(root)
@@ -347,7 +351,7 @@ class Graphs:
         preprocess_step: str = "preprocess",
         classifier_step: str = "classifier",
     ) -> None:
-        """|coeficientes| da LR após pré-processamento (top_k features)."""
+        """Gera barras de ``|coeficientes|`` da regressão logística após pré-processamento."""
         root = graph_root if graph_root is not None else path_graphs
         try:
             pre = pipeline.named_steps[preprocess_step]
@@ -375,10 +379,10 @@ class Graphs:
         graph_root: str | None = None,
         split_label: str = "test",
     ) -> str | None:
-        """Gera curva precision-recall e average precision.
+        """Gera curva de precisao-recall e precisao media.
 
-        Usa probabilidades da classe positiva e AP (area sob a
-        curva, equivalente ao que ``average_precision_score`` reporta para binário).
+        Usa probabilidades da classe positiva e AP (área sob a curva,
+        equivalente ao que ``average_precision_score`` reporta para binario).
         """
         root = graph_root if graph_root is not None else path_graphs
         y_true = np.asarray(y_true, dtype=int).ravel()

@@ -1,4 +1,4 @@
-"""Register all versioned API routers."""
+"""Registro das API routers versionadas"""
 
 from fastapi import APIRouter, Depends
 

@@ -1,4 +1,4 @@
-"""Initialize the FastAPI application for the ML Engineering service."""
+"""Inicializa a aplicacao FastAPI para o servico de Engenharia de ML."""
 
 from fastapi import FastAPI
 

@@ -1,5 +1,5 @@
 """
-Configuração do logger `api.request`: console (propagação ao root) + arquivo JSONL rotacionado.
+Configuração do logger `api.request`: console (propagação ao root) + arquivo JSON rotacionado.
 
 Uma linha JSON por requisição facilita scripts de percentis (p50, p90, etc.).
 """

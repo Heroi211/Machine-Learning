@@ -1,4 +1,4 @@
-"""Import all ORM models so SQLAlchemy can register relationships."""
+"""Importa todos os modelos ORM para que o SQLAlchemy registre os relacionamentos."""
 
 from models.roles import Roles
 from models.users import Users

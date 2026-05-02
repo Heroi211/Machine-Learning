@@ -1,4 +1,4 @@
-"""Define the ORM model for promoted model deployments."""
+"""Define o modelo ORM para deploy de modelos promovidos."""
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship

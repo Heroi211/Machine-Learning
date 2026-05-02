@@ -1,4 +1,4 @@
-"""Define Pydantic schemas for processor training, deployment, and prediction."""
+"""Define schemas Pydantic para treino, implantacao e predicao."""
 
 from datetime import datetime
 from enum import Enum
@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class PipelineRunResponse(BaseModel):
-    """Represent persisted metadata for one pipeline run."""
+    """Representa metadados persistidos de uma execução de pipeline."""
 
     id: int
     user_id: int
@@ -99,7 +99,7 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
-    """Represent the response returned after a prediction is persisted."""
+    """Representa a resposta retornada apos uma predicao ser persistida."""
 
     id: int
     domain: str
@@ -113,14 +113,14 @@ class PredictResponse(BaseModel):
 
 
 class PromoteRequest(BaseModel):
-    """Represent a request to promote a completed run as active."""
+    """Representa a requisicao para promover uma execucao concluida."""
 
     domain: MLDomain = Field(description="Domínio canónico (deve coincidir com o objective do pipeline_run)")
     pipeline_run_id: int = Field(description="ID do PipelineRuns concluído a promover")
 
 
 class DeployedModelResponse(BaseModel):
-    """Represent a deployed model row returned by admin operations."""
+    """Representa um modelo implantado retornado por operacoes administrativas."""
 
     id: int
     domain: str
@@ -135,13 +135,13 @@ class DeployedModelResponse(BaseModel):
 
 
 class RollbackRequest(BaseModel):
-    """Represent a request to roll back a domain deployment."""
+    """Representa a requisicao para reverter a implantacao de um dominio."""
 
     domain: MLDomain = Field(description="Domínio a reverter para o deployment anterior (archived mais recente).")
 
 
 class TriggerDagRequest(BaseModel):
-    """Represent Airflow DAG trigger parameters."""
+    """Representa os parametros para disparar uma DAG do Airflow."""
 
     objective: MLDomain = Field(description="Domínio do problema (mesmos valores do treino / Airflow).")
     optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Field(
@@ -156,7 +156,7 @@ class TriggerDagRequest(BaseModel):
 
 
 class TriggerDagResponse(BaseModel):
-    """Represent the response after an Airflow DAG trigger request."""
+    """Representa a resposta apos a requisicao de disparo da DAG do Airflow."""
 
     dag_run_id: str
     dag_id: str

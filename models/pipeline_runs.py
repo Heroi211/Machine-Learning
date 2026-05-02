@@ -1,4 +1,4 @@
-"""Define the ORM model for ML pipeline execution records."""
+"""Define o modelo ORM para registros de execucao dos pipelines de ML."""
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
@@ -6,7 +6,7 @@ from core.generic import modelsGeneric
 
 
 class PipelineRuns(modelsGeneric):
-    """Store metadata, metrics, and artifact paths for one training run."""
+    """Armazena metadados, metricas e caminhos de artefatos de um treino."""
 
     __tablename__ = "pipeline_runs"
 

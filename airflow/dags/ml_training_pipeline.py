@@ -129,14 +129,15 @@ def task_validate_input(**context) -> None:
     context["task_instance"].xcom_push(key="optimization_metric", value=conf.get("optimization_metric", "accuracy"))
     context["task_instance"].xcom_push(key="time_limit_minutes", value=int(conf.get("time_limit_minutes", 2)))
     context["task_instance"].xcom_push(key="acc_target", value=float(conf.get("acc_target", 0.90)))
-    
+
     log.info("Validação de input OK para domínio '%s'.", objective)
     log.info(f"CSV path: {csv_path}")
     log.info(f"User ID: {conf.get('user_id', 1)}")
     log.info(f"Optimization metric: {conf.get('optimization_metric', 'accuracy')}")
     log.info(f"Time limit minutes: {int(conf.get('time_limit_minutes', 2))}")
     log.info(f"Acc target: {float(conf.get('acc_target', 0.90))}")
-    
+
+
 def task_run_baseline(**context) -> None:
     """Executa o pipeline Baseline e persiste o pipeline_run no banco."""
     ti = context["task_instance"]
