@@ -10,6 +10,7 @@ setup_api_request_logging()
 
 app = FastAPI(title=settings.project_name,version=settings.project_version)
 app.middleware("http")(request_record)
+
 app.include_router(api.router,prefix=settings.project_version)
 
 

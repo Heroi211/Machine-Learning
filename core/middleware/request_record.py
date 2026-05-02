@@ -16,8 +16,16 @@ def _utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _skip_access_log(path: str) -> bool:
+    """Health checks são sondados com frequência — não poluir access.jsonl."""
+    return path.rstrip("/").endswith("/health")
+
+
 async def request_record(request: Request, call_next):
     if not settings.log_http_requests:
+        return await call_next(request)
+
+    if _skip_access_log(request.url.path):
         return await call_next(request)
 
     start = time.perf_counter()
