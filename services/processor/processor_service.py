@@ -55,6 +55,39 @@ def _baseline_clean_encode_predict(df: pd.DataFrame) -> pd.DataFrame:
     return df_clean
 
 
+_STRATEGY_MONTHLY_CHARGES_MEDIAN_KEY = "strategy_monthly_charges_median"
+
+
+def _hydrate_strategy_from_run_metrics(strategy, run: PipelineRuns) -> None:
+    """Recarrega estado da strategy guardado em ``run.metrics`` (ex.: mediana no Churn)."""
+    m = run.metrics
+    if not m:
+        return
+    if _STRATEGY_MONTHLY_CHARGES_MEDIAN_KEY in m and hasattr(strategy, "monthly_median"):
+        try:
+            strategy.monthly_median = float(m[_STRATEGY_MONTHLY_CHARGES_MEDIAN_KEY])
+        except (TypeError, ValueError):
+            pass
+
+
+def _infer_train_matrix_payload(features: dict) -> None:
+    """Levanta erro claro se o cliente enviar colunas típicas de ``train_model_input`` (pós-OHE / pós-escala)."""
+    keys = [str(k).strip().lower() for k in features]
+    ohe_like = (
+        "internetservice_",
+        "contract_",
+        "paymentmethod_",
+    )
+    if any(any(x.startswith(p) for p in ohe_like) for x in keys):
+        raise ValueError(
+            "O corpo parece estar no formato da matriz **pós-transformação** (ex.: colunas tipo "
+            "`internetservice_Fiber optic`, `contract_One year`). O endpoint /predict espera o nível **pré-ColumnTransformer**: "
+            "o mesmo de `train_features_pre_transform.csv`, **sem** colunas derivadas da strategy "
+            "(ex.: sem `is_new_customer`, `tenure_log`) e com valores **cruos** em `monthlycharges`/`totalcharges`, "
+            "não normalizados. Ver documentação em `ChurnFeaturesInput`."
+        )
+
+
 def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict) -> pd.DataFrame:
     """
     Constrói o DataFrame de entrada como no treino:
@@ -71,8 +104,10 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
             raise ValueError(f"Domínio {domain!r} sem strategy. Disponíveis: {list(STRATEGY_REGISTRY.keys())}")
         row = {str(k).strip().lower(): v for k, v in features.items()}
         row.pop("target", None)
+        _infer_train_matrix_payload(row)
         df = pd.DataFrame([row])
         strategy = STRATEGY_REGISTRY[d]()
+        _hydrate_strategy_from_run_metrics(strategy, run)
         strategy.validate(df)
         return strategy.build(df)
 
@@ -376,6 +411,12 @@ async def run_feature_engineering(
             "tuning_time_limit_effective_minutes": effective_tuning_minutes,
             "tuning_time_limit_requested": time_limit_minutes,
         }
+        med = getattr(pipeline.strategy, "monthly_median", None)
+        if med is not None:
+            try:
+                merged_metrics[_STRATEGY_MONTHLY_CHARGES_MEDIAN_KEY] = float(med)
+            except (TypeError, ValueError):
+                pass
         merged_metrics.update(dict(pipeline.tuned_metrics))
         merged_metrics.update(dict(pipeline.guardrails_summary))
         if pipeline.best_model_name:

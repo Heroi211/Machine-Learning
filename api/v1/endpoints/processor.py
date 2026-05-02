@@ -35,14 +35,14 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
     try:
         features_dict = payload.features.model_dump(mode="json", by_alias=True)
         pred = await processor_service.predict_for_domain(
-            domain=payload.domain.value, features=features_dict, user_id=user_logged.id, db=db
+            domain=payload.domain, features=features_dict, user_id=user_logged.id, db=db
         )
         prob_pct = None
         if pred.probability is not None:
             prob_pct = round(float(pred.probability) * 100, 2)
         return processor_schemas.PredictResponse(
             id=pred.id,
-            domain=payload.domain.value,
+            domain=payload.domain,
             pipeline_run_id=pred.pipeline_run_id,
             prediction=pred.prediction,
             probability=prob_pct,

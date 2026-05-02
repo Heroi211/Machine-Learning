@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,8 +33,7 @@ class PipelineRunResponse(BaseModel):
 class MLDomain(str, Enum):
     """
     Domínios de problema que o produto expõe para treino e operações.
-    Ao adicionar um valor: registar strategy em STRATEGY_REGISTRY (FE) e,
-    para predição, estender PredictRequest com Union discriminada ou schema por domínio.
+    Para /predict, o corpo usa ``PredictRequest`` (união discriminada por ``domain``).
     """
 
     heart_disease = "heart_disease"
@@ -43,6 +42,43 @@ class MLDomain(str, Enum):
 
 # Nome legado usado em discussões / checklist — mesmo tipo.
 PredictDomain = MLDomain
+
+
+class ChurnFeaturesInput(BaseModel):
+    """
+    **Entrada do joblib (passo ``preprocess``):** uma linha ao nível de ``train_features_pre_transform.csv``,
+    **mas só as colunas “brutas”** antes das criadas pela strategy (sem ``is_new_customer``, ``tenure_log``, …).
+
+    **Não** use valores desta planilha: ``train_model_input.csv`` (já escalados + one-hot internos do sklearn) —
+    isso seria **reaplicar** StandardScaler/OHE e destrói a predição.
+
+    Chaves em minúsculas, alinhadas ao CSV do baseline/Telco.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    gender: str = Field(..., description="Ex.: Male, Female")
+    seniorcitizen: int = Field(..., ge=0, le=1, description="0 ou 1 (codificação binária)")
+    partner: int = Field(..., ge=0, le=1)
+    dependents: int = Field(..., ge=0, le=1)
+    tenure: int = Field(..., ge=0, description="Meses como cliente")
+    phoneservice: int = Field(..., ge=0, le=1)
+    multiplelines: int | str = Field(
+        ...,
+        description="0/1 se o treino usou binário; caso contrário alinhar ao CSV de treino",
+    )
+    internetservice: str = Field(..., description="Ex.: DSL, Fiber optic, No")
+    onlinesecurity: int = Field(..., ge=0, le=1)
+    onlinebackup: int = Field(..., ge=0, le=1)
+    deviceprotection: int = Field(..., ge=0, le=1)
+    techsupport: int = Field(..., ge=0, le=1)
+    streamingtv: int = Field(..., ge=0, le=1)
+    streamingmovies: int = Field(..., ge=0, le=1)
+    contract: str = Field(..., description="Ex.: Month-to-month, One year, Two year")
+    paperlessbilling: int = Field(..., ge=0, le=1)
+    paymentmethod: str = Field(..., description="Ex.: Electronic check, Credit card (automatic)")
+    monthlycharges: float = Field(..., ge=0)
+    totalcharges: float = Field(..., ge=0)
 
 
 class HeartDiseaseFeaturesInput(BaseModel):
@@ -86,13 +122,28 @@ class HeartDiseaseFeaturesInput(BaseModel):
     )
 
 
-class PredictRequest(BaseModel):
-    """Body válido para predição; expandir com Union discriminada quando houver mais domínios."""
+class PredictRequestChurn(BaseModel):
+    """Pedido de predição — domínio churn (Telecom)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    domain: MLDomain = Field(..., description="Domínio com modelo promovido em produção")
-    features: HeartDiseaseFeaturesInput = Field(..., description="Atributos do indivíduo (formato do treino)")
+    domain: Literal["churn"] = Field(..., description="Domínio com modelo FE promovido")
+    features: ChurnFeaturesInput = Field(..., description="Atributos brutos alinhados ao treino (Telco)")
+
+
+class PredictRequestHeartDisease(BaseModel):
+    """Pedido de predição — domínio cardiologia (legado)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: Literal["heart_disease"] = Field(..., description="Domínio heart disease")
+    features: HeartDiseaseFeaturesInput = Field(..., description="Atributos (formato one-hot do treino)")
+
+
+PredictRequest = Annotated[
+    Union[PredictRequestChurn, PredictRequestHeartDisease],
+    Field(discriminator="domain"),
+]
 
 
 class PredictResponse(BaseModel):
