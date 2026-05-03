@@ -18,10 +18,15 @@
 #   - MLflow: Airflow usa /opt/airflow/ml_project/{mlflow.db,mlruns/}; na API compose força-se
 #     sqlite:////var/www/ml_shared/mlflow.db e /var/www/ml_shared/mlruns (mesmo volume).
 #   - LocalExecutor: scheduler e webserver usam o mesmo bloco x-airflow-common → mesmo mount.
+#   - Build da imagem Airflow inclui deps do projeto (ver docker/airflow.dockerfile); após
+#     mudar docker/requirements-api.txt ou o Dockerfile: ``docker compose build airflow-scheduler``
 # ---------------------------------------------------------------------------
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.9.1
+  build:
+    context: .
+    dockerfile: docker/airflow.dockerfile
+  image: processing_airflow:v1
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
