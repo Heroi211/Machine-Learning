@@ -9,6 +9,7 @@ class PipelineRunResponse(BaseModel):
     id: int
     user_id: int
     pipeline_type: str
+    is_airflow_run: bool = False
     objective: str
     status: str
     original_filename: str

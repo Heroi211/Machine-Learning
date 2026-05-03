@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core.configs import settings
 from models.deployed_models import DeployedModels
 from models.pipeline_runs import PipelineRuns
 from services.utils import utcnow
@@ -50,12 +51,15 @@ async def promote_active_feature_engineering_for_objective(
     dado (tipicamente ``settings.objective``). Exige exactamente um candidato.
     """
     obj = _normalize_domain(objective)
-    stmt = select(PipelineRuns).where(
+    predicates = [
         PipelineRuns.pipeline_type == "feature_engineering",
         PipelineRuns.status == "completed",
         PipelineRuns.active.is_(True),
         func.lower(PipelineRuns.objective) == obj,
-    )
+    ]
+    if settings.is_production:
+        predicates.append(PipelineRuns.is_airflow_run.is_(True))
+    stmt = select(PipelineRuns).where(and_(*predicates))
     res = await db.execute(stmt)
     runs = list(res.scalars().all())
     if len(runs) == 0:

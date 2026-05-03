@@ -28,6 +28,7 @@ CREATE TABLE public.pipeline_runs (
 	id serial4 NOT NULL,
 	user_id int4 NOT NULL,
 	pipeline_type varchar(50) NOT NULL,
+	is_airflow_run bool NOT NULL DEFAULT false,
 	objective varchar(100) NOT NULL,
 	status varchar(20) NOT NULL DEFAULT 'processing',
 	original_filename varchar(255) NOT NULL,

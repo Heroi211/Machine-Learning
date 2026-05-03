@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
+from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric
 
@@ -9,6 +9,7 @@ class PipelineRuns(modelsGeneric):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     pipeline_type = Column(String(50), nullable=False)
+    is_airflow_run = Column(Boolean, nullable=False, default=False)
     objective = Column(String(100), nullable=False)
     status = Column(String(20), nullable=False, default="processing")
     original_filename = Column(String(255), nullable=False)

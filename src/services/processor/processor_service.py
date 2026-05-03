@@ -81,6 +81,7 @@ async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_
             PipelineRuns.pipeline_type == "baseline",
             PipelineRuns.status == "completed",
             PipelineRuns.active.is_(True),
+            PipelineRuns.is_airflow_run.is_(run.is_airflow_run),
             func.lower(PipelineRuns.objective) == obj,
         )
     )
@@ -140,6 +141,7 @@ async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
             PipelineRuns.pipeline_type == "feature_engineering",
             PipelineRuns.status == "completed",
             PipelineRuns.active.is_(True),
+            PipelineRuns.is_airflow_run.is_(run.is_airflow_run),
             func.lower(PipelineRuns.objective) == obj,
         )
     )
@@ -437,7 +439,14 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
     with open(input_path, "wb") as f:
         f.write(content)
 
-    run = PipelineRuns(user_id=user_id, pipeline_type="baseline", objective=objective, status="processing", original_filename=file.filename)
+    run = PipelineRuns(
+        user_id=user_id,
+        pipeline_type="baseline",
+        objective=objective,
+        status="processing",
+        original_filename=file.filename,
+        is_airflow_run=False,
+    )
 
     async with db as session:
         session.add(run)
@@ -576,6 +585,7 @@ async def run_feature_engineering(
         objective=objective,
         status="processing",
         original_filename=original_filename,
+        is_airflow_run=False,
     )
     zip_path: str | None = None
     run_root: str | None = None

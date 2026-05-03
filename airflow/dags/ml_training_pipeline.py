@@ -3,9 +3,11 @@ DAG: ml_training_pipeline
 
 Orquestra o fluxo completo de treino de um modelo de classificação binária:
   1. Validar CSV de entrada (colunas mínimas do domínio)
-  2. Executar pipeline Baseline
-  3. Executar pipeline Feature Engineering
-  4. Notificar conclusão com run_ids para decisão de promoção
+  2. Desactivar runs **manuais** na BD (``is_airflow_run=false``) do mesmo objective
+  3. Executar Baseline (``defer_global_preprocess_contract`` alinhado à API) e persistir ``PipelineRuns``
+  4. Executar Feature Engineering, persistir run com ``is_airflow_run=true`` e comparador cv_*
+  5. Opcionalmente ``auto_promote`` (Variable/conf) chama o mesmo fluxo de promote da API
+  6. Notificar conclusão (logs)
 
 Parâmetros efetivos = merge(**defaults Airflow Variable**, **dag_run.conf**). O conf do trigger
 (API ou UI) sobrescreve a Variable — útil em dev com API; em produção costuma-se deixar o
@@ -13,9 +15,10 @@ JSON na Variable e dar Trigger com conf vazio ou só overrides pontuais.
 
 Variable (Admin → Variables):
   - ``ml_training_pipeline_conf``: string JSON com pelo menos objective e csv_path, ex.::
-      {"objective":"churn","csv_path":"/opt/airflow/ml_shared/uploads/dados.csv",
+      {"objective":"churn","csv_path":"/opt/airflow/ml_project/uploads/dados.csv",
        "optimization_metric":"accuracy","time_limit_minutes":30,"acc_target":0.85,
-       "min_precision":0.7,"min_roc_auc":0.75,"tuning_n_iter":80,"user_id":1}
+       "min_precision":0.7,"min_roc_auc":0.75,"tuning_n_iter":80,"user_id":1,
+       "auto_promote": false}
 
 Opcionalmente também ``ml_training_objective`` e ``ml_training_csv_path`` (strings) se
 não quiseres JSON completo — preenchem só esses dois campos quando faltam no JSON.
@@ -174,6 +177,8 @@ def task_validate_input(**context) -> None:
     if conf.get("tuning_n_iter") is not None:
         ti.xcom_push(key="tuning_n_iter", value=int(conf["tuning_n_iter"]))
 
+    ti.xcom_push(key="auto_promote", value=bool(conf.get("auto_promote", False)))
+
     log.info("Validação de input OK para domínio '%s'.", objective)
     log.info(f"CSV path: {csv_path}")
     log.info(f"User ID: {conf.get('user_id', 1)}")
@@ -186,7 +191,21 @@ def task_validate_input(**context) -> None:
         log.info("min_roc_auc: %s", conf["min_roc_auc"])
     if conf.get("tuning_n_iter") is not None:
         log.info("tuning_n_iter: %s", conf["tuning_n_iter"])
-    
+    log.info("auto_promote: %s", conf.get("auto_promote", False))
+
+
+def task_deactivate_manual_runs(**context) -> None:
+    """Desactiva na BD runs baseline/FE manuais (``is_airflow_run=false``) do objective."""
+    ti = context["task_instance"]
+    objective = ti.xcom_pull(key="objective", task_ids="validate_input")
+    from services.processor.airflow_persistence import (
+        deactivate_manual_pipeline_runs_for_objective,
+        run_async,
+    )
+
+    run_async(deactivate_manual_pipeline_runs_for_objective(objective))
+
+
 def task_run_baseline(**context) -> None:
     """Executa o pipeline Baseline e persiste o pipeline_run no banco."""
     ti = context["task_instance"]
@@ -210,14 +229,23 @@ def task_run_baseline(**context) -> None:
             run_timestamp=now,
             csv_path=csv_path,
             class_labels=get_class_labels(objective),
+            defer_global_preprocess_contract=True,
         )
         pipeline.run(start_time=datetime.now())
         pipeline.save_artifacts()
 
-        manifest_rel = os.path.join(pipeline.path_data_preprocessed, pipeline.contract_manifest_name)
-        sample_rel = os.path.join(pipeline.path_data_preprocessed, pipeline.contract_sample_name)
-        baseline_manifest_path = _resolve_ml_artifact_path(manifest_rel)
-        baseline_sample_csv_path = _resolve_ml_artifact_path(sample_rel)
+        if pipeline.defer_global_preprocess_contract:
+            baseline_manifest_path = os.path.abspath(
+                os.path.join(pipeline.snapshot_path, pipeline.contract_manifest_name)
+            )
+            baseline_sample_csv_path = os.path.abspath(
+                os.path.join(pipeline.snapshot_path, pipeline.contract_sample_name)
+            )
+        else:
+            manifest_rel = os.path.join(pipeline.path_data_preprocessed, pipeline.contract_manifest_name)
+            sample_rel = os.path.join(pipeline.path_data_preprocessed, pipeline.contract_sample_name)
+            baseline_manifest_path = _resolve_ml_artifact_path(manifest_rel)
+            baseline_sample_csv_path = _resolve_ml_artifact_path(sample_rel)
 
         if not os.path.isfile(baseline_manifest_path):
             raise FileNotFoundError(
@@ -229,13 +257,27 @@ def task_run_baseline(**context) -> None:
                 f"CSV estável do baseline não encontrado após save (tentado: {baseline_sample_csv_path})."
             )
 
+        from services.processor.airflow_persistence import persist_airflow_baseline_run, run_async
+
+        br_id = run_async(
+            persist_airflow_baseline_run(
+                objective=objective,
+                user_id=int(user_id),
+                run_ts=now,
+                pipeline=pipeline,
+                original_filename=os.path.basename(csv_path),
+            )
+        )
+
         ti.xcom_push(key="baseline_manifest_path", value=baseline_manifest_path)
         ti.xcom_push(key="baseline_sample_csv_path", value=baseline_sample_csv_path)
         ti.xcom_push(key="baseline_run_ts", value=now)
+        ti.xcom_push(key="baseline_pipeline_run_id", value=br_id)
         log.info(
-            "Baseline concluído | manifest=%s | sample_csv=%s",
+            "Baseline concluído | manifest=%s | sample_csv=%s | pipeline_run_id=%s",
             baseline_manifest_path,
             baseline_sample_csv_path,
+            br_id,
         )
 
     except ImportError as e:
@@ -247,9 +289,10 @@ def task_run_fe(**context) -> None:
     ti = context["task_instance"]
     objective = ti.xcom_pull(key="objective", task_ids="validate_input")
     optimization_metric = ti.xcom_pull(key="optimization_metric", task_ids="validate_input")
-    time_limit_minutes = ti.xcom_pull(key="time_limit_minutes", task_ids="validate_input")
+    time_limit_minutes = int(ti.xcom_pull(key="time_limit_minutes", task_ids="validate_input"))
     acc_target = ti.xcom_pull(key="acc_target", task_ids="validate_input")
     manifest_path = ti.xcom_pull(key="baseline_manifest_path", task_ids="run_baseline")
+    user_id = ti.xcom_pull(key="user_id", task_ids="validate_input")
     min_precision = ti.xcom_pull(key="min_precision", task_ids="validate_input")
     min_roc_auc = ti.xcom_pull(key="min_roc_auc", task_ids="validate_input")
     tuning_n_iter = ti.xcom_pull(key="tuning_n_iter", task_ids="validate_input")
@@ -271,6 +314,10 @@ def task_run_fe(**context) -> None:
     try:
         from services.pipelines.feature_engineering import FeatureEngineering
         from services.pipelines.feature_strategies import STRATEGY_REGISTRY
+        from services.processor.airflow_persistence import (
+            persist_airflow_feature_engineering_run,
+            run_async,
+        )
 
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         strategy = STRATEGY_REGISTRY[objective]()
@@ -285,15 +332,61 @@ def task_run_fe(**context) -> None:
             min_roc_auc=min_roc_auc,
             tuning_n_iter=tuning_n_iter,
         )
+        # Airflow: sem teto SYNC_FE — usa o valor integral do conf/Variable
         pipeline.run(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
+
+        fe_id, champion = run_async(
+            persist_airflow_feature_engineering_run(
+                objective=objective,
+                user_id=int(user_id),
+                run_ts=now,
+                manifest_path=manifest_path,
+                pipeline=pipeline,
+                optimization_metric=optimization_metric,
+                min_precision=min_precision,
+                min_roc_auc=min_roc_auc,
+                tuning_n_iter=tuning_n_iter,
+                time_limit_minutes=time_limit_minutes,
+                effective_tuning_minutes=time_limit_minutes,
+            )
+        )
 
         ti.xcom_push(key="fe_run_ts", value=now)
         ti.xcom_push(key="fe_best_model", value=pipeline.best_model_name)
         ti.xcom_push(key="fe_metrics", value=str(pipeline.tuned_metrics))
-        log.info("Feature Engineering concluído | melhor modelo: %s", pipeline.best_model_name)
+        ti.xcom_push(key="fe_pipeline_run_id", value=fe_id)
+        ti.xcom_push(key="fe_recall_champion", value=champion)
+        log.info(
+            "Feature Engineering concluído | melhor modelo: %s | pipeline_run_id=%s | campeão=%s",
+            pipeline.best_model_name,
+            fe_id,
+            champion,
+        )
 
     except ImportError as e:
         raise RuntimeError(f"Dependência ML não disponível no worker Airflow: {e}")
+
+
+def task_promote_fe_optional(**context) -> None:
+    """Se ``auto_promote`` e o FE for campeão, promove o único FE activo (mesma lógica da API)."""
+    ti = context["task_instance"]
+    if not ti.xcom_pull(key="auto_promote", task_ids="validate_input"):
+        log.info("auto_promote=false — promote automático não executado.")
+        return
+    if not ti.xcom_pull(key="fe_recall_champion", task_ids="run_fe"):
+        log.info("FE não venceu o comparador cv_* — promote automático não executado.")
+        return
+    objective = ti.xcom_pull(key="objective", task_ids="validate_input")
+    user_id = int(ti.xcom_pull(key="user_id", task_ids="validate_input"))
+    from services.processor.airflow_persistence import promote_airflow_fe_if_requested, run_async
+
+    run_async(
+        promote_airflow_fe_if_requested(
+            objective=objective,
+            user_id=user_id,
+            auto_promote=True,
+        )
+    )
 
 
 def task_notify_complete(**context) -> None:
@@ -304,16 +397,22 @@ def task_notify_complete(**context) -> None:
     fe_metrics = ti.xcom_pull(key="fe_metrics", task_ids="run_fe")
     fe_run_ts = ti.xcom_pull(key="fe_run_ts", task_ids="run_fe")
     baseline_run_ts = ti.xcom_pull(key="baseline_run_ts", task_ids="run_baseline")
+    bl_id = ti.xcom_pull(key="baseline_pipeline_run_id", task_ids="run_baseline")
+    fe_id = ti.xcom_pull(key="fe_pipeline_run_id", task_ids="run_fe")
+    champion = ti.xcom_pull(key="fe_recall_champion", task_ids="run_fe")
 
     log.info("=" * 60)
     log.info("PIPELINE CONCLUÍDO")
-    log.info("Domínio          : %s", objective)
-    log.info("Baseline run_ts  : %s", baseline_run_ts)
-    log.info("FE run_ts        : %s", fe_run_ts)
-    log.info("Melhor modelo FE : %s", fe_best_model)
-    log.info("Métricas FE      : %s", fe_metrics)
-    log.info("Próximo passo: certificar um único FE activo no objective e promover via")
-    log.info("  POST /v1/processor/admin/promote (sem corpo; OBJECTIVE na env)")
+    log.info("Domínio               : %s", objective)
+    log.info("Baseline pipeline_run : %s (run_ts=%s)", bl_id, baseline_run_ts)
+    log.info("FE pipeline_run       : %s (run_ts=%s)", fe_id, fe_run_ts)
+    log.info("FE campeão (cv_*)    : %s", champion)
+    log.info("Melhor modelo FE      : %s", fe_best_model)
+    log.info("Métricas FE           : %s", fe_metrics)
+    if ti.xcom_pull(key="auto_promote", task_ids="validate_input"):
+        log.info("auto_promote estava ligado — promote tentado na task anterior se campeão.")
+    else:
+        log.info("Promoção manual: POST /v1/processor/admin/promote (OBJECTIVE na env)")
     log.info("=" * 60)
 
 
@@ -332,8 +431,13 @@ with DAG(
 ) as dag:
 
     validate = PythonOperator(task_id="validate_input", python_callable=task_validate_input)
+    deactivate_manual = PythonOperator(
+        task_id="deactivate_manual_runs",
+        python_callable=task_deactivate_manual_runs,
+    )
     baseline = PythonOperator(task_id="run_baseline", python_callable=task_run_baseline)
     fe = PythonOperator(task_id="run_fe", python_callable=task_run_fe)
+    promote = PythonOperator(task_id="promote_fe_optional", python_callable=task_promote_fe_optional)
     notify = PythonOperator(task_id="notify_complete", python_callable=task_notify_complete)
 
-    validate >> baseline >> fe >> notify
+    validate >> deactivate_manual >> baseline >> fe >> promote >> notify

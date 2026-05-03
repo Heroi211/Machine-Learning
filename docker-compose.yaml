@@ -7,6 +7,15 @@
 #   5. Airflow disponível em:   http://localhost:8080  (user: airflow / pass: airflow)
 #   6. Logs em tempo real:      http://localhost:8888  (Dozzle)
 #   7. Banco via pgAdmin:       http://localhost:5050
+#
+# Volume ML partilhado (checklist Airflow item 1):
+#   - Nome Docker: ml_shared → montado em Airflow em ML_PROJECT_ROOT (/opt/airflow/ml_project)
+#     e na API em /var/www/ml_shared (é o mesmo volume).
+#   - Datasets: colocar CSV em ./ml_data/uploads/ no host → visível em ambos os serviços:
+#       Airflow:  /opt/airflow/ml_project/uploads/<ficheiro>.csv
+#       API:      /var/www/ml_shared/uploads/<ficheiro>.csv
+#     (bind mount sobre o subdirectório `uploads` do volume ml_shared.)
+#   - LocalExecutor: scheduler e webserver usam o mesmo bloco x-airflow-common → mesmo mount.
 # ---------------------------------------------------------------------------
 
 x-airflow-common: &airflow-common
@@ -23,6 +32,8 @@ x-airflow-common: &airflow-common
     # Variáveis repassadas aos DAGs para acesso ao projeto ML
     ML_API_URL: http://api_processing:8000
     ML_PROJECT_ROOT: /opt/airflow/ml_project
+    # Pasta fixa para CSVs: bind mount ./ml_data/uploads (host) — ver cabeçalho deste ficheiro
+    ML_AIRFLOW_UPLOADS_DIR: /opt/airflow/ml_project/uploads
     ML_CODE_ROOT: /opt/airflow/ml_code
     # Artefactos de treino no volume partilhado (API monta o mesmo volume em /var/www/ml_shared)
     PATH_DATA: /opt/airflow/ml_project
@@ -46,6 +57,8 @@ x-airflow-common: &airflow-common
     - ./airflow/plugins:/opt/airflow/plugins
     # Volume compartilhado entre API e Airflow (CSVs, logs dos tasks)
     - ml_shared:/opt/airflow/ml_project
+    # Datasets no host (opção A): mesma pasta visível na API em /var/www/ml_shared/uploads
+    - ./ml_data/uploads:/opt/airflow/ml_project/uploads
     # Código Python alinhado ao layout ``src/`` da API (import services, core, …)
     - ./src:/opt/airflow/ml_code:ro
   depends_on:
@@ -108,6 +121,7 @@ services:
       - api_graphs:/var/www/src/graphs
       # Volume compartilhado com Airflow
       - ml_shared:/var/www/ml_shared
+      - ./ml_data/uploads:/var/www/ml_shared/uploads
 
   # ---------- pgAdmin (interface web para o banco) -------------------------
   pgadmin:
@@ -153,7 +167,9 @@ services:
       - |
         set -e
         mkdir -p /opt/airflow/logs/scheduler /opt/airflow/logs/dag_processor
+        mkdir -p /opt/airflow/ml_project/uploads
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/ml_project/uploads
         exec /entrypoint bash -c '
           airflow db migrate
           airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true
