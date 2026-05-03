@@ -19,7 +19,13 @@ from core.deps import (
 from models.users import Users as users_models
 from schemas import processor_schemas
 from services.processor import processor_service
-from services.processor.deployment_service import NoActiveDeploymentError, RollbackError, get_deployment_history, promote_pipeline_run, rollback_deployment
+from services.processor.deployment_service import (
+    NoActiveDeploymentError,
+    RollbackError,
+    get_deployment_history,
+    promote_active_feature_engineering_for_objective,
+    rollback_deployment,
+)
 from services.processor.pipeline_runs_service import list_pipeline_runs
 
 router = APIRouter()
@@ -61,22 +67,18 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
 
 @router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=processor_schemas.DeployedModelResponse)
 async def admin_promote(
-    domain: Literal["churn"] = Form(..., description="Domínio / objective do run (lista fechada)."),
-    pipeline_run_id: int = Form(..., description="ID do PipelineRuns concluído (GET /admin/runs)."),
-    pipeline_type: Literal["feature_engineering"] = Form(
-        ...,
-        description="Tipo de pipeline. Apenas feature engineering é elegível para deploy.",
-    ),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
-    """Promove o joblib de um run de feature engineering concluído para inferência em ``/predict`` neste domínio."""
+    """
+    Promove para inferência em ``/predict`` o **único** run de feature engineering activo e concluído,
+    com ``objective`` igual a **OBJECTIVE** (env), à imagem das rotas síncronas de baseline/FE.
+    """
     try:
-        dep = await promote_pipeline_run(
-            domain=domain,
-            pipeline_run_id=pipeline_run_id,
+        objective = settings.objective.strip().lower()
+        dep = await promote_active_feature_engineering_for_objective(
+            objective=objective,
             promoted_by_user_id=admin.id,
-            pipeline_type=pipeline_type,
             db=db,
         )
         return dep
@@ -87,7 +89,6 @@ async def admin_promote(
 @router.post("/admin/train/trigger-dag", status_code=status.HTTP_202_ACCEPTED, response_model=processor_schemas.TriggerDagResponse)
 async def admin_trigger_dag(
     file: UploadFile = File(...),
-    objective: Literal["churn"] = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
     optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("accuracy"),
     min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
     min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
@@ -96,10 +97,10 @@ async def admin_trigger_dag(
     acc_target: float | None = Form(None),
     admin: users_models = Depends(require_airflow_api_trigger_enabled),
 ):
-    """Grava o CSV em volume compartilhado e dispara o DAG (só ambientes não prod; em prd use UI do Airflow + Variables)."""
+    """Grava o CSV em volume partilhado e dispara o DAG; **objective** vem de OBJECTIVE na env."""
+    obj = settings.objective.strip().lower()
     upload_dir = os.path.join(ML_SHARED_PATH)
     os.makedirs(upload_dir, exist_ok=True)
-    obj = objective
     filename = f"{obj}_{uuid.uuid4().hex[:8]}_{file.filename}"
     csv_path = os.path.join(upload_dir, filename)
     content = await file.read()
@@ -143,7 +144,6 @@ async def admin_trigger_dag(
 
 @router.get("/admin/runs", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.PipelineRunResponse])
 async def admin_list_pipeline_runs(
-    domain: Literal["churn"] | None = Query(None, description="Filtra pelo objective/domínio (apenas churn). Omitir para todos os objectives."),
     pipeline_type: Literal["baseline", "feature_engineering"] | None = Query(None, description="Tipo de pipeline."),
     run_status: Literal["processing", "completed", "failed"] | None = Query(
         None, alias="status", description="Estado da execução."
@@ -152,37 +152,40 @@ async def admin_list_pipeline_runs(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
-    """Lista runs de pipeline para escolher `pipeline_run_id` em `POST /admin/promote` sem consultar o SQL direto."""
+    """Lista runs de pipeline para **OBJECTIVE** (env); `pipeline_type` e `status` continuam opcionais na query."""
+    objective = settings.objective.strip().lower()
     return await list_pipeline_runs(
         db,
-        objective=domain,
+        objective=objective,
         pipeline_type=pipeline_type,
         status=run_status,
         limit=limit,
     )
 
 
-@router.get("/admin/deployments/{domain}/history", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.DeployedModelResponse])
+@router.get("/admin/deployments/history", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.DeployedModelResponse])
 async def admin_deployment_history(
-    domain: processor_schemas.MLDomain, db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)
+    db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)
 ):
-    """Lista os últimos deployments (active + archived) do domínio, do mais recente ao mais antigo."""
-    records = await get_deployment_history(domain=domain.value, db=db)
+    """Lista os últimos deployments (**OBJECTIVE** na env), do mais recente ao mais antigo."""
+    domain = settings.objective.strip().lower()
+    records = await get_deployment_history(domain=domain, db=db)
     if not records:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Nenhum deployment encontrado para o domínio '{domain.value}'."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Nenhum deployment encontrado para o objective '{domain}' (OBJECTIVE na env).",
         )
     return records
 
 
 @router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
 async def admin_rollback(
-    domain: Literal["churn"] = Form(..., description="Domínio a reverter (deployment archived mais recente)."),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
-    """Reverte para o deployment archived mais recente do domínio, arquivando o active atual."""
+    """Reverte para o deployment archived mais recente (**OBJECTIVE** na env), arquivando o active actual."""
     try:
+        domain = settings.objective.strip().lower()
         dep = await rollback_deployment(domain=domain, db=db)
         return dep
     except RollbackError as e:

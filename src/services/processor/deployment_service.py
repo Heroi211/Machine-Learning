@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -38,6 +38,44 @@ async def get_active_deployment(domain: str, db: AsyncSession) -> DeployedModels
     )
     result = await db.execute(stmt)
     return result.scalars().one_or_none()
+
+
+async def promote_active_feature_engineering_for_objective(
+    objective: str,
+    promoted_by_user_id: int,
+    db: AsyncSession,
+) -> DeployedModels:
+    """
+    Promove o único ``PipelineRuns`` de feature engineering **activo**, concluído e com o ``objective``
+    dado (tipicamente ``settings.objective``). Exige exactamente um candidato.
+    """
+    obj = _normalize_domain(objective)
+    stmt = select(PipelineRuns).where(
+        PipelineRuns.pipeline_type == "feature_engineering",
+        PipelineRuns.status == "completed",
+        PipelineRuns.active.is_(True),
+        func.lower(PipelineRuns.objective) == obj,
+    )
+    res = await db.execute(stmt)
+    runs = list(res.scalars().all())
+    if len(runs) == 0:
+        raise ValueError(
+            "Nenhum pipeline feature_engineering activo e concluído para este objective. "
+            "Execute o FE até haver um run vencedor (cv_*) ou reveja o estado em pipeline_runs."
+        )
+    if len(runs) > 1:
+        raise ValueError(
+            f"Ambiguidade: {len(runs)} runs FE activos para objective={objective!r}. "
+            "É necessário exactamente um; desactive os obsoletos antes de promover."
+        )
+    run_id = runs[0].id
+    return await promote_pipeline_run(
+        domain=objective,
+        pipeline_run_id=run_id,
+        promoted_by_user_id=promoted_by_user_id,
+        pipeline_type="feature_engineering",
+        db=db,
+    )
 
 
 async def promote_pipeline_run(

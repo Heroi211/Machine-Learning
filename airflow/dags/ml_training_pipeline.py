@@ -312,9 +312,8 @@ def task_notify_complete(**context) -> None:
     log.info("FE run_ts        : %s", fe_run_ts)
     log.info("Melhor modelo FE : %s", fe_best_model)
     log.info("Métricas FE      : %s", fe_metrics)
-    log.info("Próximo passo: consultar pipeline_run_id no banco e promover via")
-    log.info("  POST /v1/processor/admin/promote")
-    log.info("  { 'domain': '%s', 'pipeline_run_id': <ID> }", objective)
+    log.info("Próximo passo: certificar um único FE activo no objective e promover via")
+    log.info("  POST /v1/processor/admin/promote (sem corpo; OBJECTIVE na env)")
     log.info("=" * 60)
 
 
