@@ -9,6 +9,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from fastapi import UploadFile
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.configs import settings
@@ -18,6 +19,73 @@ from models.predictions import Predictions
 from services.utils import utcnow
 
 logger = logging.getLogger(__name__)
+
+
+def _recall_from_metrics(metrics: dict | None) -> float:
+    try:
+        return float((metrics or {}).get("test_recall", float("-inf")))
+    except (TypeError, ValueError):
+        return float("-inf")
+
+
+async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_timestamp: str) -> None:
+    """
+    Mantém no máximo um baseline ``active`` por ``objective``: compara ``test_recall`` (teste)
+    com outros baselines ``completed`` e ``active``; se o novo for estritamente melhor,
+    desactiva os anteriores, **publica** ``pre_processed/*`` partir do snapshot, e marca o novo ativo;
+    caso contrário desactiva o novo (**sem** tocar no contrato FE global).
+
+    ``run_timestamp``: pasta ``PATH_DATA/PATH_LOGS/<ts>`` com manifest/sample da corrida.
+    """
+    if run.pipeline_type != "baseline" or run.status != "completed":
+        return
+
+    new_recall = _recall_from_metrics(run.metrics)
+    obj = (run.objective or "").strip().lower()
+
+    res = await session.execute(
+        select(PipelineRuns).where(
+            PipelineRuns.id != run.id,
+            PipelineRuns.pipeline_type == "baseline",
+            PipelineRuns.status == "completed",
+            PipelineRuns.active.is_(True),
+            func.lower(PipelineRuns.objective) == obj,
+        )
+    )
+    champions = list(res.scalars().all())
+
+    if not champions:
+        _publish_global_baseline_from_snapshot(run_timestamp)
+        run.active = True
+        logger.info(
+            "Baseline run %s primeiro baseline ou sem campões recall — manifest global publicado.",
+            run.id,
+        )
+        return
+
+    best_prev = max((_recall_from_metrics(c.metrics) for c in champions), default=float("-inf"))
+
+    if new_recall > best_prev:
+        _publish_global_baseline_from_snapshot(run_timestamp)
+        for c in champions:
+            c.active = False
+            session.add(c)
+            logger.info(
+                "Baseline run %s desactivado pelo comparador recall (mantido run %s, test_recall=%.6f > %.6f).",
+                c.id,
+                run.id,
+                new_recall,
+                best_prev,
+            )
+        run.active = True
+    else:
+        run.active = False
+        logger.info(
+            "Baseline run %s desactivado: test_recall=%.6f <= melhor anterior=%.6f.",
+            run.id,
+            new_recall,
+            best_prev,
+        )
 
 
 def _sklearn_feature_names(model) -> list[str] | None:
@@ -120,58 +188,118 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
     raise ValueError(f"pipeline_type não suportado para predição: {ptype!r}")
 
 
-def _extract_timestamp_from_baseline_model_path(model_path: str | None) -> str | None:
+def _ts_from_baseline_model_path(model_path: str | None) -> str | None:
     if not model_path:
         return None
     m = re.search(r"baseline_model_[^_]+_(\d{8}_\d{6})\.joblib$", os.path.basename(model_path))
-    if m:
-        return m.group(1)
-    return None
+    return m.group(1) if m else None
 
 
-async def _resolve_manifest_path_for_fe(
-    db: AsyncSession,
-    objective: str,
-    manifest_path: str | None,
-    baseline_run_id: int | None,
-) -> str:
-    if manifest_path and baseline_run_id:
-        raise ValueError("Informe apenas um entre manifest_path e baseline_run_id.")
+def _global_preprocessed_manifest() -> str:
+    return os.path.abspath(os.path.join(settings.path_data_preprocessed, "manifest.json"))
 
-    if manifest_path:
-        candidate = os.path.abspath(manifest_path)
-        if not os.path.isfile(candidate):
-            raise ValueError(f"Manifest informado não existe: {candidate}")
-        return candidate
 
-    if baseline_run_id is not None:
-        async with db as session:
-            run = await session.get(PipelineRuns, baseline_run_id)
-        if not run:
-            raise ValueError(f"baseline_run_id não encontrado: {baseline_run_id}")
-        if run.pipeline_type != "baseline":
-            raise ValueError(f"pipeline_run_id {baseline_run_id} não é baseline.")
-        if run.objective != objective:
-            raise ValueError(
-                f"baseline_run_id {baseline_run_id} com objective='{run.objective}', esperado '{objective}'."
+async def _resolve_fe_manifest(session: AsyncSession, objective: str) -> str:
+    """
+    1) Tenta ``pre_processed/manifest.json``.
+    2) Se falhar: baseline ``completed``, ``active`` e mesmo ``objective`` na BD —
+       manifest ao lado do ``baseline_sample`` do run ou em ``PATH_DATA/PATH_LOGS/<ts>/``.
+    """
+    obj = objective.strip().lower()
+
+    cand_global = _global_preprocessed_manifest()
+    if os.path.isfile(cand_global):
+        logger.info("FE: usando manifest global em %s", cand_global)
+        return cand_global
+
+    stmt = (
+        select(PipelineRuns)
+        .where(
+            PipelineRuns.pipeline_type == "baseline",
+            PipelineRuns.status == "completed",
+            PipelineRuns.active.is_(True),
+            func.lower(PipelineRuns.objective) == obj,
+        )
+        .order_by(PipelineRuns.completed_at.desc(), PipelineRuns.id.desc())
+        .limit(1)
+    )
+    res = await session.execute(stmt)
+    run = res.scalars().one_or_none()
+    if not run:
+        raise ValueError(
+            f"Manifest em falta: não há ``pre_processed/manifest.json`` e nenhum baseline activo para "
+            f"objective={objective!r}. Rode baseline (API até ganhar recall ou modo sem defer)."
+        )
+
+    resolved: str | None = None
+
+    outp = run.csv_output_path or ""
+    if outp and os.path.isfile(outp):
+        snap_manifest = os.path.join(os.path.dirname(os.path.abspath(outp)), "manifest.json")
+        if os.path.isfile(snap_manifest):
+            resolved = os.path.abspath(snap_manifest)
+
+    if not resolved:
+        ts = _ts_from_baseline_model_path(run.model_path)
+        if ts:
+            by_ts = os.path.abspath(
+                os.path.join(settings.path_data, settings.path_logs, ts, "manifest.json")
             )
+            if os.path.isfile(by_ts):
+                resolved = by_ts
 
-        ts = _extract_timestamp_from_baseline_model_path(run.model_path)
-        if not ts:
-            raise ValueError(
-                "Não foi possível inferir o timestamp do baseline pelo model_path. Informe manifest_path explicitamente."
-            )
-        candidate = os.path.join(settings.path_data, settings.path_logs, ts, "manifest.json")
-        if not os.path.isfile(candidate):
-            raise ValueError(
-                f"Manifest do baseline_run_id {baseline_run_id} não encontrado em: {candidate}"
-            )
-        return candidate
+    if not resolved:
+        raise FileNotFoundError(
+            f"Baseline activo (pipeline_run_id={run.id}) sem manifest encontrado no disco. "
+            f"Espere Paths ``csv_output_path`` / modelo com timestamp compatíveis com PATH_DATA/PATH_LOGS.",
+        )
 
-    candidate = os.path.join(settings.path_data_preprocessed, "manifest.json")
-    if not os.path.isfile(candidate):
-        raise ValueError(f"Manifest do baseline não encontrado: {candidate}")
-    return candidate
+    logger.info(
+        "FE: manifest global ausente — fallback pelo baseline activo (run_id=%s) em %s",
+        run.id,
+        resolved,
+    )
+    return resolved
+
+
+async def _resolve_fe_manifest_isolated_session(objective: str) -> str:
+    """Consulta rápida com sessão própria (antes de iniciar run FE na sessão principal)."""
+    from core.database import Session as SessionFactory
+
+    session = SessionFactory()
+    try:
+        path = await _resolve_fe_manifest(session, objective)
+        await session.commit()
+        return path
+    finally:
+        await session.close()
+
+
+def _publish_global_baseline_from_snapshot(run_timestamp: str) -> None:
+    """
+    Copia ``baseline_sample`` + ``manifest.json`` do snapshot para ``pre_processed/``,
+    ajustando no JSON o campo ``output_sample_csv_stable``.
+    """
+    snap_root = os.path.join(settings.path_data, settings.path_logs, run_timestamp.strip())
+    src_manifest = os.path.join(snap_root, "manifest.json")
+    src_sample = os.path.join(snap_root, "baseline_sample.csv")
+    if not os.path.isfile(src_manifest):
+        raise FileNotFoundError(f"Manifest snapshot inexistente: {src_manifest}")
+    if not os.path.isfile(src_sample):
+        raise FileNotFoundError(f"Sample baseline no snapshot inexistente: {src_sample}")
+
+    os.makedirs(settings.path_data_preprocessed, exist_ok=True)
+    dst_sample = os.path.abspath(os.path.join(settings.path_data_preprocessed, "baseline_sample.csv"))
+    shutil.copy2(src_sample, dst_sample)
+
+    with open(src_manifest, encoding="utf-8") as f:
+        man = json.load(f)
+    man["output_sample_csv_stable"] = dst_sample
+    man["manifest_snapshot"] = os.path.abspath(src_manifest)
+    dst_manifest = os.path.abspath(os.path.join(settings.path_data_preprocessed, "manifest.json"))
+    with open(dst_manifest, "w", encoding="utf-8") as f:
+        json.dump(man, f, ensure_ascii=False, indent=2)
+    logger.info("Contrato FE global atualizado a partir do snapshot %s.", snap_root)
 
 
 async def run_baseline(file: UploadFile, objective: str, user_id: int, db: AsyncSession) -> PipelineRuns:
@@ -214,12 +342,13 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
                 run_timestamp=run_ts,
                 csv_path=input_path,
                 class_labels=get_class_labels(objective),
+                defer_global_preprocess_contract=True,
             )
             pipeline.run(start_time=datetime.now())
             pipeline.save_artifacts()
 
             model_path = os.path.join(settings.path_model, f"baseline_model_{objective}_{pipeline.now}.joblib")
-            csv_path = os.path.join(settings.path_data_preprocessed, pipeline.contract_sample_name)
+            csv_path = os.path.join(pipeline.snapshot_path, pipeline.contract_sample_name)
 
             model = pipeline.model
             y_pred_test = model.predict(pipeline.x_test)
@@ -236,10 +365,15 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
                 metrics["test_pr_auc"] = float(average_precision_score(yt, y_proba_test))
 
             run.status = "completed"
-            run.metrics = metrics
             run.model_path = model_path
             run.csv_output_path = csv_path
             run.completed_at = utcnow()
+            run.metrics = metrics
+
+            await _baseline_recall_winner(session, run, run_ts)
+
+            metrics["baseline_fe_contract_published"] = bool(run.active)
+            run.metrics = metrics
 
         except Exception as e:
             logger.error(f"Baseline falhou: {e}")
@@ -263,8 +397,6 @@ async def run_feature_engineering(
     min_precision: float | None = None,
     min_roc_auc: float | None = None,
     tuning_n_iter: int | None = None,
-    manifest_path: str | None = None,
-    baseline_run_id: int | None = None,
     time_limit_minutes: int = 2,
     acc_target: float | None = None,
 ) -> tuple[PipelineRuns, str | None]:
@@ -293,12 +425,7 @@ async def run_feature_engineering(
         raise ValueError(f"Strategy '{objective}' não registrada. Disponíveis: {list(STRATEGY_REGISTRY.keys())}")
 
     os.makedirs(settings.path_data_preprocessed, exist_ok=True)
-    resolved_manifest_path = await _resolve_manifest_path_for_fe(
-        db=db,
-        objective=objective,
-        manifest_path=manifest_path,
-        baseline_run_id=baseline_run_id,
-    )
+    resolved_manifest_path = await _resolve_fe_manifest_isolated_session(objective)
     with open(resolved_manifest_path, "r", encoding="utf-8") as f:
         baseline_manifest = json.load(f)
 
@@ -407,7 +534,6 @@ async def run_feature_engineering(
             "min_roc_auc": min_roc_auc,
             "tuning_n_iter": tuning_n_iter if tuning_n_iter is not None else 100,
             "manifest_path_used": resolved_manifest_path,
-            "baseline_run_id": baseline_run_id,
             "tuning_time_limit_effective_minutes": effective_tuning_minutes,
             "tuning_time_limit_requested": time_limit_minutes,
         }

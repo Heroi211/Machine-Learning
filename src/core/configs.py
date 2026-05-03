@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False,validation_alias="DEBUG",description="Ativa modo debug"    )
     test_size: float = Field(default=0.2,validation_alias="TEST_SIZE",description="Proporção de teste (0.0 a 1.0)")
     random_state: int = Field(default=42,validation_alias="RANDOM_STATE")
+
+    objective: str = Field(
+        default="churn",
+        validation_alias="OBJECTIVE",
+        description="Domínio ML quando o endpoint não aceita objective no formulário (baseline na API).",
+    )
     
     project_name: str = Field(validation_alias="PROJECT_NAME", description="Nome do projeto")
     project_version: str = Field(validation_alias="PROJECT_VERSION", description="Versão do projeto")

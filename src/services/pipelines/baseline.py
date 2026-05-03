@@ -71,7 +71,15 @@ class Baseline:
     - Modelo gerado serve como referência mínima; comparar sempre com o
       pipeline de Feature Engineering antes de promover para produção.
     """
-    def __init__(self, pobjective, run_timestamp: str | None = None, csv_path: str | None = None, class_labels: tuple[str, str] | None = None):
+    def __init__(
+        self,
+        pobjective,
+        run_timestamp: str | None = None,
+        csv_path: str | None = None,
+        class_labels: tuple[str, str] | None = None,
+        *,
+        defer_global_preprocess_contract: bool = False,
+    ):
         """
         Parameters
         ----------
@@ -85,6 +93,9 @@ class Baseline:
             Rótulos semânticos das classes (negativa, positiva).
             Padrão: ("Sem <objective>", "<objective>").
             Exemplo para churn: ("Não Churn", "Churn").
+        defer_global_preprocess_contract : bool
+            Quando ``True``, ``baseline_sample.csv`` + ``manifest.json`` só na pasta snapshot;
+            o chamador deve copiar para ``pre_processed`` se o run vencer comparador recall.
         """
         self.path_data = ppath_data
         self.path_data_preprocessed = ppath_data_preprocessed
@@ -111,6 +122,7 @@ class Baseline:
         else:
             self.now = pagora
             self.snapshot_path = psnapshot_path
+        self.defer_global_preprocess_contract = defer_global_preprocess_contract
         self.current_csv_path = None
         self.data = None
         self.data_encoded = None
@@ -792,9 +804,6 @@ class Baseline:
         """
         logger.info("Iniciando o salvamento dos artefatos...")
 
-        for path in [self.path_data_preprocessed, self.path_model]:
-            os.makedirs(path, exist_ok=True)
-
         sample_raw = (
             pd.concat(
                 [
@@ -805,15 +814,29 @@ class Baseline:
             )
             .sort_index()
         )
+        defer = self.defer_global_preprocess_contract
+        os.makedirs(self.snapshot_path, exist_ok=True)
         sample_stable_path = os.path.join(self.path_data_preprocessed, self.contract_sample_name)
-        sample_raw.to_csv(sample_stable_path, index=False)
-        logger.info(
-            "Sample FE raw limpo (sem OHE/scaler) → %s | %s",
-            sample_stable_path,
-            sample_raw.shape,
-        )
-        logger.info("Sample FE estável atualizado em: %s", sample_stable_path)
+        sample_snapshot_path = os.path.join(self.snapshot_path, self.contract_sample_name)
+        if defer:
+            sample_raw.to_csv(sample_snapshot_path, index=False)
+            logger.info(
+                "Sample por run (defer global FE) → %s | %s",
+                sample_snapshot_path,
+                sample_raw.shape,
+            )
+        else:
+            for path in [self.path_data_preprocessed]:
+                os.makedirs(path, exist_ok=True)
+            sample_raw.to_csv(sample_stable_path, index=False)
+            logger.info(
+                "Sample FE raw limpo (sem OHE/scaler) → %s | %s",
+                sample_stable_path,
+                sample_raw.shape,
+            )
+            logger.info("Sample FE estável atualizado em: %s", sample_stable_path)
 
+        os.makedirs(self.path_model, exist_ok=True)
         model_name = f"baseline_model_{self.objective}_{self.now}.joblib"
         joblib_path = os.path.join(self.path_model, model_name)
         joblib.dump(self.model, joblib_path)
@@ -821,17 +844,17 @@ class Baseline:
 
         groups = self.feature_groups or {"binary": [], "continuous": [], "categorical": []}
         input_snapshot_path = os.path.join(self.snapshot_path, self.contract_input_name)
-        sample_snapshot_path = os.path.join(self.snapshot_path, self.contract_sample_name)
         manifest_snapshot_path = os.path.join(self.snapshot_path, self.contract_manifest_name)
+        stable_for_manifest = sample_snapshot_path if defer else sample_stable_path
         manifest = {
             "objective": self.objective,
             "run_timestamp": self.now,
             "input_csv_source": self.current_csv_path,
             "input_csv_snapshot": input_snapshot_path,
-            "output_sample_csv_stable": sample_stable_path,
-            "output_sample_csv_snapshot": sample_snapshot_path,
-            "manifest_snapshot": manifest_snapshot_path,
-            "model_path": joblib_path,
+            "output_sample_csv_stable": os.path.abspath(stable_for_manifest),
+            "output_sample_csv_snapshot": os.path.abspath(sample_snapshot_path),
+            "manifest_snapshot": os.path.abspath(manifest_snapshot_path),
+            "model_path": os.path.abspath(joblib_path),
             "input_row_count": int(self.data.shape[0]) if self.data is not None else None,
             "sample_row_count": int(sample_raw.shape[0]),
             "sample_column_count": int(sample_raw.shape[1]),
@@ -839,16 +862,23 @@ class Baseline:
             "feature_groups": groups,
             "graphs_dir": os.path.join(self.snapshot_path, "graphs"),
         }
-        manifest_path = os.path.join(self.path_data_preprocessed, self.contract_manifest_name)
-        with open(manifest_path, "w", encoding="utf-8") as f:
+        snapshot_manifest_abs = manifest_snapshot_path
+        with open(snapshot_manifest_abs, "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=True, indent=2)
-        logger.info("Manifest salvo em: %s", manifest_path)
+        logger.info("Manifest da corrida salvo em: %s", snapshot_manifest_abs)
+
+        if not defer:
+            manifest_stable = os.path.join(self.path_data_preprocessed, self.contract_manifest_name)
+            with open(manifest_stable, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=True, indent=2)
+            logger.info("Manifest global (pre_processed) atualizado em: %s", manifest_stable)
 
         try:
             if self.mlflow_run_id:
                 with mlflow.start_run(run_id=self.mlflow_run_id):
                     mlflow.log_artifact(joblib_path, artifact_path="model_files")
-                    mlflow.log_artifact(sample_stable_path, artifact_path="data_contract")
+                    mlflow_sample = sample_snapshot_path if defer else sample_stable_path
+                    mlflow.log_artifact(mlflow_sample, artifact_path="data_contract")
                     mlflow.log_dict(manifest, self.contract_manifest_name)
                 logger.info("Modelo, sample e manifest registrados no MLflow.")
             else:
@@ -921,23 +951,31 @@ class Baseline:
             except Exception as e:
                 logger.error(f"Erro ao copiar o CSV original: {e}")
 
-        sample_src = os.path.join(self.path_data_preprocessed, self.contract_sample_name)
-        if os.path.exists(sample_src):
-            try:
-                sample_dst = os.path.join(self.snapshot_path, self.contract_sample_name)
-                shutil.copy(sample_src, sample_dst)
-                logger.info("Sample do baseline copiado para snapshot: %s", sample_dst)
-            except Exception as e:
-                logger.error("Erro ao copiar baseline_sample.csv: %s", e)
+        sample_in_snap = os.path.join(self.snapshot_path, self.contract_sample_name)
+        if os.path.isfile(sample_in_snap):
+            logger.info("Sample já gravado nesta pasta snapshot (%s — skip cópia).", sample_in_snap)
+        else:
+            sample_src = os.path.join(self.path_data_preprocessed, self.contract_sample_name)
+            if os.path.isfile(sample_src):
+                try:
+                    sample_dst = os.path.join(self.snapshot_path, self.contract_sample_name)
+                    shutil.copy(sample_src, sample_dst)
+                    logger.info("Sample copiado de pre_processed para snapshot: %s", sample_dst)
+                except Exception as e:
+                    logger.error("Erro ao copiar baseline_sample.csv: %s", e)
 
-        manifest_src = os.path.join(self.path_data_preprocessed, self.contract_manifest_name)
-        if os.path.exists(manifest_src):
-            try:
-                manifest_dst = os.path.join(self.snapshot_path, self.contract_manifest_name)
-                shutil.copy(manifest_src, manifest_dst)
-                logger.info("Manifest copiado para snapshot: %s", manifest_dst)
-            except Exception as e:
-                logger.error("Erro ao copiar manifest.json: %s", e)
+        manifest_in_snap = os.path.join(self.snapshot_path, self.contract_manifest_name)
+        if os.path.isfile(manifest_in_snap):
+            logger.info("Manifest já neste snapshot (%s — skip cópia).", manifest_in_snap)
+        else:
+            manifest_src = os.path.join(self.path_data_preprocessed, self.contract_manifest_name)
+            if os.path.isfile(manifest_src):
+                try:
+                    manifest_dst = manifest_in_snap
+                    shutil.copy(manifest_src, manifest_dst)
+                    logger.info("Manifest copiado de pre_processed para snapshot: %s", manifest_dst)
+                except Exception as e:
+                    logger.error("Erro ao copiar manifest.json: %s", e)
 
         target_graphs_path = os.path.join(self.snapshot_path, "graphs")
         if os.path.exists(self.path_graphs):

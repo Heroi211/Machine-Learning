@@ -211,15 +211,20 @@ def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
     )
 
 
-@router.post("/admin/train/baseline", status_code=status.HTTP_201_CREATED, response_class=FileResponse)
+@router.post(
+    "/admin/train/baseline",
+    status_code=status.HTTP_201_CREATED,
+    response_class=FileResponse,
+    summary="Treino baseline (domínio fixo)",
+    description=("Baseline churn, arquivo tratado conforme contrato deve ser enviado."),
+)
 async def admin_train_baseline(
     file: UploadFile = File(...),
-    objective: Literal["churn"] = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
     try:
-        
+        objective = settings.objective.strip().lower()
         run = await processor_service.run_baseline(file=file, objective=objective, user_id=admin.id, db=db)
         return _file_response_for_run(run, "baseline")
     except HTTPException:
@@ -236,30 +241,36 @@ def _schedule_remove(path: str) -> None:
         pass
 
 
-@router.post("/admin/train/feature-engineering", status_code=status.HTTP_201_CREATED, response_class=FileResponse)
+@router.post(
+    "/admin/train/feature-engineering",
+    status_code=status.HTTP_201_CREATED,
+    response_class=FileResponse,
+    summary="Treino feature-engineering (domínio fixo)",
+    description=(
+        "Domínio pela env **OBJECTIVE**. "
+        "Lê o manifest do baseline em ``pre_processed/`` quando existir; se não existir, "
+        "consulta na base o baseline **ativo** e usa o manifest da pasta dessa corrida."
+    ),
+)
 async def admin_train_feature_engineering(
     background_tasks: BackgroundTasks,
-    objective: Literal["churn"] = Form(..., description="Domínio do problema (lista fechada no Swagger)."),
     optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("accuracy"),
     min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
     min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
     tuning_n_iter: int | None = Form(None, description="Número máximo de amostras no tuning (opcional)."),
-    manifest_path: str | None = Form(None, description="Caminho explícito de manifest do baseline (opcional)."),
-    baseline_run_id: int | None = Form(None, description="ID de um run baseline para resolver o manifest (opcional)."),
     time_limit_minutes: int = Form(2),
     acc_target: float | None = Form(None),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
     try:
+        objective = settings.objective.strip().lower()
         run, zip_path = await processor_service.run_feature_engineering(
             objective=objective, user_id=admin.id, db=db,
             optimization_metric=optimization_metric,
             min_precision=min_precision,
             min_roc_auc=min_roc_auc,
             tuning_n_iter=tuning_n_iter,
-            manifest_path=manifest_path,
-            baseline_run_id=baseline_run_id,
             time_limit_minutes=time_limit_minutes,
             acc_target=acc_target,
         )
