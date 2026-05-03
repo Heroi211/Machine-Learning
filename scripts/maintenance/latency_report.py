@@ -35,6 +35,7 @@ MONITORED_ROUTES = {
 
 
 def _load_jsonl_files(log_dir: Path) -> list[dict]:
+    """Carrega linhas JSON validas dos arquivos access.jsonl e rotacionados."""
     rows: list[dict] = []
     if not log_dir.is_dir():
         return rows
@@ -104,7 +105,7 @@ def _build_summary(df: pd.DataFrame, label: str, slo_p95_ms: float) -> dict:
 
 
 def main() -> None:
-    """Run the latency summary command-line workflow."""
+    """Executa o fluxo de linha de comando do relatorio de latencia."""
     parser = argparse.ArgumentParser(description="Relatório de latência da API")
     parser.add_argument(
         "--slo-ms",

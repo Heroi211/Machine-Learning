@@ -1,4 +1,4 @@
-"""Coordinate ML training, artifact persistence, and online predictions."""
+"""Coordena treino de ML, persistencia de artefatos e predicoes online."""
 
 import logging
 import os
@@ -29,7 +29,7 @@ def _sklearn_feature_names(model) -> list[str] | None:
 
 
 def _align_dataframe_to_model(model, df: pd.DataFrame) -> pd.DataFrame:
-    """Return the input DataFrame ordered by the model feature names."""
+    """Retorna o DataFrame de entrada ordenado pelas features do modelo."""
     names = _sklearn_feature_names(model)
     if not names:
         return df
@@ -61,7 +61,7 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
     """
     Constrói o DataFrame de entrada como no treino:
     - feature_engineering: chaves minúsculas (como `FeatureEngineering.load_data`) + strategy.build
-    - baseline: chaves como enviadas (mesmos nomes que no CSV de treino) + clean/encode
+    - baseline: chaves como enviadas (mesmos nomes que no CSV de treino) + limpeza/codificação
     """
     ptype = run.pipeline_type
     d = domain.strip().lower()
@@ -88,6 +88,7 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
 
 
 def _extract_timestamp_from_baseline_model_path(model_path: str | None) -> str | None:
+    """Extrai o timestamp do caminho de um modelo baseline, quando possivel."""
     if not model_path:
         return None
     m = re.search(r"baseline_model_[^_]+_(\d{8}_\d{6})\.joblib$", os.path.basename(model_path))
@@ -102,6 +103,7 @@ async def _resolve_manifest_path_for_fe(
     manifest_path: str | None,
     baseline_run_id: int | None,
 ) -> str:
+    """Resolve o caminho do manifest usado pelo pipeline de FE."""
     if manifest_path and baseline_run_id:
         raise ValueError("Informe apenas um entre manifest_path e baseline_run_id.")
 
@@ -237,7 +239,7 @@ async def run_feature_engineering(
 ) -> tuple[PipelineRuns, str | None]:
     """
     Executa apenas o pipeline de Feature Engineering usando o contrato
-    produzido pelo baseline (manifest + sample), sem rerun do baseline.
+    produzido pelo baseline (manifest + sample), sem reexecutar o baseline.
     """
     import shutil
     import tempfile

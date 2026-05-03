@@ -1,4 +1,4 @@
-"""Provide shared datetime utilities."""
+"""Fornece utilitarios compartilhados para datas e horarios."""
 
 import pytz
 from datetime import datetime, time
@@ -6,7 +6,7 @@ from typing import Optional
 
 
 def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
-    """Convert a datetime to naive UTC, assuming Sao Paulo time if naive."""
+    """Converte um datetime para UTC sem timezone, assumindo São Paulo quando naive."""
     if dt is None:
         return None
 
@@ -16,8 +16,7 @@ def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
     dt_utc = dt.astimezone(pytz.UTC).replace(tzinfo=None)
     return dt_utc
 
-def utcnow() -> datetime:
-    """Return the current time as a naive UTC datetime."""
-    return datetime.now(pytz.UTC).replace(tzinfo=None)
 
-    
+def utcnow() -> datetime:
+    """Retorna o horário atual como datetime UTC sem timezone."""
+    return datetime.now(pytz.UTC).replace(tzinfo=None)

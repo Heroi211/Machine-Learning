@@ -36,6 +36,7 @@ PSI_CRITICAL = 0.25
 
 
 def _psi_status(psi: float) -> str:
+    """Classifica o valor de PSI em ok, warning ou critical."""
     if psi >= PSI_CRITICAL:
         return "critical"
     if psi >= PSI_WARNING:
@@ -44,6 +45,7 @@ def _psi_status(psi: float) -> str:
 
 
 def _calculate_psi(reference: np.ndarray, current: np.ndarray, bins: int = 10) -> float:
+    """Calcula o Population Stability Index entre referencia e producao."""
     breakpoints = np.percentile(reference, np.linspace(0, 100, bins + 1))
     breakpoints = np.unique(breakpoints)
     if len(breakpoints) < 3:
@@ -58,6 +60,7 @@ def _calculate_psi(reference: np.ndarray, current: np.ndarray, bins: int = 10) -
 
 
 def _load_predictions_features(path: Path) -> pd.DataFrame:
+    """Carrega features de producao a partir de um CSV de predicoes ou features."""
     df = pd.read_csv(path)
     if "input_data" in df.columns:
         parsed = df["input_data"].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
@@ -67,7 +70,7 @@ def _load_predictions_features(path: Path) -> pd.DataFrame:
 
 
 def main() -> None:
-    """Run the drift report command-line workflow."""
+    """Executa o fluxo de linha de comando do relatorio de drift."""
     parser = argparse.ArgumentParser(description="Drift treino vs predições (CSV)")
     parser.add_argument("--train-csv", required=True, type=Path, help="CSV de treino (referência)")
     parser.add_argument("--predictions-csv", required=True, type=Path, help="Export de predictions ou features")
