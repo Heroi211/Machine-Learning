@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import json
 import re
@@ -26,6 +27,37 @@ def _recall_from_metrics(metrics: dict | None) -> float:
         return float((metrics or {}).get("test_recall", float("-inf")))
     except (TypeError, ValueError):
         return float("-inf")
+
+
+def _fe_competition_score_from_metrics(metrics: dict | None) -> float:
+    """
+    Score usado no desempate entre runs FE: **validação cruzada** da métrica de optimização
+    (ex. ``cv_recall`` quando ``optimization_metric`` é ``recall``), não o valor no conjunto
+    de teste — alinhado ao critério do tuning.
+    """
+    if not metrics:
+        return float("-inf")
+    opt = (metrics.get("optimization_metric") or "").strip().lower()
+    if not opt:
+        return float("-inf")
+    for key in (f"cv_{opt}", "best_cv_score"):
+        raw = metrics.get(key)
+        if raw is None:
+            continue
+        try:
+            v = float(raw)
+            if math.isfinite(v):
+                return v
+        except (TypeError, ValueError):
+            continue
+    return float("-inf")
+
+
+def _fe_model_metric_pair(metrics: dict | None) -> tuple[str, str]:
+    m = metrics or {}
+    name = (m.get("best_model_name") or "").strip()
+    opt = (m.get("optimization_metric") or "").strip().lower()
+    return name, opt
 
 
 async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_timestamp: str) -> None:
@@ -85,6 +117,92 @@ async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_
             run.id,
             new_recall,
             best_prev,
+        )
+
+
+async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
+    """
+    Mantém no máximo um FE ``active`` por ``objective`` quando há linhagem comparável:
+    compara o **melhor score em CV** da ``optimization_metric`` (ex. ``cv_recall``), não métricas
+    no holdout de teste; exige ``best_model_name`` e ``optimization_metric`` iguais a um campeão.
+    Não altera ``pre_processed`` (contrato continua a ser do baseline).
+    """
+    if run.pipeline_type != "feature_engineering" or run.status != "completed":
+        return
+
+    new_score = _fe_competition_score_from_metrics(run.metrics)
+    new_name, new_metric = _fe_model_metric_pair(run.metrics)
+    obj = (run.objective or "").strip().lower()
+
+    res = await session.execute(
+        select(PipelineRuns).where(
+            PipelineRuns.id != run.id,
+            PipelineRuns.pipeline_type == "feature_engineering",
+            PipelineRuns.status == "completed",
+            PipelineRuns.active.is_(True),
+            func.lower(PipelineRuns.objective) == obj,
+        )
+    )
+    champions = list(res.scalars().all())
+
+    if not champions:
+        run.active = True
+        logger.info(
+            "FE run %s primeiro FE ou sem campeões activos no objective %r — marcado activo.",
+            run.id,
+            obj,
+        )
+        return
+
+    compatible = [c for c in champions if _fe_model_metric_pair(c.metrics) == (new_name, new_metric)]
+    if not compatible:
+        run.active = False
+        champ_summary = [
+            {
+                "id": c.id,
+                "best_model_name": _fe_model_metric_pair(c.metrics)[0],
+                "optimization_metric": _fe_model_metric_pair(c.metrics)[1],
+            }
+            for c in champions
+        ]
+        logger.warning(
+            "FE run %s desactivado: best_model_name=%r ou optimization_metric=%r não coincidem com "
+            "campeões activos %s. Requer validação manual antes de promover.",
+            run.id,
+            new_name,
+            new_metric,
+            champ_summary,
+        )
+        return
+
+    best_prev = max((_fe_competition_score_from_metrics(c.metrics) for c in compatible), default=float("-inf"))
+
+    if new_score > best_prev:
+        for c in champions:
+            c.active = False
+            session.add(c)
+            logger.info(
+                "FE run %s desactivado pelo comparador cv_%s (vencedor run %s, score=%.6f > %.6f, "
+                "modelo=%r métrica_optim=%r).",
+                c.id,
+                new_metric,
+                run.id,
+                new_score,
+                best_prev,
+                new_name,
+                new_metric,
+            )
+        run.active = True
+    else:
+        run.active = False
+        logger.info(
+            "FE run %s desactivado: cv_%s=%.6f <= melhor anterior=%.6f (modelo=%r métrica_optim=%r).",
+            run.id,
+            new_metric,
+            new_score,
+            best_prev,
+            new_name,
+            new_metric,
         )
 
 
@@ -447,7 +565,10 @@ async def run_feature_engineering(
 
     baseline_input_path = baseline_manifest.get("input_csv_snapshot") or baseline_manifest.get("input_csv_source")
     baseline_input_path = os.path.abspath(baseline_input_path) if baseline_input_path else None
-    original_filename = os.path.basename(baseline_input_path) if baseline_input_path else os.path.basename(csv_baseline)
+    # Contrato FE: o treino segue sempre ``output_sample_csv_stable`` (ex. pre_processed/baseline_sample.csv).
+    # Gravamos esse ficheiro como etiqueta na BD; o CSV “upstream” do baseline fica só nas métricas de auditoria.
+    fe_training_csv_basename = os.path.basename(csv_baseline)
+    original_filename = fe_training_csv_basename
 
     run = PipelineRuns(
         user_id=user_id,
@@ -525,6 +646,12 @@ async def run_feature_engineering(
                 active_dep = ad.id
 
         merged_metrics: dict = {
+            "fe_training_csv": csv_baseline,
+            "fe_training_csv_basename": fe_training_csv_basename,
+            "baseline_upstream_input_basename": (
+                os.path.basename(baseline_input_path) if baseline_input_path else None
+            ),
+            "baseline_upstream_input_path": baseline_input_path,
             "baseline_manifest_ref": {
                 "run_timestamp": baseline_manifest.get("run_timestamp"),
                 "sample_schema": baseline_manifest.get("sample_schema"),
@@ -537,6 +664,10 @@ async def run_feature_engineering(
             "tuning_time_limit_effective_minutes": effective_tuning_minutes,
             "tuning_time_limit_requested": time_limit_minutes,
         }
+        _bcs = float(pipeline.best_cv_score)
+        merged_metrics["best_cv_score"] = _bcs
+        if math.isfinite(_bcs):
+            merged_metrics[f"cv_{metric}"] = _bcs
         med = getattr(pipeline.strategy, "monthly_median", None)
         if med is not None:
             try:
@@ -560,7 +691,7 @@ async def run_feature_engineering(
             run_timestamp=run_ts,
             status="completed",
             input_filename=original_filename,
-            input_path=baseline_input_path,
+            input_path=csv_baseline,
             paths_in_bundle=all_files,
             metrics=merged_metrics,
             mlflow_baseline_run_id=None,
@@ -576,7 +707,7 @@ async def run_feature_engineering(
             run_timestamp=run_ts,
             status="completed",
             input_filename=original_filename,
-            input_path=baseline_input_path,
+            input_path=csv_baseline,
             paths_in_bundle=all_files + [bundle_manifest_path],
             metrics=merged_metrics,
             mlflow_baseline_run_id=None,
@@ -610,6 +741,12 @@ async def run_feature_engineering(
 
     async with db as session:
         merged = await session.merge(run)
+        if merged.status == "completed" and merged.pipeline_type == "feature_engineering":
+            await _fe_recall_winner(session, merged)
+            m_final = dict(merged.metrics or {})
+            m_final["fe_recall_champion"] = bool(merged.active)
+            merged.metrics = m_final
+            session.add(merged)
         await session.commit()
         await session.refresh(merged)
 

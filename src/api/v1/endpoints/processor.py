@@ -247,9 +247,8 @@ def _schedule_remove(path: str) -> None:
     response_class=FileResponse,
     summary="Treino feature-engineering (domínio fixo)",
     description=(
-        "Domínio pela env **OBJECTIVE**. "
-        "Lê o manifest do baseline em ``pre_processed/`` quando existir; se não existir, "
-        "consulta na base o baseline **ativo** e usa o manifest da pasta dessa corrida."
+        "Domínio pela env **OBJECTIVE**. Manifest do baseline via ``pre_processed`` ou BD "
+        "(``output_sample_csv_stable`` no manifest). Nesta versão **não** há upload de CSV na rota."
     ),
 )
 async def admin_train_feature_engineering(
