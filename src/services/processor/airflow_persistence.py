@@ -35,6 +35,7 @@ async def deactivate_manual_pipeline_runs_for_objective(objective: str) -> None:
     obj = objective.strip().lower()
     session = Session()
     try:
+        # Bulk ORM update com func.* no WHERE não sincroniza sessão em modo default.
         await session.execute(
             update(PipelineRuns)
             .where(
@@ -42,7 +43,8 @@ async def deactivate_manual_pipeline_runs_for_objective(objective: str) -> None:
                 func.lower(PipelineRuns.objective) == obj,
                 PipelineRuns.is_airflow_run.is_(False),
             )
-            .values(active=False)
+            .values(active=False),
+            execution_options={"synchronize_session": False},
         )
         await session.commit()
         logger.info("Runs manuais desactivados (objective=%r, is_airflow_run=false).", obj)

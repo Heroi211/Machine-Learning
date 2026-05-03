@@ -27,6 +27,9 @@ x-airflow-common: &airflow-common
     context: .
     dockerfile: docker/airflow.dockerfile
   image: processing_airflow:v1
+  # Mesmo .env da API — PROJECT_NAME, SECRET, ALGORITHM e caminhos esperados por ``core.configs``.
+  env_file:
+    - .env
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -42,6 +45,8 @@ x-airflow-common: &airflow-common
     # Pasta fixa para CSVs: bind mount ./ml_data/uploads (host) — ver cabeçalho deste ficheiro
     ML_AIRFLOW_UPLOADS_DIR: /opt/airflow/ml_project/uploads
     ML_CODE_ROOT: /opt/airflow/ml_code
+    # Pip ``--target`` na imagem (docker/airflow.dockerfile); opcional sobrescrever no compose.
+    ML_AIRFLOW_SITE_PACKAGES: /opt/airflow/ml_libs
     # Artefactos de treino no volume partilhado (API monta o mesmo volume em /var/www/ml_shared)
     PATH_DATA: /opt/airflow/ml_project
     PATH_DATA_PREPROCESSED: /opt/airflow/ml_project/pre_processed
@@ -57,6 +62,8 @@ x-airflow-common: &airflow-common
     DATABASE_PORT: ${DATABASE_PORT}
     DATABASE_NAME: ${DATABASE_NAME}
     AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+    # Matplotlib: ~/.cache pode não ser gravável com AIRFLOW_UID no contentor.
+    MPLCONFIGDIR: /opt/airflow/ml_project/.matplotlib
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     # Volume nomeado evita Permission denied (UID airflow vs pasta no host)
@@ -180,9 +187,15 @@ services:
       - |
         set -e
         mkdir -p /opt/airflow/logs/scheduler /opt/airflow/logs/dag_processor
-        mkdir -p /opt/airflow/ml_project/uploads
+        mkdir -p /opt/airflow/ml_project/uploads \
+          /opt/airflow/ml_project/mlruns \
+          /opt/airflow/ml_project/models \
+          /opt/airflow/ml_project/graphs \
+          /opt/airflow/ml_project/pre_processed \
+          /opt/airflow/ml_project/reports \
+          /opt/airflow/ml_project/.matplotlib
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
-        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/ml_project/uploads
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/ml_project
         exec /entrypoint bash -c '
           airflow db migrate
           airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true

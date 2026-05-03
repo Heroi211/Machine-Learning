@@ -59,6 +59,21 @@ def _bootstrap_ml_sys_path() -> None:
 
 _bootstrap_ml_sys_path()
 
+
+def _prepend_airflow_ml_site_packages() -> None:
+    """
+    Bibliotecas do projeto vivem em ``/opt/airflow/ml_libs`` (``pip install --target`` na imagem
+    ``docker/airflow.dockerfile``) para não substituir as versões que o Apache Airflow trava nos
+    mesmos pacotes no site-packages principal. Chamada só no arranque das tasks que importam
+    ``services`` / ``core`` — não ao carregar este módulo, para não afectar o scheduler.
+    """
+    root = os.environ.get("ML_AIRFLOW_SITE_PACKAGES", "/opt/airflow/ml_libs").strip()
+    if root and os.path.isdir(root):
+        rp = os.path.abspath(root)
+        if rp not in sys.path:
+            sys.path.insert(0, rp)
+
+
 DEFAULT_ARGS = {
     "owner": "ml-engineering",
     "retries": 1,
@@ -133,6 +148,7 @@ def _merged_run_conf(context: dict) -> dict:
 
 def task_validate_input(**context) -> None:
     """Valida se o CSV existe e tem as colunas mínimas para o domínio (via ``strategy.validate``)."""
+    _prepend_airflow_ml_site_packages()
     conf = _merged_run_conf(context)
     objective = conf.get("objective")
     csv_path = conf.get("csv_path")
@@ -198,6 +214,7 @@ def task_validate_input(**context) -> None:
 
 def task_deactivate_manual_runs(**context) -> None:
     """Desactiva na BD runs baseline/FE manuais (``is_airflow_run=false``) do objective."""
+    _prepend_airflow_ml_site_packages()
     ti = context["task_instance"]
     objective = ti.xcom_pull(key="objective", task_ids="validate_input")
     from services.processor.airflow_persistence import (
@@ -210,6 +227,7 @@ def task_deactivate_manual_runs(**context) -> None:
 
 def task_run_baseline(**context) -> None:
     """Executa o pipeline Baseline e persiste o pipeline_run no banco."""
+    _prepend_airflow_ml_site_packages()
     ti = context["task_instance"]
     objective = ti.xcom_pull(key="objective", task_ids="validate_input")
     csv_path = ti.xcom_pull(key="csv_path", task_ids="validate_input")
@@ -289,6 +307,7 @@ def task_run_baseline(**context) -> None:
 
 def task_run_fe(**context) -> None:
     """Executa o pipeline Feature Engineering e persiste o pipeline_run no banco."""
+    _prepend_airflow_ml_site_packages()
     ti = context["task_instance"]
     objective = ti.xcom_pull(key="objective", task_ids="validate_input")
     optimization_metric = ti.xcom_pull(key="optimization_metric", task_ids="validate_input")
@@ -373,6 +392,7 @@ def task_run_fe(**context) -> None:
 
 def task_promote_fe_optional(**context) -> None:
     """Se ``auto_promote`` e o FE for campeão, promove o único FE activo (mesma lógica da API)."""
+    _prepend_airflow_ml_site_packages()
     ti = context["task_instance"]
     if not ti.xcom_pull(key="auto_promote", task_ids="validate_input"):
         log.info("auto_promote=false — promote automático não executado.")
