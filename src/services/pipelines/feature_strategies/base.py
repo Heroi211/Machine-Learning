@@ -30,8 +30,15 @@ class FeatureStrategy(ABC):
         ...
 
     def validate(self, df: pd.DataFrame) -> None:
-        """Verifica se as colunas obrigatórias estão presentes."""
-        missing = [col for col in self.required_columns() if col not in df.columns]
+        """
+        Verifica se as colunas obrigatórias estão presentes.
+
+        Usa apenas nomes normalizados (``strip()`` + ``lower()``) para a comparação, **sem
+        renomear** colunas nem alterar ``df``. Assim ficheiros com ``MonthlyCharges`` passam ao
+        mesmo tempo que o baseline ou outro código continuam a ver os cabeçalhos originais.
+        """
+        normalized_headers = {str(c).strip().lower() for c in df.columns}
+        missing = [col for col in self.required_columns() if col not in normalized_headers]
         if missing:
             logger.error(f"Colunas obrigatórias ausentes para {self.__class__.__name__}: {missing}")
             raise ValueError(

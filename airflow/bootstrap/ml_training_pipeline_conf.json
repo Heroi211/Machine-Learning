@@ -1,0 +1,11 @@
+{
+  "objective": "churn",
+  "csv_path": "/opt/airflow/ml_project/uploads/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+  "optimization_metric": "recall",
+  "time_limit_minutes": 30,
+  "min_precision": 0.7,
+  "min_roc_auc": 0.75,
+  "tuning_n_iter": 1000,
+  "user_id": 2,
+  "auto_promote": false
+}

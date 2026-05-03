@@ -63,6 +63,8 @@ x-airflow-common: &airflow-common
     - ./ml_data/uploads:/opt/airflow/ml_project/uploads
     # Código Python alinhado ao layout ``src/`` da API (import services, core, …)
     - ./src:/opt/airflow/ml_code:ro
+    # Defaults da Variable ml_training_pipeline_conf (airflow-init importa para a BD do Airflow)
+    - ./airflow/bootstrap:/opt/airflow/bootstrap:ro
   depends_on:
     db_processing:
       condition: service_healthy
@@ -179,6 +181,7 @@ services:
         exec /entrypoint bash -c '
           airflow db migrate
           airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true
+          bash /opt/airflow/bootstrap/init-airflow-vars.sh
         '
     restart: "no"
 

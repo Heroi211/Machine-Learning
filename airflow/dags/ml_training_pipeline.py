@@ -2,7 +2,7 @@
 DAG: ml_training_pipeline
 
 Orquestra o fluxo completo de treino de um modelo de classificação binária:
-  1. Validar CSV de entrada (colunas mínimas do domínio)
+  1. Validar CSV de entrada (colunas mínimas do domínio via ``strategy.validate``)
   2. Desactivar runs **manuais** na BD (``is_airflow_run=false``) do mesmo objective
   3. Executar Baseline (``defer_global_preprocess_contract`` alinhado à API) e persistir ``PipelineRuns``
   4. Executar Feature Engineering, persistir run com ``is_airflow_run=true`` e comparador cv_*
@@ -132,7 +132,7 @@ def _merged_run_conf(context: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def task_validate_input(**context) -> None:
-    """Valida se o CSV existe e tem as colunas mínimas para o domínio."""
+    """Valida se o CSV existe e tem as colunas mínimas para o domínio (via ``strategy.validate``)."""
     conf = _merged_run_conf(context)
     objective = conf.get("objective")
     csv_path = conf.get("csv_path")
@@ -146,6 +146,7 @@ def task_validate_input(**context) -> None:
 
     try:
         import pandas as pd
+
         df = pd.read_csv(csv_path, nrows=5)
         log.info("CSV validado — shape preview: %s colunas | arquivo: %s", len(df.columns), csv_path)
     except Exception as e:
@@ -153,6 +154,7 @@ def task_validate_input(**context) -> None:
 
     try:
         from services.pipelines.feature_strategies import STRATEGY_REGISTRY
+
         if objective not in STRATEGY_REGISTRY:
             available = list(STRATEGY_REGISTRY.keys())
             raise ValueError(f"Domínio '{objective}' não registrado. Disponíveis: {available}")
