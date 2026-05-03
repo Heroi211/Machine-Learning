@@ -24,6 +24,27 @@ INSERT INTO public.roles (description,active) VALUES
 
 ALTER TABLE public.users ADD CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id);
 
+INSERT INTO public.users (id, "password", "name", email, created_at, role_id, active)
+VALUES
+(
+    1,
+    '$2b$12$.DEdGnH7ht7FavrdBTsmsuP5KQUc7Wez3V.vG7HcTP965efchwuuu',
+    'Gabriel Drumond',
+    'gabriel.drumond@cod3bit.com.br',
+    '2026-05-03 10:55:06.069028',
+    2,
+    true
+),
+(
+    2,
+    '$2b$12$Bv2eIuzxqIS0nvn2ZIXUKepC/cu8xmt9L3i2mM2Bg2bO0AQiygqB.',
+    'airflow',
+    'airflow@airflow.com.br',
+    '2026-05-03 10:56:47.493325',
+    2,
+    true
+);
+
 CREATE TABLE public.pipeline_runs (
 	id serial4 NOT NULL,
 	user_id int4 NOT NULL,

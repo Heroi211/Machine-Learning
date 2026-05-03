@@ -1,0 +1,47 @@
+# Contexto mais leve para `docker compose build api_processing`.
+.git
+.gitignore
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/*.md
+**/Passo*.txt
+
+# Serviços e dados que a imagem da API não precisa copiar.
+airflow/
+ml_data/
+init_db/
+
+# IDE / tooling local
+.cursor
+.vscode
+.idea
+
+# Testes e cobertura
+tests/
+**/test_*.py
+**/*_test.py
+**/conftest.py
+.coverage*
+htmlcov/
+.tox/
+
+# Artefactos e ambientes na máquina de build (nunca devem entrar na imagem)
+.env
+.env.*
+.venv/
+venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+**/*.ipynb
+
+# Builds e logs locais
+dist/
+build/
+logs/
+artifacts/
+mlruns/
+*.log

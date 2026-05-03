@@ -97,6 +97,7 @@ services:
       retries: 5
 
   # ---------- API FastAPI --------------------------------------------------
+  # Imagem multi-stage (.dockerignore, Torch CPU): deps listadas em docker/requirements-api.txt.
   api_processing:
     build:
       dockerfile: ./docker/api.dockerfile
