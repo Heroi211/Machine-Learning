@@ -15,6 +15,8 @@
 #       Airflow:  /opt/airflow/ml_project/uploads/<ficheiro>.csv
 #       API:      /var/www/ml_shared/uploads/<ficheiro>.csv
 #     (bind mount sobre o subdirectório `uploads` do volume ml_shared.)
+#   - MLflow: Airflow usa /opt/airflow/ml_project/{mlflow.db,mlruns/}; na API compose força-se
+#     sqlite:////var/www/ml_shared/mlflow.db e /var/www/ml_shared/mlruns (mesmo volume).
 #   - LocalExecutor: scheduler e webserver usam o mesmo bloco x-airflow-common → mesmo mount.
 # ---------------------------------------------------------------------------
 
@@ -106,6 +108,9 @@ services:
       - .env
     environment:
       DATABASE_SERVER: db_processing
+      # MLflow partilhado com Airflow (volume ml_shared: /opt/airflow/ml_project ≡ /var/www/ml_shared).
+      MLFLOW_TRACKING_URI: sqlite:////var/www/ml_shared/mlflow.db
+      MLFLOW_ARTIFACT_ROOT: /var/www/ml_shared/mlruns
     depends_on:
       db_processing:
         condition: service_healthy

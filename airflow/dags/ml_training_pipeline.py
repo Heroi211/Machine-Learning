@@ -266,6 +266,7 @@ def task_run_baseline(**context) -> None:
                 run_ts=now,
                 pipeline=pipeline,
                 original_filename=os.path.basename(csv_path),
+                airflow_dag_run_id=context["dag_run"].run_id,
             )
         )
 
@@ -348,6 +349,7 @@ def task_run_fe(**context) -> None:
                 tuning_n_iter=tuning_n_iter,
                 time_limit_minutes=time_limit_minutes,
                 effective_tuning_minutes=time_limit_minutes,
+                airflow_dag_run_id=context["dag_run"].run_id,
             )
         )
 

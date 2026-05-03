@@ -57,6 +57,7 @@ async def persist_airflow_baseline_run(
     run_ts: str,
     pipeline: Any,
     original_filename: str,
+    airflow_dag_run_id: str | None = None,
 ) -> int:
     from sklearn.metrics import (
         accuracy_score,
@@ -82,6 +83,12 @@ async def persist_airflow_baseline_run(
     }
     if int(yt.sum()) > 0 and int(len(yt) - yt.sum()) > 0:
         metrics["test_pr_auc"] = float(average_precision_score(yt, y_proba_test))
+
+    _ml = getattr(pipeline, "mlflow_run_id", None)
+    if _ml:
+        metrics["mlflow_run_id"] = _ml
+    if airflow_dag_run_id:
+        metrics["airflow_dag_run_id"] = airflow_dag_run_id
 
     session = Session()
     try:
@@ -126,6 +133,7 @@ async def persist_airflow_feature_engineering_run(
     tuning_n_iter: int | None,
     time_limit_minutes: int,
     effective_tuning_minutes: int,
+    airflow_dag_run_id: str | None = None,
 ) -> tuple[int, bool]:
     from services.pipelines.fe_model_selection import normalize_optimization_metric
 
@@ -174,6 +182,12 @@ async def persist_airflow_feature_engineering_run(
             "tuning_time_limit_requested": time_limit_minutes,
             "airflow_dag": True,
         }
+        _ml = getattr(pipeline, "mlflow_run_id", None)
+        if _ml:
+            merged_metrics["mlflow_run_id"] = _ml
+            merged_metrics["mlflow_fe_run_id"] = _ml
+        if airflow_dag_run_id:
+            merged_metrics["airflow_dag_run_id"] = airflow_dag_run_id
         _bcs = float(pipeline.best_cv_score)
         merged_metrics["best_cv_score"] = _bcs
         if math.isfinite(_bcs):
