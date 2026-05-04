@@ -13,15 +13,60 @@ Parâmetros efetivos = merge(**defaults Airflow Variable**, **dag_run.conf**). O
 (API ou UI) sobrescreve a Variable — útil em dev com API; em produção costuma-se deixar o
 JSON na Variable e dar Trigger com conf vazio ou só overrides pontuais.
 
-Variable (Admin → Variables):
-  - ``ml_training_pipeline_conf``: string JSON com pelo menos objective e csv_path, ex.::
-      {"objective":"churn","csv_path":"/opt/airflow/ml_project/uploads/dados.csv",
-       "optimization_metric":"accuracy","time_limit_minutes":30,"acc_target":0.85,
-       "min_precision":0.7,"min_roc_auc":0.75,"tuning_n_iter":80,"user_id":1,
-       "auto_promote": false}
+Variable (Admin → Variables), chave ``ml_training_pipeline_conf``:
+    Valor = **uma única string JSON** com ``objective`` e ``csv_path`` obrigatórios nos runs.
+    O merge com ``dag_run.conf`` do trigger faz o conf sobrescrever a Variable campo a campo.
 
-Opcionalmente também ``ml_training_objective`` e ``ml_training_csv_path`` (strings) se
-não quiseres JSON completo — preenchem só esses dois campos quando faltam no JSON.
+    **JSON por omissão** (bootstrap: ``airflow/bootstrap/ml_training_pipeline_conf.json``)::
+
+      {
+        "objective": "churn",
+        "csv_path": "/opt/airflow/ml_project/uploads/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+        "optimization_metric": "recall",
+        "time_limit_minutes": 30,
+        "tuning_n_iter": 1000,
+        "user_id": 2,
+        "auto_promote": false
+      }
+
+    **Campos (resumo)**
+      - ``objective``: nome do domínio registado nas strategies (ex. ``churn``).
+      - ``csv_path``: caminho absoluto no worker (volume ``ml_project`` / uploads).
+      - ``optimization_metric``: métrica que guia ranking e tuning no FE (ex. ``recall``, ``accuracy``).
+      - ``time_limit_minutes``: minutos máximos do passo de tuning (time-box).
+      - ``tuning_n_iter``: número máximo de configs amostradas no tuning antes do time-box.
+      - ``user_id``: ``users.id`` na BD da aplicação para o ``PipelineRuns``; omitir usa
+        ``DEFAULT_PIPELINE_USER_ID`` (por omissão 2 via env ``ML_PIPELINE_DEFAULT_USER_ID``).
+      - ``auto_promote``: se ``true``, após FE executa fluxo equivalente ao promote da API.
+
+    **Opcionais** (omitir ou não incluir a chave = sem guardrail / omissão do código)
+      - ``min_precision``: mínimo de **precision média em CV** para contar candidato que passa
+        guardrails na comparação e no tuning (endurece bastante quando se optimiza ``recall``).
+      - ``min_roc_auc``: idem para **ROC AUC médio em CV**.
+      - ``acc_target``: número alvo comunicado ao pipeline no final do tuning (reporte/logs).
+      - ``decision_threshold``: probabilidade mínima P(churn) para classificar positivo nas métricas
+        de teste (default vê env ``CLASSIFICATION_DECISION_THRESHOLD``, tipicamente 0.5; ex. 0.25
+        para priorizar recall em relatórios). Não altera os scores de CV do tuning.
+
+      Exemplo **com guardrails restritivos** (só se fizer sentido ao negócio)::
+
+      {
+        "objective": "churn",
+        "csv_path": "/opt/airflow/ml_project/uploads/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+        "optimization_metric": "recall",
+        "time_limit_minutes": 30,
+        "min_precision": 0.7,
+        "min_roc_auc": 0.75,
+        "tuning_n_iter": 1000,
+        "user_id": 2,
+        "auto_promote": false
+      }
+
+    Texto pensado para o campo **Description** da Variable na UI (copy-paste):
+    ``airflow/bootstrap/ml_training_pipeline_conf.variable_description.txt``
+
+    Opcionalmente ``ml_training_objective`` e ``ml_training_csv_path`` (Variáveis string)
+    quando o JSON não traz apenas esses dois campos — preenchem lacunas antes do merge.
 
 Disparo via CLI (conf explícito):
   airflow dags trigger ml_training_pipeline --conf '{ ... }'
@@ -43,6 +88,8 @@ log = logging.getLogger(__name__)
 
 ML_PROJECT_ROOT = os.environ.get("ML_PROJECT_ROOT", "/opt/airflow/ml_project")
 ML_CODE_ROOT = os.environ.get("ML_CODE_ROOT", "").strip()
+# ``users.id`` na BD da aplicação quando Variable/conf não incluem ``user_id`` (ex.: admin).
+DEFAULT_PIPELINE_USER_ID = int(os.environ.get("ML_PIPELINE_DEFAULT_USER_ID", "2"))
 
 
 def _bootstrap_ml_sys_path() -> None:
@@ -149,6 +196,8 @@ def _merged_run_conf(context: dict) -> dict:
 def task_validate_input(**context) -> None:
     """Valida se o CSV existe e tem as colunas mínimas para o domínio (via ``strategy.validate``)."""
     _prepend_airflow_ml_site_packages()
+    from core.configs import settings as _svc_settings
+
     conf = _merged_run_conf(context)
     objective = conf.get("objective")
     csv_path = conf.get("csv_path")
@@ -183,7 +232,7 @@ def task_validate_input(**context) -> None:
     ti = context["task_instance"]
     ti.xcom_push(key="objective", value=objective)
     ti.xcom_push(key="csv_path", value=csv_path)
-    ti.xcom_push(key="user_id", value=conf.get("user_id", 1))
+    ti.xcom_push(key="user_id", value=int(conf.get("user_id", DEFAULT_PIPELINE_USER_ID)))
     ti.xcom_push(key="optimization_metric", value=conf.get("optimization_metric", "accuracy"))
     ti.xcom_push(key="time_limit_minutes", value=int(conf.get("time_limit_minutes", 2)))
     ti.xcom_push(key="acc_target", value=float(conf.get("acc_target", 0.90)))
@@ -197,9 +246,15 @@ def task_validate_input(**context) -> None:
 
     ti.xcom_push(key="auto_promote", value=bool(conf.get("auto_promote", False)))
 
+    _dt_raw = conf.get("decision_threshold")
+    ti.xcom_push(
+        key="decision_threshold",
+        value=float(_svc_settings.classification_decision_threshold if _dt_raw is None else _dt_raw),
+    )
+
     log.info("Validação de input OK para domínio '%s'.", objective)
     log.info(f"CSV path: {csv_path}")
-    log.info(f"User ID: {conf.get('user_id', 1)}")
+    log.info(f"User ID: {int(conf.get('user_id', DEFAULT_PIPELINE_USER_ID))}")
     log.info(f"Optimization metric: {conf.get('optimization_metric', 'accuracy')}")
     log.info(f"Time limit minutes: {int(conf.get('time_limit_minutes', 2))}")
     log.info(f"Acc target: {float(conf.get('acc_target', 0.90))}")
@@ -210,6 +265,10 @@ def task_validate_input(**context) -> None:
     if conf.get("tuning_n_iter") is not None:
         log.info("tuning_n_iter: %s", conf["tuning_n_iter"])
     log.info("auto_promote: %s", conf.get("auto_promote", False))
+    log.info(
+        "decision_threshold: %s",
+        float(_svc_settings.classification_decision_threshold if _dt_raw is None else _dt_raw),
+    )
 
 
 def task_deactivate_manual_runs(**context) -> None:
@@ -232,17 +291,31 @@ def task_run_baseline(**context) -> None:
     objective = ti.xcom_pull(key="objective", task_ids="validate_input")
     csv_path = ti.xcom_pull(key="csv_path", task_ids="validate_input")
     user_id = ti.xcom_pull(key="user_id", task_ids="validate_input")
+    decision_threshold = float(ti.xcom_pull(key="decision_threshold", task_ids="validate_input"))
 
-    log.info("Iniciando Baseline | objective=%s | csv=%s", objective, csv_path)
+    log.info(
+        "Iniciando Baseline | objective=%s | csv=%s | decision_threshold=%s",
+        objective,
+        csv_path,
+        decision_threshold,
+    )
 
     try:
-        from core.custom_logger import setup_log
+        from core.custom_logger import setup_pipeline_run_logging
         from services.pipelines.baseline import Baseline
         from services.pipelines.feature_strategies import get_class_labels
 
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         snapshot_path = os.path.join(ML_PROJECT_ROOT, "logs", now)
-        setup_log(snapshot_path, now)
+        # Não usar ``setup_log`` aqui: ele faz ``root.handlers.clear()`` e remove os handlers
+        # que o Airflow instala no worker, o que esconde tracebacks e pode gerar zombie tasks.
+        setup_pipeline_run_logging(
+            snapshot_path,
+            now,
+            run_id=None,
+            objective=objective,
+            pipeline_type="baseline",
+        )
 
         pipeline = Baseline(
             pobjective=objective,
@@ -250,6 +323,7 @@ def task_run_baseline(**context) -> None:
             csv_path=csv_path,
             class_labels=get_class_labels(objective),
             defer_global_preprocess_contract=True,
+            decision_threshold=decision_threshold,
         )
         pipeline.run(start_time=datetime.now())
         pipeline.save_artifacts()
@@ -302,7 +376,10 @@ def task_run_baseline(**context) -> None:
         )
 
     except ImportError as e:
-        raise RuntimeError(f"Dependência ML não disponível no worker Airflow: {e}")
+        raise RuntimeError(f"Dependência ML não disponível no worker Airflow: {e}") from e
+    except Exception:
+        log.exception("run_baseline falhou (ver também pipeline_*.txt no snapshot em ml_project/logs).")
+        raise
 
 
 def task_run_fe(**context) -> None:
@@ -318,19 +395,21 @@ def task_run_fe(**context) -> None:
     min_precision = ti.xcom_pull(key="min_precision", task_ids="validate_input")
     min_roc_auc = ti.xcom_pull(key="min_roc_auc", task_ids="validate_input")
     tuning_n_iter = ti.xcom_pull(key="tuning_n_iter", task_ids="validate_input")
+    decision_threshold = float(ti.xcom_pull(key="decision_threshold", task_ids="validate_input"))
 
     if not manifest_path or not os.path.isfile(manifest_path):
         raise FileNotFoundError(f"Manifest do Baseline não encontrado para o FE: {manifest_path}")
 
     log.info(
         "Iniciando Feature Engineering | objective=%s | metric=%s | manifest=%s | "
-        "min_precision=%s min_roc_auc=%s tuning_n_iter=%s",
+        "min_precision=%s min_roc_auc=%s tuning_n_iter=%s decision_threshold=%s",
         objective,
         optimization_metric,
         manifest_path,
         min_precision,
         min_roc_auc,
         tuning_n_iter,
+        decision_threshold,
     )
 
     try:
@@ -353,6 +432,7 @@ def task_run_fe(**context) -> None:
             min_precision=min_precision,
             min_roc_auc=min_roc_auc,
             tuning_n_iter=tuning_n_iter,
+            decision_threshold=decision_threshold,
         )
         # Airflow: sem teto SYNC_FE — usa o valor integral do conf/Variable
         pipeline.run(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
@@ -387,7 +467,10 @@ def task_run_fe(**context) -> None:
         )
 
     except ImportError as e:
-        raise RuntimeError(f"Dependência ML não disponível no worker Airflow: {e}")
+        raise RuntimeError(f"Dependência ML não disponível no worker Airflow: {e}") from e
+    except Exception:
+        log.exception("run_fe falhou.")
+        raise
 
 
 def task_promote_fe_optional(**context) -> None:

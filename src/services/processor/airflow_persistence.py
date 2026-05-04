@@ -18,6 +18,9 @@ from sqlalchemy import func, update
 
 from core.configs import settings
 from core.database import Session
+# Import side-effect: regista Roles, Users, Predictions, DeployedModels antes de
+# ``PipelineRuns`` resolver ``relationship("Users", ...)``.
+import models._all_models  # noqa: F401
 from models.pipeline_runs import PipelineRuns
 from services.processor.deployment_service import (
     get_active_deployment,
@@ -72,12 +75,16 @@ async def persist_airflow_baseline_run(
     model_path = os.path.join(settings.path_model, f"baseline_model_{objective}_{pipeline.now}.joblib")
     csv_path = os.path.join(pipeline.snapshot_path, pipeline.contract_sample_name)
 
+    from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
+
     model = pipeline.model
-    y_pred_test = model.predict(pipeline.x_test)
+    thr = float(getattr(pipeline, "decision_threshold", settings.classification_decision_threshold))
+    y_pred_test = labels_from_probability_threshold(model, pipeline.x_test, thr)
     y_proba_test = model.predict_proba(pipeline.x_test)[:, 1]
     _zd = {"zero_division": 0}
     yt = pipeline.y_test
     metrics: dict = {
+        "classification_decision_threshold": thr,
         "test_accuracy": float(accuracy_score(yt, y_pred_test)),
         "test_f1": float(f1_score(yt, y_pred_test, **_zd)),
         "test_precision": float(precision_score(yt, y_pred_test, **_zd)),

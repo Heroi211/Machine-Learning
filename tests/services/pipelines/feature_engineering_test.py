@@ -6,6 +6,7 @@ import pytest
 from datetime import datetime
 import tempfile
 import os
+from contextlib import nullcontext
 
 from services.pipelines.feature_engineering import FeatureEngineering
 from services.pipelines.feature_strategies.base import FeatureStrategy
@@ -76,6 +77,7 @@ class TestFeatureEngineeringInit:
         with patch.dict("sys.modules", {"debugpy": Mock()}):
             fe = FeatureEngineering(objective="churn", strategy=strategy)
             assert fe.n_jobs == 1
+            assert isinstance(fe._joblib_cv_parallel_cm(), nullcontext)
 
     def test_init_n_jobs_normal_mode(self):
         """Test that n_jobs is -1 in normal mode"""

@@ -39,6 +39,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    # Mesma chave em webserver + scheduler: JWT dos URLs de log (porta 8793). Sem isto: 403 / InvalidSignature.
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-airflow-dev-webserver-secret-change-in-prod-min-32chars}
     # Variáveis repassadas aos DAGs para acesso ao projeto ML
     ML_API_URL: http://api_processing:8000
     ML_PROJECT_ROOT: /opt/airflow/ml_project
@@ -64,6 +66,8 @@ x-airflow-common: &airflow-common
     AIRFLOW_UID: ${AIRFLOW_UID:-50000}
     # Matplotlib: ~/.cache pode não ser gravável com AIRFLOW_UID no contentor.
     MPLCONFIGDIR: /opt/airflow/ml_project/.matplotlib
+    # users.id na app quando Variable/conf omitam ``user_id`` (DAG: DEFAULT_PIPELINE_USER_ID).
+    ML_PIPELINE_DEFAULT_USER_ID: "2"
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     # Volume nomeado evita Permission denied (UID airflow vs pasta no host)

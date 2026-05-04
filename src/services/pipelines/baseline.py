@@ -28,6 +28,7 @@ import re
 import shutil
 
 from services.utils import log_training_csv_to_active_run
+from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
 
 
 load_dotenv()
@@ -79,6 +80,7 @@ class Baseline:
         class_labels: tuple[str, str] | None = None,
         *,
         defer_global_preprocess_contract: bool = False,
+        decision_threshold: float | None = None,
     ):
         """
         Parameters
@@ -96,6 +98,9 @@ class Baseline:
         defer_global_preprocess_contract : bool
             Quando ``True``, ``baseline_sample.csv`` + ``manifest.json`` só na pasta snapshot;
             o chamador deve copiar para ``pre_processed`` se o run vencer comparador recall.
+        decision_threshold : float, optional
+            P(classe positiva) mínima para classificar como positivo (precision/recall nos relatórios).
+            Omite-se ``settings.classification_decision_threshold`` (env ``CLASSIFICATION_DECISION_THRESHOLD``).
         """
         self.path_data = ppath_data
         self.path_data_preprocessed = ppath_data_preprocessed
@@ -123,6 +128,15 @@ class Baseline:
             self.now = pagora
             self.snapshot_path = psnapshot_path
         self.defer_global_preprocess_contract = defer_global_preprocess_contract
+        self.decision_threshold = (
+            float(decision_threshold)
+            if decision_threshold is not None
+            else float(settings.classification_decision_threshold)
+        )
+        if not (0.0 <= self.decision_threshold <= 1.0):
+            raise ValueError(
+                f"classification_decision_threshold deve estar em [0, 1]. Recebido: {self.decision_threshold!r}"
+            )
         self.current_csv_path = None
         self.data = None
         self.data_encoded = None
@@ -139,6 +153,7 @@ class Baseline:
         logger.info(f"Objective: {self.objective}")
         logger.info(f"Random state: {self.random_state}")
         logger.info(f"Test size: {self.test_size}")
+        logger.info("classification_decision_threshold: %s", self.decision_threshold)
     
     def load_data(self):
         """
@@ -689,6 +704,7 @@ class Baseline:
         mlflow.set_experiment(experiment_name)
         with mlflow.start_run(run_name=f"baseline_{self.objective}") as _mlr:
             self.mlflow_run_id = _mlr.info.run_id
+            mlflow.log_param("classification_decision_threshold", float(self.decision_threshold))
             log_training_csv_to_active_run(
                 self.current_csv_path,
                 df=self.data,
@@ -702,13 +718,14 @@ class Baseline:
                 [("preprocess", preprocess), ("classifier", classifier)]
             )
 
-            y_pred_train = self.model.predict(self.x_train)
-            y_pred_test = self.model.predict(self.x_test)
+            y_pred_train = labels_from_probability_threshold(self.model, self.x_train, self.decision_threshold)
+            y_pred_test = labels_from_probability_threshold(self.model, self.x_test, self.decision_threshold)
             y_proba_train = self.model.predict_proba(self.x_train)[:, 1]
             y_proba_test = self.model.predict_proba(self.x_test)[:, 1]
 
             _zd = {"zero_division": 0}
             metrics = {
+                "classification_decision_threshold": float(self.decision_threshold),
                 "train_accuracy": accuracy_score(self.y_train, y_pred_train),
                 "train_precision": precision_score(self.y_train, y_pred_train, **_zd),
                 "train_recall": recall_score(self.y_train, y_pred_train, **_zd),
@@ -763,8 +780,9 @@ class Baseline:
             )
             mlflow.log_metric("overfitting_gap", overfitting)
 
-            if os.path.exists(self.path_graphs):
-                mlflow.log_artifacts("graphs", artifact_path=f"{self.path_graphs}plots")
+            if os.path.isdir(self.path_graphs):
+                # ``artifact_path`` é o prefixo *dentro do run* no MLflow (não caminho no disco).
+                mlflow.log_artifacts(self.path_graphs, artifact_path="graphs")
 
             mlflow.sklearn.log_model(self.model, "model")
 

@@ -6,6 +6,7 @@ import sys
 import time
 import json
 import re
+from contextlib import nullcontext
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ import seaborn as sns
 import mlflow
 import mlflow.sklearn
 import joblib
+from joblib import parallel_backend
 
 from datetime import datetime
 from sklearn.compose import ColumnTransformer
@@ -38,6 +40,7 @@ from services.pipelines.feature_strategies.base import FeatureStrategy
 from services.pipelines.fe_hyperparameter_tuning import param_distributions_for
 from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, sklearn_scoring_parameter
 from services.utils import log_training_csv_to_active_run
+from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
 
 if TYPE_CHECKING:
     from services.pipelines.mlp_torch_tabular import TorchTabularMLPResult
@@ -78,6 +81,8 @@ class FeatureEngineering:
         mlp_weight_decay: float = 1e-5,
         mlp_max_epochs: int = 300,
         mlp_early_stopping_patience: int = 20,
+        *,
+        decision_threshold: float | None = None,
     ):
         self.objective = objective
         self.strategy = strategy
@@ -133,6 +138,15 @@ class FeatureEngineering:
         self.mlp_weight_decay = mlp_weight_decay
         self.mlp_max_epochs = mlp_max_epochs
         self.mlp_early_stopping_patience = mlp_early_stopping_patience
+        self.decision_threshold = (
+            float(decision_threshold)
+            if decision_threshold is not None
+            else float(settings.classification_decision_threshold)
+        )
+        if not (0.0 <= self.decision_threshold <= 1.0):
+            raise ValueError(
+                f"classification_decision_threshold deve estar em [0, 1]. Recebido: {self.decision_threshold!r}"
+            )
         # Preenchidos em _run_mlp_torch_mvp (para MLflow / estudo)
         self.mlp_torch_result: TorchTabularMLPResult | None = None
         self.mlp_torch_hparams: dict[str, Any] = {}
@@ -156,6 +170,30 @@ class FeatureEngineering:
             if np.isnan(roc_auc_value) or roc_auc_value < self.min_roc_auc:
                 return False
         return True
+
+    def _joblib_cv_parallel_cm(self):
+        """
+        Airflow (e outros processos filhos) fazem joblib/Loky recuar para n_jobs=1.
+        ``parallel_backend('threading')`` paraleliza folds por threads, sem novos processos.
+        Controlado por ``settings.resolved_joblib_parallel_backend_for_sklearn()`` /
+        ``ML_PIPELINE_JOBLIB_BACKEND``.
+
+        Com debug manual (VS Code / ``debugpy`` carregado), não força backend — alinhado a
+        ``n_jobs=1`` e breakpoints mais previsíveis.
+        """
+        if "debugpy" in sys.modules:
+            return nullcontext()
+
+        backend = settings.resolved_joblib_parallel_backend_for_sklearn()
+        if backend is not None:
+            logger.debug(
+                "joblib.parallel_backend(%r) para CV/permutação (setting=%s, AIRFLOW_CTX=%s).",
+                backend,
+                settings.ml_pipeline_joblib_backend,
+                "sim" if os.environ.get("AIRFLOW_CTX_DAG_ID") else "não",
+            )
+            return parallel_backend(backend)
+        return nullcontext()
 
     @staticmethod
     def _is_binary_column(series: pd.Series) -> bool:
@@ -384,54 +422,60 @@ class FeatureEngineering:
 
         results = []
 
-        for name in model_configs:
-            pipeline = self._build_model_pipeline(name)
-            cv_scores = cross_val_score(
-                pipeline, self.x_train, self.y_train, cv=cv, scoring=scoring, n_jobs=self.n_jobs
-            )
-            cv_score = float(np.mean(cv_scores))
+        with self._joblib_cv_parallel_cm():
+            for name in model_configs:
+                pipeline = self._build_model_pipeline(name)
+                cv_scores = cross_val_score(
+                    pipeline,
+                    self.x_train,
+                    self.y_train,
+                    cv=cv,
+                    scoring=scoring,
+                    n_jobs=self.n_jobs,
+                )
+                cv_score = float(np.mean(cv_scores))
 
-            cv_guard = cross_validate(
-                pipeline,
-                self.x_train,
-                self.y_train,
-                cv=cv,
-                scoring={"precision": "precision", "roc_auc": "roc_auc"},
-                n_jobs=self.n_jobs,
-            )
-            guardrail_precision_cv = float(np.mean(cv_guard["test_precision"]))
-            guardrail_roc_auc_cv = float(np.mean(cv_guard["test_roc_auc"]))
+                cv_guard = cross_validate(
+                    pipeline,
+                    self.x_train,
+                    self.y_train,
+                    cv=cv,
+                    scoring={"precision": "precision", "roc_auc": "roc_auc"},
+                    n_jobs=self.n_jobs,
+                )
+                guardrail_precision_cv = float(np.mean(cv_guard["test_precision"]))
+                guardrail_roc_auc_cv = float(np.mean(cv_guard["test_roc_auc"]))
 
-            pipeline.fit(self.x_train, self.y_train)
-            y_pred = pipeline.predict(self.x_test)
+                pipeline.fit(self.x_train, self.y_train)
+                y_pred = labels_from_probability_threshold(pipeline, self.x_test, self.decision_threshold)
 
-            metrics = {
-                "Modelo": name,
-                "Acurácia": accuracy_score(self.y_test, y_pred),
-                "Precisão": precision_score(self.y_test, y_pred, zero_division=0),
-                "Recall": recall_score(self.y_test, y_pred, zero_division=0),
-                "F1": f1_score(self.y_test, y_pred, zero_division=0),
-                "ROC AUC": np.nan,
-                "CV Score": cv_score,
-            }
+                metrics = {
+                    "Modelo": name,
+                    "Acurácia": accuracy_score(self.y_test, y_pred),
+                    "Precisão": precision_score(self.y_test, y_pred, zero_division=0),
+                    "Recall": recall_score(self.y_test, y_pred, zero_division=0),
+                    "F1": f1_score(self.y_test, y_pred, zero_division=0),
+                    "ROC AUC": np.nan,
+                    "CV Score": cv_score,
+                }
 
-            if hasattr(pipeline, "predict_proba"):
-                metrics["ROC AUC"] = roc_auc_score(self.y_test, pipeline.predict_proba(self.x_test)[:, 1])
-            elif hasattr(pipeline, "decision_function"):
-                metrics["ROC AUC"] = roc_auc_score(self.y_test, pipeline.decision_function(self.x_test))
+                if hasattr(pipeline, "predict_proba"):
+                    metrics["ROC AUC"] = roc_auc_score(self.y_test, pipeline.predict_proba(self.x_test)[:, 1])
+                elif hasattr(pipeline, "decision_function"):
+                    metrics["ROC AUC"] = roc_auc_score(self.y_test, pipeline.decision_function(self.x_test))
 
-            metrics["Pass Guardrails"] = self._passes_guardrails(
-                guardrail_precision_cv,
-                guardrail_roc_auc_cv,
-            )
-            metrics["CV Precision"] = guardrail_precision_cv
-            metrics["CV ROC AUC"] = guardrail_roc_auc_cv
+                metrics["Pass Guardrails"] = self._passes_guardrails(
+                    guardrail_precision_cv,
+                    guardrail_roc_auc_cv,
+                )
+                metrics["CV Precision"] = guardrail_precision_cv
+                metrics["CV ROC AUC"] = guardrail_roc_auc_cv
 
-            logger.info("=== %s === cv_%s: %.4f", name, self.optimization_metric, cv_score)
-            logger.debug(f"\n{classification_report(self.y_test, y_pred)}")
+                logger.info("=== %s === cv_%s: %.4f", name, self.optimization_metric, cv_score)
+                logger.debug(f"\n{classification_report(self.y_test, y_pred)}")
 
-            self.trained_models[name] = pipeline
-            results.append(metrics)
+                self.trained_models[name] = pipeline
+                results.append(metrics)
 
         self.results_df = pd.DataFrame(results).sort_values("CV Score", ascending=False).reset_index(drop=True).round(4)
         logger.info(f"Ranking de modelos:\n{self.results_df.to_string()}")
@@ -467,6 +511,7 @@ class FeatureEngineering:
     def _finalize_tuned_metrics(self, y_pred, y_proba_vec: np.ndarray | None) -> None:
         """Preenche `tuned_metrics` a partir de predições no conjunto de teste (`y_proba_vec` = P(classe positiva))."""
         self.tuned_metrics = {
+            "classification_decision_threshold": float(self.decision_threshold),
             "Acurácia": accuracy_score(self.y_test, y_pred),
             "Precisão": precision_score(self.y_test, y_pred, zero_division=0),
             "Recall": recall_score(self.y_test, y_pred, zero_division=0),
@@ -517,84 +562,85 @@ class FeatureEngineering:
 
         n_evaluated = 0
 
-        for i, params in enumerate(sampler, start=1):
-            now = time.time()
-            if now >= deadline:
-                logger.info("Tempo limite atingido — encerrando busca.")
-                break
+        with self._joblib_cv_parallel_cm():
+            for i, params in enumerate(sampler, start=1):
+                now = time.time()
+                if now >= deadline:
+                    logger.info("Tempo limite atingido — encerrando busca.")
+                    break
 
-            pipeline = self._build_model_pipeline(self.best_model_name)
-            pipeline.set_params(**params)
+                pipeline = self._build_model_pipeline(self.best_model_name)
+                pipeline.set_params(**params)
 
-            cv_scores = cross_val_score(
-                pipeline,
-                self.x_train,
-                self.y_train,
-                cv=cv,
-                scoring=scoring,
-                n_jobs=self.n_jobs,
-            )
-            mean_cv = float(np.mean(cv_scores))
-
-            guardrail_precision_cv = float("nan")
-            guardrail_roc_auc_cv = float("nan")
-            if self.min_precision is not None or self.min_roc_auc is not None:
-                scorers = {}
-                if self.min_precision is not None:
-                    scorers["precision"] = "precision"
-                if self.min_roc_auc is not None:
-                    scorers["roc_auc"] = "roc_auc"
-                cv_guard = cross_validate(
+                cv_scores = cross_val_score(
                     pipeline,
                     self.x_train,
                     self.y_train,
                     cv=cv,
-                    scoring=scorers,
+                    scoring=scoring,
                     n_jobs=self.n_jobs,
                 )
-                if "test_precision" in cv_guard:
-                    guardrail_precision_cv = float(np.mean(cv_guard["test_precision"]))
-                if "test_roc_auc" in cv_guard:
-                    guardrail_roc_auc_cv = float(np.mean(cv_guard["test_roc_auc"]))
+                mean_cv = float(np.mean(cv_scores))
 
-            pass_guardrails = self._passes_guardrails(guardrail_precision_cv, guardrail_roc_auc_cv)
+                guardrail_precision_cv = float("nan")
+                guardrail_roc_auc_cv = float("nan")
+                if self.min_precision is not None or self.min_roc_auc is not None:
+                    scorers = {}
+                    if self.min_precision is not None:
+                        scorers["precision"] = "precision"
+                    if self.min_roc_auc is not None:
+                        scorers["roc_auc"] = "roc_auc"
+                    cv_guard = cross_validate(
+                        pipeline,
+                        self.x_train,
+                        self.y_train,
+                        cv=cv,
+                        scoring=scorers,
+                        n_jobs=self.n_jobs,
+                    )
+                    if "test_precision" in cv_guard:
+                        guardrail_precision_cv = float(np.mean(cv_guard["test_precision"]))
+                    if "test_roc_auc" in cv_guard:
+                        guardrail_roc_auc_cv = float(np.mean(cv_guard["test_roc_auc"]))
 
-            pipeline.fit(self.x_train, self.y_train)
+                pass_guardrails = self._passes_guardrails(guardrail_precision_cv, guardrail_roc_auc_cv)
 
-            if mean_cv > best_cv_fallback:
-                best_cv_fallback = mean_cv
-                best_params_fallback = params
-                tuned_pipeline_fallback = pipeline
+                pipeline.fit(self.x_train, self.y_train)
 
-            if pass_guardrails and mean_cv > self.best_cv_score:
-                self.best_cv_score = mean_cv
-                self.best_params = params
-                tuned_pipeline = pipeline
-                elapsed = now - start
-                logger.info(
-                    "[%s] Novo melhor (guardrails ok) | cv_%s=%.4f | cv_precision=%.4f | cv_roc_auc=%.4f | t=%.1fm | params=%s",
-                    i,
-                    self.optimization_metric,
-                    mean_cv,
-                    guardrail_precision_cv,
-                    guardrail_roc_auc_cv,
-                    elapsed / 60,
-                    params,
-                )
+                if mean_cv > best_cv_fallback:
+                    best_cv_fallback = mean_cv
+                    best_params_fallback = params
+                    tuned_pipeline_fallback = pipeline
 
-            if i % 5 == 0:
-                elapsed = now - start
-                remaining = max(0.0, deadline - now)
-                logger.debug(
-                    "Iterações: %s | melhor_cv_%s=%.4f | decorrido=%.1fm | restante=%.1fm",
-                    i,
-                    self.optimization_metric,
-                    self.best_cv_score,
-                    elapsed / 60,
-                    remaining / 60,
-                )
+                if pass_guardrails and mean_cv > self.best_cv_score:
+                    self.best_cv_score = mean_cv
+                    self.best_params = params
+                    tuned_pipeline = pipeline
+                    elapsed = now - start
+                    logger.info(
+                        "[%s] Novo melhor (guardrails ok) | cv_%s=%.4f | cv_precision=%.4f | cv_roc_auc=%.4f | t=%.1fm | params=%s",
+                        i,
+                        self.optimization_metric,
+                        mean_cv,
+                        guardrail_precision_cv,
+                        guardrail_roc_auc_cv,
+                        elapsed / 60,
+                        params,
+                    )
 
-            n_evaluated = i
+                if i % 5 == 0:
+                    elapsed = now - start
+                    remaining = max(0.0, deadline - now)
+                    logger.debug(
+                        "Iterações: %s | melhor_cv_%s=%.4f | decorrido=%.1fm | restante=%.1fm",
+                        i,
+                        self.optimization_metric,
+                        self.best_cv_score,
+                        elapsed / 60,
+                        remaining / 60,
+                    )
+
+                n_evaluated = i
 
         if tuned_pipeline is None:
             self.guardrails_summary["tuning_guardrails_passed"] = False
@@ -620,7 +666,7 @@ class FeatureEngineering:
 
         self.best_pipeline = tuned_pipeline
 
-        y_pred = self.best_pipeline.predict(self.x_test)
+        y_pred = labels_from_probability_threshold(self.best_pipeline, self.x_test, self.decision_threshold)
         y_proba = (
             self.best_pipeline.predict_proba(self.x_test)[:, 1]
             if hasattr(self.best_pipeline, "predict_proba")
@@ -870,15 +916,16 @@ class FeatureEngineering:
         else:
             logger.info("Modelo não expõe feature_importances_. Pulando gráfico Gini.")
 
-        perm = permutation_importance(
-            self.best_pipeline,
-            self.x_test,
-            self.y_test,
-            scoring=sklearn_scoring_parameter(self.optimization_metric),
-            n_repeats=10,
-            random_state=self.random_state,
-            n_jobs=self.n_jobs,
-        )
+        with self._joblib_cv_parallel_cm():
+            perm = permutation_importance(
+                self.best_pipeline,
+                self.x_test,
+                self.y_test,
+                scoring=sklearn_scoring_parameter(self.optimization_metric),
+                n_repeats=10,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+            )
         perm_feat_names = np.array(self.x_test.columns.tolist())
         if perm_feat_names.shape[0] != perm.importances_mean.shape[0]:
             logger.warning(
@@ -943,6 +990,7 @@ class FeatureEngineering:
                     for k, v in self.best_params.items():
                         mlflow.log_param(k, str(v))
                 mlflow.log_param("optimization_metric", self.optimization_metric)
+                mlflow.log_param("classification_decision_threshold", float(self.decision_threshold))
                 mlflow.log_param("tuning_n_iter", self.tuning_n_iter)
                 if self.min_precision is not None:
                     mlflow.log_param("min_precision", float(self.min_precision))
@@ -1048,6 +1096,7 @@ class FeatureEngineering:
         """
         start_time = datetime.now()
         logger.info(f"Pipeline de Feature Engineering iniciado: {start_time}")
+        logger.info("classification_decision_threshold: %s (métricas de teste; CV usa predict interno do sklearn)", self.decision_threshold)
 
         self._run_data_contract_and_fe_build(start_time)
         self._run_modeling_prep_and_selection(start_time)

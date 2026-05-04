@@ -1,0 +1,37 @@
+ml_training_pipeline_conf — JSON único (string). Dag merge com Trigger conf: o conf sobrescreve só as chaves enviadas.
+
+Obrigatórios efectivos pelo DAG: objective, csv_path (no Bootstrap já vêm neste exemplo).
+
+Valor por omissão (Bootstrap / env dev):
+---
+{
+  "objective": "churn",
+  "csv_path": "/opt/airflow/ml_project/uploads/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+  "optimization_metric": "recall",
+  "time_limit_minutes": 30,
+  "tuning_n_iter": 1000,
+  "user_id": 2,
+  "auto_promote": false
+}
+---
+
+Campos principais:
+- objective — domínio ML (strategy), ex.: churn.
+- csv_path — caminho absoluto no worker (volume ml_project/uploads).
+- optimization_metric — métrica CV / tuning no FE (ex.: recall, accuracy).
+- time_limit_minutes — teto temporal do tuning.
+- tuning_n_iter — número máximo de draws de hiperparâmetros antes do tempo acabar.
+- user_id — id em users na BD da app para PipelineRuns (omitir: ML_PIPELINE_DEFAULT_USER_ID).
+- auto_promote — true chama fluxo tipo promote da API depois do FE.
+
+Opcional (omitir = sem guardrail nessa métrica):
+- min_precision — precision média mínima nas folds de CV para o modelo “passar” guardrail.
+- min_roc_auc — ROC AUC médio mínimo em CV para o mesmo.
+- acc_target — alvo numérico reportado ao fim do tuning (logs/alvo).
+- decision_threshold — P(churn) mínimo para métricas de teste (Precision/Recall/F1 no holdout),
+  default via env CLASSIFICATION_DECISION_THRESHOLD (ex. 0.25 para favorecer recall nos relatórios).
+  O CV/tuning continua a usar o limiar interno do sklearn.
+
+Guardrails opcionais (exemplo mais restrito; não está no valor default): min_precision 0.7, min_roc_auc 0.75 só se o custo do negócio exigir; com optimization_metric recall costumam impedir vários melhores em recall.
+
+Documentação mais longa: docstring na DAG ml_training_pipeline (código-fonte).

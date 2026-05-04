@@ -1,8 +1,11 @@
 from pathlib import Path
+import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 import logging
+
+from typing import Literal
 
 # Raiz do repositório (este ficheiro: repo/src/core/configs.py)
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -95,6 +98,54 @@ class Settings(BaseSettings):
         validation_alias="SYNC_FE_TUNE_MAX_MINUTES",
         description="Teto de minutos de tuning do FE em rotas síncronas (API, não Airflow).",
     )
+
+    classification_decision_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        validation_alias="CLASSIFICATION_DECISION_THRESHOLD",
+        description=(
+            "Probabilidade mínima P(classe positiva) para classificar como positivo nos relatórios "
+            "(Precision/Recall/F1Accuracy em teste; não altera thresholds internos do CV). "
+            "Override por conf Airflow/decision_threshold ou FE argumento dedicado."
+        ),
+    )
+
+    ml_pipeline_joblib_backend: Literal["auto", "threading", "loky", "multiprocessing"] = Field(
+        default="auto",
+        validation_alias="ML_PIPELINE_JOBLIB_BACKEND",
+        description=(
+            "Backend joblib para cross_val_score/cross_validate/permutation_importance. "
+            "'auto' usa threading dentro de tasks Airflow (evita Loky→n_jobs=1). "
+            "Em ambiente sem Airflow mantém omissão (loky). Ver .env_example."
+        ),
+    )
+
+    @field_validator("ml_pipeline_joblib_backend", mode="before")
+    @classmethod
+    def _normalize_ml_pipeline_joblib_backend(cls, v: object, info: ValidationInfo) -> Literal["auto", "threading", "loky", "multiprocessing"]:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return "auto"
+        if not isinstance(v, str):
+            raise TypeError(f"{info.field_name} deve ser uma string.")
+        key = v.strip().lower()
+        allowed = frozenset({"auto", "threading", "loky", "multiprocessing"})
+        if key not in allowed:
+            raise ValueError(f"{info.field_name} deve ser um de {sorted(allowed)}. Recebido: {v!r}.")
+        return key  # type: ignore[return-value]
+
+    def resolved_joblib_parallel_backend_for_sklearn(self) -> str | None:
+        """
+        Backend a passar a ``joblib.parallel_backend`` nos passos de CV do pipeline ML.
+
+        ``None`` = não forçar (joblib usa loky por omissão). Com ``auto``, usa
+        ``threading`` dentro de tasks Airflow (``AIRFLOW_CTX_DAG_ID`` definido)
+        para evitar Loky a cair para ``n_jobs=1`` em subprocessos.
+        """
+        b = self.ml_pipeline_joblib_backend
+        if b == "auto":
+            return "threading" if os.environ.get("AIRFLOW_CTX_DAG_ID") else None
+        return b
 
     @property
     def is_production(self) -> bool:

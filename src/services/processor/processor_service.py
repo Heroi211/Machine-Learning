@@ -464,6 +464,7 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
                 pipeline_type="baseline",
             )
             from services.pipelines.feature_strategies import get_class_labels
+            from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
             pipeline = Baseline(
                 pobjective=objective,
                 run_timestamp=run_ts,
@@ -478,11 +479,12 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
             csv_path = os.path.join(pipeline.snapshot_path, pipeline.contract_sample_name)
 
             model = pipeline.model
-            y_pred_test = model.predict(pipeline.x_test)
+            y_pred_test = labels_from_probability_threshold(model, pipeline.x_test, pipeline.decision_threshold)
             y_proba_test = model.predict_proba(pipeline.x_test)[:, 1]
             _zd = {"zero_division": 0}
             yt = pipeline.y_test
             metrics = {
+                "classification_decision_threshold": float(pipeline.decision_threshold),
                 "test_accuracy": float(accuracy_score(yt, y_pred_test)),
                 "test_f1": float(f1_score(yt, y_pred_test, **_zd)),
                 "test_precision": float(precision_score(yt, y_pred_test, **_zd)),
@@ -526,6 +528,7 @@ async def run_feature_engineering(
     tuning_n_iter: int | None = None,
     time_limit_minutes: int = 2,
     acc_target: float | None = None,
+    decision_threshold: float | None = None,
 ) -> tuple[PipelineRuns, str | None]:
     """
     Executa apenas o pipeline de Feature Engineering usando o contrato
@@ -636,6 +639,7 @@ async def run_feature_engineering(
             min_roc_auc=min_roc_auc,
             tuning_n_iter=tuning_n_iter,
             export_figures_dir=fe_plots,
+            decision_threshold=decision_threshold,
         )
         pipeline.run(time_limit_minutes=effective_tuning_minutes, acc_target=acc_target)
 

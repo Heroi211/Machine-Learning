@@ -262,6 +262,10 @@ async def admin_train_feature_engineering(
     tuning_n_iter: int | None = Form(None, description="Número máximo de amostras no tuning (opcional)."),
     time_limit_minutes: int = Form(2),
     acc_target: float | None = Form(None),
+    decision_threshold: float | None = Form(
+        None,
+        description="P(classe positiva) mínima para métricas de teste; omite = env CLASSIFICATION_DECISION_THRESHOLD.",
+    ),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
@@ -275,6 +279,7 @@ async def admin_train_feature_engineering(
             tuning_n_iter=tuning_n_iter,
             time_limit_minutes=time_limit_minutes,
             acc_target=acc_target,
+            decision_threshold=decision_threshold,
         )
         if run.status != "completed":
             if zip_path:
