@@ -1,4 +1,5 @@
 """Entrypoint da API na raiz do repo; adiciona ``src/`` ao ``sys.path``."""
+# ruff: noqa: E402
 from pathlib import Path
 import sys
 

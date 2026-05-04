@@ -1,3 +1,5 @@
+"""Testes do pipeline baseline e de suas validações principais."""
+
 import os
 import time
 from types import SimpleNamespace
@@ -10,6 +12,7 @@ import services.pipelines.baseline as baseline_module
 
 
 def test_init_default_labels():
+    """Verifica inicialização com rótulos padrão."""
     baseline = Baseline(pobjective="churn")
 
     assert baseline.objective == "churn"
@@ -21,6 +24,7 @@ def test_init_default_labels():
 
 
 def test_init_custom_class_labels():
+    """Verifica inicialização com rótulos customizados."""
     baseline = Baseline(pobjective="heart_disease", class_labels=("No HD", "HD"))
 
     assert baseline.label_neg == "No HD"
@@ -28,6 +32,7 @@ def test_init_custom_class_labels():
 
 
 def test_load_data_with_explicit_path(tmp_path):
+    """Verifica carregamento de CSV informado explicitamente."""
     csv_file = tmp_path / "test.csv"
     csv_file.write_text("col1,col2,target\n1,2,0\n3,4,1")
 
@@ -41,6 +46,7 @@ def test_load_data_with_explicit_path(tmp_path):
 
 
 def test_load_data_explicit_path_not_found():
+    """Verifica erro quando o CSV explícito não existe."""
     baseline = Baseline(pobjective="target", csv_path="non_existent.csv")
 
     with pytest.raises(ValueError):
@@ -48,6 +54,7 @@ def test_load_data_explicit_path_not_found():
 
 
 def test_load_data_no_files(tmp_path):
+    """Verifica erro quando não há arquivos CSV no diretório."""
     baseline = Baseline(pobjective="target")
     baseline.path_data = str(tmp_path)
 
@@ -56,6 +63,7 @@ def test_load_data_no_files(tmp_path):
 
 
 def test_load_data_picks_latest(tmp_path):
+    """Verifica seleção do CSV mais recente no diretório de dados."""
     file1 = tmp_path / "old.csv"
     file2 = tmp_path / "new.csv"
 
@@ -73,6 +81,7 @@ def test_load_data_picks_latest(tmp_path):
 
 
 def test_summary_overview_does_not_raise():
+    """Verifica que o resumo inicial executa sem exceções."""
     baseline = Baseline(pobjective="target")
     baseline.data = pd.DataFrame({"feature": [1, 2], "target": [0, 1]})
     baseline.target = "target"
@@ -81,6 +90,7 @@ def test_summary_overview_does_not_raise():
 
 
 def test_missing_identifier_passes_when_no_missing():
+    """Verifica validação positiva quando target não possui nulos."""
     baseline = Baseline(pobjective="target")
     baseline.data = pd.DataFrame({"feature": [1, 2], "target": [0, 1]})
     baseline.target = "target"
@@ -89,6 +99,7 @@ def test_missing_identifier_passes_when_no_missing():
 
 
 def test_missing_identifier_raises_for_missing_target_column():
+    """Verifica erro quando a coluna alvo não existe."""
     baseline = Baseline(pobjective="target")
     baseline.data = pd.DataFrame({"feature": [1, 2], "value": [0, 1]})
     baseline.target = "target"
@@ -98,6 +109,7 @@ def test_missing_identifier_raises_for_missing_target_column():
 
 
 def test_missing_identifier_raises_for_null_target_values():
+    """Verifica erro quando a coluna alvo possui valores nulos."""
     baseline = Baseline(pobjective="target")
     baseline.data = pd.DataFrame({"feature": [1, 2], "target": [0, None]})
     baseline.target = "target"
@@ -107,6 +119,7 @@ def test_missing_identifier_raises_for_null_target_values():
 
 
 def test_target_analysis_binary_encoding(monkeypatch):
+    """Verifica codificação binária da coluna alvo e geração de gráficos."""
     baseline = Baseline(pobjective="churn")
     baseline.data = pd.DataFrame({"feature": [1, 2, 3, 4], "status": ["no", "yes", "yes", "no"]})
     baseline.target = "status"
@@ -123,6 +136,7 @@ def test_target_analysis_binary_encoding(monkeypatch):
 
 
 def test_outlier_analysis_calls_graph_builder(monkeypatch):
+    """Verifica chamada do gerador de gráficos de outliers."""
     baseline = Baseline(pobjective="target")
     baseline.data = pd.DataFrame({"feature": [1, 2, 3], "target": [0, 1, 0]})
     baseline.target = "target"
@@ -144,6 +158,7 @@ def test_outlier_analysis_calls_graph_builder(monkeypatch):
 
 
 def test_clean_and_encode_imputes_and_encodes():
+    """Verifica imputação e encoding sem valores ausentes."""
     baseline = Baseline(pobjective="target")
     baseline.data = pd.DataFrame(
         {
@@ -164,6 +179,7 @@ def test_clean_and_encode_imputes_and_encodes():
 
 
 def test_split_data_creates_train_test_sets():
+    """Verifica separação dos conjuntos de treino e teste."""
     baseline = Baseline(pobjective="target")
     baseline.data_encoded = pd.DataFrame(
         {
@@ -183,6 +199,7 @@ def test_split_data_creates_train_test_sets():
 
 
 def test_prepare_and_train_trains_model(monkeypatch, tmp_path):
+    """Verifica treinamento do modelo e registro de métricas."""
     baseline = Baseline(pobjective="target")
     baseline.x_train = pd.DataFrame({"feature": [0.0, 1.0, 2.0, 3.0]})
     baseline.x_test = pd.DataFrame({"feature": [4.0, 5.0]})
@@ -220,6 +237,7 @@ def test_prepare_and_train_trains_model(monkeypatch, tmp_path):
 
 
 def test_save_writes_preprocessed_csv_and_model(monkeypatch, tmp_path):
+    """Verifica persistência do CSV pré-processado e do modelo."""
     from sklearn.linear_model import LogisticRegression
 
     baseline = Baseline(pobjective="target")
@@ -241,6 +259,7 @@ def test_save_writes_preprocessed_csv_and_model(monkeypatch, tmp_path):
 
 
 def test_save_artifacts_moves_csv_and_graph_files(tmp_path):
+    """Verifica movimentação de CSV e gráficos para o snapshot."""
     baseline = Baseline(pobjective="target")
     baseline.current_csv_path = str(tmp_path / "input.csv")
     with open(baseline.current_csv_path, "w") as handle:

@@ -210,6 +210,7 @@ def train_eval_mlp_binary_tabular(
 
 
 def _validate_xy(X: np.ndarray, y: np.ndarray, name: str) -> None:
+    """Valida dimensionalidade e cardinalidade de atributos e alvo."""
     if X.ndim != 2:
         raise ValueError(f"X_{name} deve ser 2D; recebido shape {X.shape}.")
     yv = np.asarray(y).astype(np.int64).ravel()
@@ -220,6 +221,7 @@ def _validate_xy(X: np.ndarray, y: np.ndarray, name: str) -> None:
 
 
 def _classification_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray) -> dict[str, float]:
+    """Calcula métricas de classificação binária para predições do MLP."""
     zd = {"zero_division": 0}
     out = {
         "accuracy": float(accuracy_score(y_true, y_pred)),

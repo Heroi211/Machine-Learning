@@ -201,41 +201,41 @@ Objetivo: suportar um novo `objective` (ex.: `fraud`, `credit_risk`) mantendo o 
 
 ### 11.1 Checklist técnico
 
-1. **`MLDomain` (`schemas/processor_schemas.py`)**  
-   - Adicionar membro ao enum (ex.: `fraud = "fraud"`).  
+1. **`MLDomain` (`schemas/processor_schemas.py`)**
+   - Adicionar membro ao enum (ex.: `fraud = "fraud"`).
    - O Swagger passa a listar o valor automaticamente.
 
-2. **Feature Engineering — `STRATEGY_REGISTRY` (`services/pipelines/feature_strategies/`)**  
-   - Implementar classe `FeatureStrategy` com `validate`, `build`, colunas esperadas.  
+2. **Feature Engineering — `STRATEGY_REGISTRY` (`services/pipelines/feature_strategies/`)**
+   - Implementar classe `FeatureStrategy` com `validate`, `build`, colunas esperadas.
    - Registar: `"fraud": FraudFeatures` (nome do ficheiro/classe ao critério do projeto).
 
-3. **Labels (`get_class_labels` / `CLASS_LABELS`)**  
+3. **Labels (`get_class_labels` / `CLASS_LABELS`)**
    - Definir tuplo (negativo, positivo) para gráficos e Baseline.
 
-4. **Baseline**  
-   - Garantir CSV respeita convenção (última coluna `target`).  
+4. **Baseline**
+   - Garantir CSV respeita convenção (última coluna `target`).
    - Dataset de treino e pré-processamento alinhados ao domínio.
 
-5. **Predição (`POST /predict`)**  
-   - Hoje o body é centrado em `HeartDiseaseFeaturesInput`. Para outro domínio é necessário **um destes desenhos**:  
-   - **A)** Modelo Pydantic novo (ex.: `FraudFeaturesInput`) + **`Union`** discriminada por `domain` em `PredictRequest`; ou  
-   - **B)** Endpoint separado `POST /processor/predict/fraud`; ou  
-   - **C)** `features` como JSON validado por schema dinâmico (menos tipagem no Swagger).  
+5. **Predição (`POST /predict`)**
+   - Hoje o body é centrado em `HeartDiseaseFeaturesInput`. Para outro domínio é necessário **um destes desenhos**:
+   - **A)** Modelo Pydantic novo (ex.: `FraudFeaturesInput`) + **`Union`** discriminada por `domain` em `PredictRequest`; ou
+   - **B)** Endpoint separado `POST /processor/predict/fraud`; ou
+   - **C)** `features` como JSON validado por schema dinâmico (menos tipagem no Swagger).
    - Ajustar `processor_service.predict_for_domain` / `_prepare_prediction_features` se a estratégia de pré-processamento for diferente.
 
-6. **Airflow / Variables**  
+6. **Airflow / Variables**
    - O DAG já usa `objective` no `conf`; após registo no registry, `validate_input` aceita o novo domínio se o CSV tiver colunas validadas pela strategy.
 
-7. **Testes manuais**  
+7. **Testes manuais**
    - Fluxo: baseline (dev) ou DAG → FE → promote → predict com deployment ativo.
 
-8. **Documentação e dados**  
+8. **Documentação e dados**
    - Atualizar README / relatório com origem do dataset e limitações do domínio.
 
 ### 11.2 Armadilhas comuns
 
-- Esquecer o enum **`MLDomain`** → cliente pode enviar strings válidas na BD mas rejeitadas na API.  
-- **FE** sem strategy → `ValueError` na rota síncrona.  
+- Esquecer o enum **`MLDomain`** → cliente pode enviar strings válidas na BD mas rejeitadas na API.
+- **FE** sem strategy → `ValueError` na rota síncrona.
 - **Predict:** nomes de features do modelo (`feature_names_in_`) devem bater com o que o pré-processamento gera (ordem/alinhamento em `processor_service`).
 
 ---
@@ -255,7 +255,7 @@ Credenciais e portas podem variar — ver `.env` e `docker-compose.yaml`.
 
 ## 13. Manutenção deste documento
 
-- Alterações de produto (gates por ambiente, novos endpoints) devem refletir-se aqui e nos checklists.  
+- Alterações de produto (gates por ambiente, novos endpoints) devem refletir-se aqui e nos checklists.
 - O **`RELATORIO_TECNICO.md`** mantém o foco em EDA, métricas e entrega académica; este ficheiro é a **visão operacional e de integração** da solução.
 
 *Última consolidação: alinhada ao código e aos checklists do repositório (ambientes, MLDomain, DAG com Variables, `PipelineRuns`, contratos Pydantic).*

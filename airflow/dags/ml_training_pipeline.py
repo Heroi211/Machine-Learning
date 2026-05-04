@@ -186,7 +186,7 @@ def task_validate_input(**context) -> None:
         log.info("min_roc_auc: %s", conf["min_roc_auc"])
     if conf.get("tuning_n_iter") is not None:
         log.info("tuning_n_iter: %s", conf["tuning_n_iter"])
-    
+
 def task_run_baseline(**context) -> None:
     """Executa o pipeline Baseline e persiste o pipeline_run no banco."""
     ti = context["task_instance"]
@@ -194,7 +194,12 @@ def task_run_baseline(**context) -> None:
     csv_path = ti.xcom_pull(key="csv_path", task_ids="validate_input")
     user_id = ti.xcom_pull(key="user_id", task_ids="validate_input")
 
-    log.info("Iniciando Baseline | objective=%s | csv=%s", objective, csv_path)
+    log.info(
+        "Iniciando Baseline | objective=%s | csv=%s | user_id=%s",
+        objective,
+        csv_path,
+        user_id,
+    )
 
     try:
         from core.custom_logger import setup_log

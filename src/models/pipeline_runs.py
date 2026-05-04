@@ -1,9 +1,13 @@
+"""Modelo ORM para execuções de pipelines de treino e processamento."""
+
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric
 
 
 class PipelineRuns(modelsGeneric):
+    """Representa uma execução de pipeline registrada no banco."""
+
     __tablename__ = "pipeline_runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

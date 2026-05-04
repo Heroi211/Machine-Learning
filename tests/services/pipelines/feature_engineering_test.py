@@ -1,10 +1,9 @@
-import unittest
-from unittest.mock import Mock, MagicMock, patch, call
+"""Testes do pipeline de feature engineering e seleção de modelos."""
+
+from unittest.mock import Mock, patch
 import numpy as np
 import pandas as pd
 import pytest
-from datetime import datetime
-import tempfile
 import os
 
 from services.pipelines.feature_engineering import FeatureEngineering
@@ -12,10 +11,10 @@ from services.pipelines.feature_strategies.base import FeatureStrategy
 
 
 class TestFeatureEngineeringInit:
-    """Tests for FeatureEngineering.__init__"""
+    """Testes de inicialização de FeatureEngineering."""
 
     def test_init_with_defaults(self):
-        """Test initialization with default parameters"""
+        """Verifica inicialização com parâmetros padrão."""
         strategy = Mock(spec=FeatureStrategy)
         fe = FeatureEngineering(objective="heart_disease", strategy=strategy)
 
@@ -36,7 +35,7 @@ class TestFeatureEngineeringInit:
         assert fe.best_params is None
 
     def test_init_with_custom_run_timestamp(self):
-        """Test initialization with custom run timestamp"""
+        """Verifica inicialização com timestamp customizado."""
         strategy = Mock(spec=FeatureStrategy)
         run_timestamp = "20260415_120000"
         fe = FeatureEngineering(
@@ -48,7 +47,7 @@ class TestFeatureEngineeringInit:
         assert fe.now == run_timestamp
 
     def test_init_with_explicit_csv_path(self):
-        """Test initialization with explicit CSV path"""
+        """Verifica inicialização com caminho de CSV explícito."""
         strategy = Mock(spec=FeatureStrategy)
         csv_path = "/path/to/data.csv"
         fe = FeatureEngineering(
@@ -60,7 +59,7 @@ class TestFeatureEngineeringInit:
         assert fe._explicit_csv_path == os.path.abspath(csv_path)
 
     def test_init_with_custom_optimization_metric(self):
-        """Test initialization with custom optimization metric"""
+        """Verifica inicialização com métrica de otimização customizada."""
         strategy = Mock(spec=FeatureStrategy)
         fe = FeatureEngineering(
             objective="heart_disease",
@@ -71,37 +70,37 @@ class TestFeatureEngineeringInit:
         assert fe.optimization_metric == "f1"
 
     def test_init_n_jobs_in_debug_mode(self):
-        """Test that n_jobs is 1 when debugpy is loaded"""
+        """Verifica se n_jobs é 1 quando debugpy está carregado."""
         strategy = Mock(spec=FeatureStrategy)
         with patch.dict("sys.modules", {"debugpy": Mock()}):
             fe = FeatureEngineering(objective="churn", strategy=strategy)
             assert fe.n_jobs == 1
 
     def test_init_n_jobs_normal_mode(self):
-        """Test that n_jobs is -1 in normal mode"""
+        """Verifica se n_jobs é -1 em modo normal."""
         strategy = Mock(spec=FeatureStrategy)
         with patch.dict("sys.modules", clear=True):
             fe = FeatureEngineering(objective="churn", strategy=strategy)
-            # n_jobs should be -1 for parallel processing
-            assert fe.n_jobs in [-1, 1]  # Can be either depending on environment
+            # n_jobs deve ser -1 para processamento paralelo.
+            assert fe.n_jobs in [-1, 1]  # Pode variar conforme o ambiente.
 
 
 class TestLoadData:
-    """Tests for FeatureEngineering.load_data"""
+    """Testes de FeatureEngineering.load_data."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
 
     @patch("glob.glob")
     @patch("pandas.read_csv")
     def test_load_data_with_explicit_csv_path(self, mock_read_csv, mock_glob):
-        """Test loading data with explicit CSV path"""
+        """Verifica carregamento com caminho explícito de CSV."""
         csv_path = "/path/to/data.csv"
         self.fe._explicit_csv_path = csv_path
 
-        # Mock CSV data
+        # Dados CSV simulados.
         mock_data = pd.DataFrame({
             "feature1": [1, 2, 3],
             "feature2": [4, 5, 6],
@@ -119,7 +118,7 @@ class TestLoadData:
     @patch("glob.glob")
     @patch("pandas.read_csv")
     def test_load_data_with_csv_not_found(self, mock_read_csv, mock_glob, mock_isfile):
-        """Test that ValueError is raised when CSV is not found"""
+        """Verifica ValueError quando o CSV não é encontrado."""
         csv_path = "/nonexistent/path.csv"
         self.fe._explicit_csv_path = csv_path
         mock_isfile.return_value = False
@@ -130,7 +129,7 @@ class TestLoadData:
     @patch("glob.glob")
     @patch("pandas.read_csv")
     def test_load_data_no_csv_found(self, mock_read_csv, mock_glob):
-        """Test ValueError when no CSV files found in default path"""
+        """Verifica ValueError quando não há CSVs no caminho padrão."""
         self.fe._explicit_csv_path = None
         mock_glob.return_value = []
 
@@ -140,7 +139,7 @@ class TestLoadData:
     @patch("glob.glob")
     @patch("pandas.read_csv")
     def test_load_data_missing_target_column(self, mock_read_csv, mock_glob):
-        """Test that ValueError is raised when target column is missing"""
+        """Verifica ValueError quando a coluna target está ausente."""
         mock_data = pd.DataFrame({
             "feature1": [1, 2, 3],
             "feature2": [4, 5, 6]
@@ -155,7 +154,7 @@ class TestLoadData:
     @patch("glob.glob")
     @patch("pandas.read_csv")
     def test_load_data_with_null_values(self, mock_read_csv, mock_glob):
-        """Test that ValueError is raised when null values are present"""
+        """Verifica ValueError quando há valores nulos."""
         mock_data = pd.DataFrame({
             "feature1": [1, 2, np.nan],
             "feature2": [4, 5, 6],
@@ -171,7 +170,7 @@ class TestLoadData:
     @patch("glob.glob")
     @patch("pandas.read_csv")
     def test_load_data_removes_column_prefixes(self, mock_read_csv, mock_glob):
-        """Test that column prefixes are removed from legacy CSVs"""
+        """Verifica remoção de prefixos de colunas em CSVs legados."""
         mock_data = pd.DataFrame({
             "prefix__feature1": [1, 2, 3],
             "prefix__feature2": [4, 5, 6],
@@ -190,7 +189,7 @@ class TestLoadData:
     @patch("glob.glob")
     @patch("pandas.read_csv")
     def test_load_data_lowercase_columns(self, mock_read_csv, mock_glob):
-        """Test that columns are converted to lowercase"""
+        """Verifica conversão dos nomes de colunas para minúsculas."""
         mock_data = pd.DataFrame({
             "Feature1": [1, 2, 3],
             "FEATURE2": [4, 5, 6],
@@ -206,10 +205,10 @@ class TestLoadData:
 
 
 class TestBuildFeatures:
-    """Tests for FeatureEngineering.build_features"""
+    """Testes de FeatureEngineering.build_features."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
         self.fe.data = pd.DataFrame({
@@ -219,7 +218,7 @@ class TestBuildFeatures:
         })
 
     def test_build_features_calls_strategy(self):
-        """Test that build_features calls strategy methods"""
+        """Verifica se build_features chama métodos da estratégia."""
         modified_data = self.fe.data.copy()
         modified_data["new_feature"] = [7, 8, 9]
         self.strategy.build.return_value = modified_data
@@ -230,7 +229,7 @@ class TestBuildFeatures:
         self.strategy.build.assert_called_once()
 
     def test_build_features_updates_data(self):
-        """Test that data is updated after build_features"""
+        """Verifica se os dados são atualizados após build_features."""
         modified_data = self.fe.data.copy()
         modified_data["new_feature"] = [7, 8, 9]
         self.strategy.build.return_value = modified_data
@@ -241,10 +240,10 @@ class TestBuildFeatures:
 
 
 class TestSelectFeatures:
-    """Tests for FeatureEngineering.select_features"""
+    """Testes de FeatureEngineering.select_features."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
         np.random.seed(42)
@@ -258,7 +257,7 @@ class TestSelectFeatures:
 
     @patch("sklearn.model_selection.train_test_split")
     def test_select_features_splits_data(self, mock_split):
-        """Test that data is properly split"""
+        """Verifica se os dados são divididos corretamente."""
         x_train = self.fe.data.drop(columns=["target"]).head(70)
         x_test = self.fe.data.drop(columns=["target"]).tail(30)
         y_train = self.fe.data["target"].head(70)
@@ -274,14 +273,14 @@ class TestSelectFeatures:
         assert self.fe.y_test is not None
 
     def test_select_features_k_actual(self):
-        """Test that k is limited by number of features"""
-        self.fe.select_features(k=100)  # k > number of features
+        """Testa se k é limitado pela quantidade de features."""
+        self.fe.select_features(k=100)  # k > quantidade de features
 
-        # k should be limited to actual number of features
+        # k deve ser limitado à quantidade real de features.
         assert len(self.fe.feature_names) <= 4
 
     def test_select_features_stores_feature_names(self):
-        """Test that selected feature names are stored"""
+        """Verifica armazenamento dos nomes das features selecionadas."""
         self.fe.select_features(k=2)
 
         assert isinstance(self.fe.feature_names, list)
@@ -290,10 +289,10 @@ class TestSelectFeatures:
 
 
 class TestTrainModels:
-    """Tests for FeatureEngineering.train_models"""
+    """Testes de FeatureEngineering.train_models."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
         np.random.seed(42)
@@ -312,7 +311,7 @@ class TestTrainModels:
         self.fe.feature_names = [f"feature{i}" for i in range(n_features)]
 
     def test_train_models_creates_pipeline(self):
-        """Test that models are trained and pipelines created"""
+        """Verifica treinamento dos modelos e criação dos pipelines."""
         self.fe.train_models()
 
         assert len(self.fe.trained_models) > 0
@@ -320,7 +319,7 @@ class TestTrainModels:
         assert self.fe.best_pipeline is not None
 
     def test_train_models_results_dataframe(self):
-        """Test that results are stored in DataFrame"""
+        """Verifica armazenamento dos resultados em DataFrame."""
         self.fe.train_models()
 
         assert self.fe.results_df is not None
@@ -329,7 +328,7 @@ class TestTrainModels:
         assert "Acurácia" in self.fe.results_df.columns
 
     def test_train_models_selects_best_model(self):
-        """Test that best model is selected"""
+        """Verifica seleção do melhor modelo."""
         self.fe.train_models()
 
         best_name = self.fe.best_model_name
@@ -337,7 +336,7 @@ class TestTrainModels:
         assert self.fe.best_pipeline == self.fe.trained_models[best_name]
 
     def test_train_models_svm_has_scaler(self):
-        """Test that SVM model has scaler in pipeline"""
+        """Verifica se o modelo SVM possui scaler no pipeline."""
         self.fe.train_models()
 
         svm_pipeline = self.fe.trained_models.get("SVM")
@@ -346,10 +345,10 @@ class TestTrainModels:
 
 
 class TestTune:
-    """Tests for FeatureEngineering.tune"""
+    """Testes de FeatureEngineering.tune."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
         np.random.seed(42)
@@ -369,24 +368,24 @@ class TestTune:
         self.fe.train_models()
 
     def test_tune_requires_trained_model(self):
-        """Test that tune raises error if no model is trained"""
+        """Verifica erro no tune quando nenhum modelo foi treinado."""
         fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
 
         with pytest.raises(RuntimeError, match="tune requer train_models prévio"):
             fe.tune(time_limit_minutes=1)
 
     def test_tune_time_limit_respected(self):
-        """Test that tuning respects time limit"""
+        """Verifica se o tuning respeita o limite de tempo."""
         import time
         start = time.time()
-        self.fe.tune(time_limit_minutes=0.01)  # Very short time limit
+        self.fe.tune(time_limit_minutes=0.01)  # Limite de tempo muito curto.
         elapsed = time.time() - start
 
-        # Should respect time limit (allowing some overhead)
-        assert elapsed < 10  # Should not take more than 10 seconds
+        # Deve respeitar o limite de tempo, tolerando algum overhead.
+        assert elapsed < 10  # Não deve levar mais que 10 segundos.
 
     def test_tune_populates_tuned_metrics(self):
-        """Test that tuning populates metrics"""
+        """Verifica se o tuning preenche métricas finais."""
         self.fe.tune(time_limit_minutes=0.1)
 
         assert len(self.fe.tuned_metrics) > 0
@@ -394,18 +393,18 @@ class TestTune:
         assert self.fe.best_params is not None
 
     def test_tune_maintains_accuracy_target_check(self):
-        """Test that accuracy target is evaluated"""
+        """Verifica avaliação da meta de acurácia."""
         self.fe.tune(time_limit_minutes=0.1, acc_target=0.95)
 
-        # Should not raise error and metrics should exist
+        # Não deve lançar erro e as métricas devem existir.
         assert len(self.fe.tuned_metrics) > 0
 
 
 class TestEvaluateImportance:
-    """Tests for FeatureEngineering.evaluate_importance"""
+    """Testes de FeatureEngineering.evaluate_importance."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
         np.random.seed(42)
@@ -425,25 +424,25 @@ class TestEvaluateImportance:
         self.fe.train_models()
 
     def test_evaluate_importance_creates_figures(self):
-        """Test that importance evaluation creates figures"""
+        """Verifica se a avaliação de importância cria figuras."""
         self.fe.evaluate_importance()
 
         assert len(self.fe.figs_to_log) > 0
 
     def test_evaluate_importance_handles_non_tree_models(self):
-        """Test importance evaluation with non-tree models"""
-        # For SVM or other models without feature_importances_
+        """Verifica avaliação de importância com modelos não baseados em árvore."""
+        # Para SVM ou outros modelos sem feature_importances_.
         self.fe.evaluate_importance()
 
-        # Should not raise error even if model doesn't have feature_importances_
+        # Não deve lançar erro mesmo quando o modelo não tem feature_importances_.
         assert True
 
 
 class TestSave:
-    """Tests for FeatureEngineering.save"""
+    """Testes de FeatureEngineering.save."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(
             objective="heart_disease",
@@ -475,7 +474,7 @@ class TestSave:
     def test_save_creates_joblib_file(self, mock_makedirs, mock_create_exp,
                                       mock_set_exp, mock_get_exp, mock_start_run,
                                       mock_dump):
-        """Test that joblib file is created"""
+        """Verifica se o arquivo joblib é criado."""
         mock_get_exp.return_value = None
         mock_start_run.return_value.__enter__ = Mock()
         mock_start_run.return_value.__exit__ = Mock(return_value=None)
@@ -493,7 +492,7 @@ class TestSave:
     def test_save_logs_to_mlflow(self, mock_makedirs, mock_create_exp,
                                  mock_set_exp, mock_get_exp, mock_start_run,
                                  mock_dump):
-        """Test that results are logged to MLflow"""
+        """Verifica registro dos resultados no MLflow."""
         mock_get_exp.return_value = None
         mock_start_run.return_value.__enter__ = Mock()
         mock_start_run.return_value.__exit__ = Mock(return_value=None)
@@ -505,17 +504,16 @@ class TestSave:
 
 
 class TestFinalizeTunedMetrics:
-    """Tests for FeatureEngineering._finalize_tuned_metrics"""
+    """Testes de FeatureEngineering._finalize_tuned_metrics."""
 
     def setup_method(self):
-        """Setup for each test"""
+        """Prepara dados comuns para cada teste."""
         self.strategy = Mock(spec=FeatureStrategy)
         self.fe = FeatureEngineering(objective="heart_disease", strategy=self.strategy)
-        self.fe.y_test = np.array([0, 1, 1, 0, 1])  # Set y_test for the method
+        self.fe.y_test = np.array([0, 1, 1, 0, 1])  # Define y_test para o método.
 
     def test_finalize_tuned_metrics_with_proba(self):
-        """Test finalization with probability predictions"""
-        y_test = np.array([0, 1, 1, 0, 1])
+        """Verifica finalização com probabilidades preditas."""
         y_pred = np.array([0, 1, 1, 0, 1])
         y_proba = np.array([0.1, 0.9, 0.8, 0.2, 0.85])
 
@@ -528,7 +526,7 @@ class TestFinalizeTunedMetrics:
         assert "ROC AUC" in self.fe.tuned_metrics
 
     def test_finalize_tuned_metrics_without_proba(self):
-        """Test finalization without probability predictions"""
+        """Verifica finalização sem probabilidades preditas."""
         y_test = np.array([0, 1, 1, 0, 1])
         y_pred = np.array([0, 1, 1, 0, 1])
 
@@ -540,7 +538,7 @@ class TestFinalizeTunedMetrics:
 
 
 class TestRun:
-    """Tests for FeatureEngineering.run orchestration"""
+    """Testes de orquestração de FeatureEngineering.run."""
 
     @patch("services.pipelines.feature_engineering.FeatureEngineering.save")
     @patch("services.pipelines.feature_engineering.FeatureEngineering.evaluate_importance")
@@ -553,13 +551,13 @@ class TestRun:
         self, mock_load, mock_build, mock_select, mock_train, mock_tune,
         mock_importance, mock_save
     ):
-        """Test that run method calls all pipeline steps"""
+        """Verifica se run chama todas as etapas do pipeline."""
         strategy = Mock(spec=FeatureStrategy)
         fe = FeatureEngineering(objective="heart_disease", strategy=strategy)
 
         fe.run(time_limit_minutes=1, acc_target=0.85)
 
-        # Verify all methods are called in the correct order
+        # Verifica se todos os métodos são chamados na ordem correta.
         mock_load.assert_called_once()
         mock_build.assert_called_once()
         mock_select.assert_called_once()
@@ -579,13 +577,13 @@ class TestRun:
         self, mock_load, mock_build, mock_select, mock_train, mock_tune,
         mock_importance, mock_save
     ):
-        """Test that run passes correct parameters to tune"""
+        """Verifica se run repassa parâmetros corretos para tune."""
         strategy = Mock(spec=FeatureStrategy)
         fe = FeatureEngineering(objective="heart_disease", strategy=strategy)
 
         fe.run(time_limit_minutes=30, acc_target=0.92)
 
-        # Verify tune is called with correct parameters
+        # Verifica se tune é chamado com os parâmetros corretos.
         mock_tune.assert_called_once_with(time_limit_minutes=30, acc_target=0.92)
 
 

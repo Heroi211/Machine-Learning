@@ -1,3 +1,5 @@
+"""Endpoints administrativos para consulta e manutenção de papéis de usuário."""
+
 from fastapi import APIRouter,HTTPException, status,Depends,Response
 from schemas import roles_schemas as roles_schemas
 from models.roles import Roles as roles_models
@@ -6,7 +8,6 @@ from core.deps import get_session, get_current_user
 from services.roles import roles_services as roles_service
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 from typing import List
 
@@ -16,6 +17,7 @@ router = APIRouter()
 #POST role
 @router.post('/',status_code=status.HTTP_201_CREATED,response_model=roles_schemas.role)
 async def post_role(role:roles_schemas.role,db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Cria um papel quando o usuário atual é administrador."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             new_role:roles_models = await roles_service.register_role(role,db)
@@ -28,6 +30,7 @@ async def post_role(role:roles_schemas.role,db:AsyncSession = Depends(get_sessio
 #GET roles
 @router.get('/',status_code=status.HTTP_200_OK,response_model=List[roles_schemas.role])
 async def get_roles(db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Lista papéis ativos disponíveis para administradores."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             roles:List[roles_schemas.role] = await roles_service.select_all_roles(db)
@@ -39,6 +42,7 @@ async def get_roles(db:AsyncSession = Depends(get_session),user_logged :users_mo
 #GET role
 @router.get('/{id_role}',status_code=status.HTTP_200_OK, response_model=roles_schemas.role)
 async def get_role(id_role:int, db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Busca um papel ativo pelo identificador."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             role = await roles_service.select_role(id_role,db)
@@ -54,6 +58,7 @@ async def get_role(id_role:int, db:AsyncSession = Depends(get_session),user_logg
 #PUT role
 @router.put('/{id_role}',status_code=status.HTTP_202_ACCEPTED,response_model=roles_schemas.role)
 async def put_role(id_role:int, role:roles_schemas.role_update,db:AsyncSession = Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Atualiza dados de um papel existente."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             role_update:roles_schemas.role = await roles_service.update_role(id_role,role,db)
@@ -62,11 +67,12 @@ async def put_role(id_role:int, role:roles_schemas.role_update,db:AsyncSession =
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     except HTTPException as e:
          raise HTTPException(status_code=e.status_code, detail=e.detail)
-    
+
 
 #DELETE role
 @router.delete('/{id_role}',status_code=status.HTTP_202_ACCEPTED)
 async def delete_role(id_role:int,db:AsyncSession= Depends(get_session),user_logged :users_models = Depends(get_current_user)):
+    """Desativa logicamente um papel existente."""
     try:
         if user_logged.role_id == roles_models.ADMINISTRATOR:
             deleted = await roles_service.drop_role(id_role,db)

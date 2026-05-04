@@ -17,6 +17,7 @@ from typing import Any
 
 from core.configs import settings
 
+
 class _PipelineContextFormatter(logging.Formatter):
     """Prefixa cada linha com run_id, objective e pipeline_type."""
 
@@ -30,6 +31,7 @@ class _PipelineContextFormatter(logging.Formatter):
         self._pipeline_type = pipeline_type if pipeline_type is not None else "-"
 
     def format(self, record: logging.LogRecord) -> str:
+        """Insere campos de contexto do pipelie antes de formatar um registro de log."""
         record.run_id = getattr(record, "run_id", self._run_id)
         record.objective = getattr(record, "objective", self._objective)
         record.pipeline_type = getattr(record, "pipeline_type", self._pipeline_type)

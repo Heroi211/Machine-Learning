@@ -1,3 +1,5 @@
+"""Configuração de engine e sessão assíncrona do SQLAlchemy."""
+
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.ext.asyncio import AsyncEngine

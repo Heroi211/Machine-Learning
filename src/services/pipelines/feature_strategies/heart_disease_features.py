@@ -1,5 +1,6 @@
+"""Estratégia de features para o domínio de doença cardíaca."""
+
 import pandas as pd
-import numpy as np
 import logging
 from services.pipelines.feature_strategies.base import FeatureStrategy
 

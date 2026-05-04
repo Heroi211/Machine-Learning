@@ -1,3 +1,5 @@
+"""Pipeline de feature engineering, seleção, tuning e persistência de modelos."""
+
 from __future__ import annotations
 
 import logging
@@ -5,7 +7,6 @@ import os
 import sys
 import time
 import json
-import re
 
 import numpy as np
 import pandas as pd
@@ -28,7 +29,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
 from sklearn.inspection import permutation_importance
-from scipy.stats import randint, uniform
 
 from core.configs import settings
 from core.custom_logger import setup_log
@@ -304,8 +304,8 @@ class FeatureEngineering:
 
         logger.info(f"Colunas: {df.columns.tolist()}")
 
-        if not 'target' in df.columns:
-            logger.error(f"Coluna 'target' não encontrada no dataset pré-processado no final do CSV.")
+        if 'target' not in df.columns:
+            logger.error("Coluna 'target' não encontrada no dataset pré-processado no final do CSV.")
             raise ValueError("Pipeline interrompido — coluna 'target' não encontrada no dataset pré-processado.")
         
         null_total = df.isnull().sum().sum()
@@ -436,7 +436,7 @@ class FeatureEngineering:
         self.results_df = pd.DataFrame(results).sort_values("CV Score", ascending=False).reset_index(drop=True).round(4)
         logger.info(f"Ranking de modelos:\n{self.results_df.to_string()}")
 
-        eligible = self.results_df[self.results_df["Pass Guardrails"] == True]
+        eligible = self.results_df[self.results_df["Pass Guardrails"]]
         if not eligible.empty:
             winner_row = eligible.iloc[0]
             self.guardrails_summary["selection_guardrails_passed"] = True

@@ -1,4 +1,4 @@
-"""Montagem de manifest MLOps e ficheiro ZIP de artefatos (runs FE com Baseline)."""
+"""Montagem de manifest MLOps e arquivo ZIP de artefatos (runs FE com Baseline)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _sha256_file(path: str) -> str:
+    """Calcula o SHA-256 de um arquivo."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -42,6 +43,7 @@ def build_manifest(
     original_filename: str,
     active_deployment_id: int | None = None,
 ) -> dict[str, Any]:
+    """Monta o manifest MLOps de uma execução de Feature Engineering."""
     m: dict[str, Any] = {
         "schema_version": 1,
         "pipeline_run_id": pipeline_run_id,
@@ -84,6 +86,7 @@ def build_manifest(
 
 
 def write_manifest(manifest: dict[str, Any], dest_json: str) -> None:
+    """Grava o manifest em JSON formatado no destino informado."""
     os.makedirs(os.path.dirname(dest_json) or ".", exist_ok=True)
     with open(dest_json, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -103,6 +106,7 @@ def zip_tree(source_dir: str, zip_path: str) -> None:
 
 
 def copy_if_exists(src: str, dest_dir: str) -> str | None:
+    """Copia um arquivo para o diretório de destino quando ele existe."""
     if not src or not os.path.isfile(src):
         return None
     os.makedirs(dest_dir, exist_ok=True)
@@ -113,6 +117,7 @@ def copy_if_exists(src: str, dest_dir: str) -> str | None:
 
 
 def glob_copy_pattern(graph_dir: str, pattern: str, dest: str) -> list[str]:
+    """Copia arquivos que combinam com o padrão glob para o destino."""
     import glob
 
     out: list[str] = []
@@ -126,6 +131,7 @@ def glob_copy_pattern(graph_dir: str, pattern: str, dest: str) -> list[str]:
 
 
 def safe_unlink(path: str | None) -> None:
+    """Remove arquivo se existir, registrando falhas sem interromper fluxo."""
     if not path or not os.path.isfile(path):
         return
     try:
@@ -135,6 +141,7 @@ def safe_unlink(path: str | None) -> None:
 
 
 def safe_rmtree(path: str | None) -> None:
+    """Remove diretório se existir, registrando falhas sem interromper fluxo."""
     if not path or not os.path.isdir(path):
         return
     try:

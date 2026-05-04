@@ -1,3 +1,5 @@
+"""Contrato base para estratégias de feature engineering."""
+
 from abc import ABC, abstractmethod
 import pandas as pd
 import logging

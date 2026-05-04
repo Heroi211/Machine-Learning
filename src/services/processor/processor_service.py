@@ -1,3 +1,5 @@
+"""Serviços de execução, comparação e predição dos pipelines de ML."""
+
 import logging
 import math
 import os
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _recall_from_metrics(metrics: dict | None) -> float:
+    """Extrai recall de métricas, retornando infinito negativo quando ausente."""
     try:
         return float((metrics or {}).get("test_recall", float("-inf")))
     except (TypeError, ValueError):
@@ -54,6 +57,7 @@ def _fe_competition_score_from_metrics(metrics: dict | None) -> float:
 
 
 def _fe_model_metric_pair(metrics: dict | None) -> tuple[str, str]:
+    """Extrai nome do melhor modelo e métrica de otimização do FE."""
     m = metrics or {}
     name = (m.get("best_model_name") or "").strip()
     opt = (m.get("optimization_metric") or "").strip().lower()
@@ -64,8 +68,8 @@ async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_
     """
     Mantém no máximo um baseline ``active`` por ``objective``: compara ``test_recall`` (teste)
     com outros baselines ``completed`` e ``active``; se o novo for estritamente melhor,
-    desactiva os anteriores, **publica** ``pre_processed/*`` partir do snapshot, e marca o novo ativo;
-    caso contrário desactiva o novo (**sem** tocar no contrato FE global).
+    desativa os anteriores, **publica** ``pre_processed/*`` a partir do snapshot, e marca o novo ativo;
+    caso contrário desativa o novo (**sem** tocar no contrato FE global).
 
     ``run_timestamp``: pasta ``PATH_DATA/PATH_LOGS/<ts>`` com manifest/sample da corrida.
     """
@@ -90,7 +94,7 @@ async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_
         _publish_global_baseline_from_snapshot(run_timestamp)
         run.active = True
         logger.info(
-            "Baseline run %s primeiro baseline ou sem campões recall — manifest global publicado.",
+            "Baseline run %s primeiro baseline ou sem campeões recall — manifest global publicado.",
             run.id,
         )
         return
@@ -103,7 +107,7 @@ async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_
             c.active = False
             session.add(c)
             logger.info(
-                "Baseline run %s desactivado pelo comparador recall (mantido run %s, test_recall=%.6f > %.6f).",
+                "Baseline run %s desativado pelo comparador recall (mantido run %s, test_recall=%.6f > %.6f).",
                 c.id,
                 run.id,
                 new_recall,
@@ -113,7 +117,7 @@ async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_
     else:
         run.active = False
         logger.info(
-            "Baseline run %s desactivado: test_recall=%.6f <= melhor anterior=%.6f.",
+            "Baseline run %s desativado: test_recall=%.6f <= melhor anterior=%.6f.",
             run.id,
             new_recall,
             best_prev,
@@ -148,7 +152,7 @@ async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
     if not champions:
         run.active = True
         logger.info(
-            "FE run %s primeiro FE ou sem campeões activos no objective %r — marcado activo.",
+            "FE run %s primeiro FE ou sem campeões ativos no objective %r — marcado ativo.",
             run.id,
             obj,
         )
@@ -166,8 +170,8 @@ async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
             for c in champions
         ]
         logger.warning(
-            "FE run %s desactivado: best_model_name=%r ou optimization_metric=%r não coincidem com "
-            "campeões activos %s. Requer validação manual antes de promover.",
+            "FE run %s desativado: best_model_name=%r ou optimization_metric=%r não coincidem com "
+            "campeões ativos %s. Requer validação manual antes de promover.",
             run.id,
             new_name,
             new_metric,
@@ -182,7 +186,7 @@ async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
             c.active = False
             session.add(c)
             logger.info(
-                "FE run %s desactivado pelo comparador cv_%s (vencedor run %s, score=%.6f > %.6f, "
+                "FE run %s desativado pelo comparador cv_%s (vencedor run %s, score=%.6f > %.6f, "
                 "modelo=%r métrica_optim=%r).",
                 c.id,
                 new_metric,
@@ -196,7 +200,7 @@ async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
     else:
         run.active = False
         logger.info(
-            "FE run %s desactivado: cv_%s=%.6f <= melhor anterior=%.6f (modelo=%r métrica_optim=%r).",
+            "FE run %s desativado: cv_%s=%.6f <= melhor anterior=%.6f (modelo=%r métrica_optim=%r).",
             run.id,
             new_metric,
             new_score,
@@ -214,6 +218,7 @@ def _sklearn_feature_names(model) -> list[str] | None:
 
 
 def _align_dataframe_to_model(model, df: pd.DataFrame) -> pd.DataFrame:
+    """Alinha colunas de entrada ao contrato esperado pelo modelo treinado."""
     names = _sklearn_feature_names(model)
     if not names:
         return df
@@ -307,6 +312,7 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
 
 
 def _ts_from_baseline_model_path(model_path: str | None) -> str | None:
+    """Extrai timestamp do caminho de modelo baseline, quando disponível."""
     if not model_path:
         return None
     m = re.search(r"baseline_model_[^_]+_(\d{8}_\d{6})\.joblib$", os.path.basename(model_path))
@@ -314,13 +320,14 @@ def _ts_from_baseline_model_path(model_path: str | None) -> str | None:
 
 
 def _global_preprocessed_manifest() -> str:
+    """Retorna o caminho absoluto do manifest global pré-processado."""
     return os.path.abspath(os.path.join(settings.path_data_preprocessed, "manifest.json"))
 
 
 async def _resolve_fe_manifest(session: AsyncSession, objective: str) -> str:
     """
     1) Tenta ``pre_processed/manifest.json``.
-    2) Se falhar: baseline ``completed``, ``active`` e mesmo ``objective`` na BD —
+    2) Se falhar: baseline ``completed``, ``active`` e mesmo ``objective`` no banco de dados —
        manifest ao lado do ``baseline_sample`` do run ou em ``PATH_DATA/PATH_LOGS/<ts>/``.
     """
     obj = objective.strip().lower()
@@ -345,7 +352,7 @@ async def _resolve_fe_manifest(session: AsyncSession, objective: str) -> str:
     run = res.scalars().one_or_none()
     if not run:
         raise ValueError(
-            f"Manifest em falta: não há ``pre_processed/manifest.json`` e nenhum baseline activo para "
+            f"Manifest ausente: não há ``pre_processed/manifest.json`` e nenhum baseline ativo para "
             f"objective={objective!r}. Rode baseline (API até ganhar recall ou modo sem defer)."
         )
 
@@ -368,12 +375,12 @@ async def _resolve_fe_manifest(session: AsyncSession, objective: str) -> str:
 
     if not resolved:
         raise FileNotFoundError(
-            f"Baseline activo (pipeline_run_id={run.id}) sem manifest encontrado no disco. "
+            f"Baseline ativo (pipeline_run_id={run.id}) sem manifest encontrado no disco. "
             f"Espere Paths ``csv_output_path`` / modelo com timestamp compatíveis com PATH_DATA/PATH_LOGS.",
         )
 
     logger.info(
-        "FE: manifest global ausente — fallback pelo baseline activo (run_id=%s) em %s",
+        "FE: manifest global ausente — fallback pelo baseline ativo (run_id=%s) em %s",
         run.id,
         resolved,
     )
@@ -566,7 +573,7 @@ async def run_feature_engineering(
     baseline_input_path = baseline_manifest.get("input_csv_snapshot") or baseline_manifest.get("input_csv_source")
     baseline_input_path = os.path.abspath(baseline_input_path) if baseline_input_path else None
     # Contrato FE: o treino segue sempre ``output_sample_csv_stable`` (ex. pre_processed/baseline_sample.csv).
-    # Gravamos esse ficheiro como etiqueta na BD; o CSV “upstream” do baseline fica só nas métricas de auditoria.
+    # Gravamos esse arquivo como etiqueta no banco de dados; o CSV “upstream” do baseline fica só nas métricas de auditoria.
     fe_training_csv_basename = os.path.basename(csv_baseline)
     original_filename = fe_training_csv_basename
 

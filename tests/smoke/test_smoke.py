@@ -1,6 +1,6 @@
 """
-Smoke Tests - Quick integration tests covering main application flows.
-These tests verify that critical endpoints work end-to-end.
+Smoke tests rápidos cobrindo os principais fluxos da aplicação.
+Estes testes verificam se endpoints críticos funcionam de ponta a ponta.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -12,14 +12,16 @@ from services.auth import auth_service
 
 
 class DummyUser:
-    """Mock user for testing"""
+    """Usuário simulado para testes."""
+
     def __init__(self, id=1, role_id=1):
         self.id = id
         self.role_id = role_id
 
 
 class MockRegisteredUser:
-    """Mock registered user for auth tests"""
+    """Usuário cadastrado simulado para testes de autenticação."""
+
     def __init__(self, id, name, email, active=True, role_id=1):
         self.id = id
         self.name = name
@@ -30,15 +32,15 @@ class MockRegisteredUser:
 
 @pytest.fixture(autouse=True)
 def app_overrides(monkeypatch):
-    """Override app dependencies for all smoke tests"""
-    # Override processor dependencies
+    """Substitui dependências da aplicação para todos os smoke tests."""
+    # Substitui dependências do processor.
     app.dependency_overrides[processor.get_current_user] = lambda: DummyUser()
     app.dependency_overrides[processor.get_session] = lambda: None
 
-    # Override auth dependencies
+    # Substitui dependências de autenticação.
     app.dependency_overrides[authorize.get_session] = lambda: None
 
-    # Mock predict service
+    # Simula serviço de predição.
     async def fake_predict_for_domain(domain, features, user_id, db):
         return Predictions(
             id=1,
@@ -49,7 +51,7 @@ def app_overrides(monkeypatch):
             probability=0.8,
         )
 
-    # Mock auth service
+    # Simula serviço de autenticação.
     async def fake_register_user(user, db):
         return MockRegisteredUser(id=1, name=user.name, email=user.email)
 
@@ -61,14 +63,15 @@ def app_overrides(monkeypatch):
 
 @pytest.fixture
 def client():
+    """Cria cliente de teste para a aplicação FastAPI."""
     return TestClient(app)
 
 
 class TestSmokeAuthFlow:
-    """Smoke tests for authentication flow"""
+    """Smoke tests do fluxo de autenticação."""
 
     def test_signup_endpoint_works(self, client):
-        """Test that user signup endpoint is working"""
+        """Verifica se o endpoint de cadastro de usuário está funcionando."""
         payload = {
             "name": "Test User",
             "email": "test@example.com",
@@ -83,10 +86,10 @@ class TestSmokeAuthFlow:
 
 
 class TestSmokePredictorFlow:
-    """Smoke tests for ML predictor flow"""
+    """Smoke tests do fluxo de predição de ML."""
 
     def test_predict_endpoint_works(self, client):
-        """Test that prediction endpoint is working"""
+        """Verifica se o endpoint de predição está funcionando."""
         payload = {
             "domain": "heart_disease",
             "features": {

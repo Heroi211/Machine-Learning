@@ -1,3 +1,5 @@
+"""Endpoints de treino, promoção, rollback e predição dos pipelines de ML."""
+
 import json
 import os
 import uuid
@@ -38,6 +40,7 @@ ML_SHARED_PATH = settings.ml_shared_path
 
 @router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
 async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = Depends(get_session), user_logged: users_models = Depends(get_current_user)):
+    """Executa predição com o deployment ativo do domínio informado."""
     try:
         features_dict = payload.features.model_dump(mode="json", by_alias=True)
         pred = await processor_service.predict_for_domain(
@@ -71,8 +74,8 @@ async def admin_promote(
     admin: users_models = Depends(require_admin),
 ):
     """
-    Promove para inferência em ``/predict`` o **único** run de feature engineering activo e concluído,
-    com ``objective`` igual a **OBJECTIVE** (env), à imagem das rotas síncronas de baseline/FE.
+    Promove para inferência em ``/predict`` o **único** run de feature engineering ativo e concluído,
+    com ``objective`` igual a **OBJECTIVE** (env), seguindo as rotas síncronas de baseline/FE.
     """
     try:
         objective = settings.objective.strip().lower()
@@ -97,7 +100,7 @@ async def admin_trigger_dag(
     acc_target: float | None = Form(None),
     admin: users_models = Depends(require_airflow_api_trigger_enabled),
 ):
-    """Grava o CSV em volume partilhado e dispara o DAG; **objective** vem de OBJECTIVE na env."""
+    """Grava o CSV em volume compartilhado e dispara o DAG; **objective** vem de OBJECTIVE na env."""
     obj = settings.objective.strip().lower()
     upload_dir = os.path.join(ML_SHARED_PATH)
     os.makedirs(upload_dir, exist_ok=True)
@@ -148,7 +151,7 @@ async def admin_list_pipeline_runs(
     run_status: Literal["processing", "completed", "failed"] | None = Query(
         None, alias="status", description="Estado da execução."
     ),
-    limit: int = Query(50, ge=1, le=200, description="Máximo de registos devolvidos (mais recentes primeiro)."),
+    limit: int = Query(50, ge=1, le=200, description="Máximo de registros retornados (mais recentes primeiro)."),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
@@ -183,7 +186,7 @@ async def admin_rollback(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
-    """Reverte para o deployment archived mais recente (**OBJECTIVE** na env), arquivando o active actual."""
+    """Reverte para o deployment archived mais recente (**OBJECTIVE** na env), arquivando o active atual."""
     try:
         domain = settings.objective.strip().lower()
         dep = await rollback_deployment(domain=domain, db=db)
@@ -195,7 +198,7 @@ async def admin_rollback(
 
 
 def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
-    """Devolve o CSV em disco no corpo da resposta + metadados em cabeçalhos HTTP."""
+    """Retorna o CSV em disco no corpo da resposta + metadados em cabeçalhos HTTP."""
     if run.status != "completed":
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"run_id": run.id, "error": run.error_message})
     if not run.csv_output_path or not os.path.isfile(run.csv_output_path):
@@ -226,6 +229,7 @@ async def admin_train_baseline(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
+    """Executa treino baseline síncrono e retorna o CSV tratado."""
     try:
         objective = settings.objective.strip().lower()
         run = await processor_service.run_baseline(file=file, objective=objective, user_id=admin.id, db=db)
@@ -237,6 +241,7 @@ async def admin_train_baseline(
 
 
 def _schedule_remove(path: str) -> None:
+    """Remove arquivo temporário após envio de resposta, ignorando falhas."""
     try:
         if path and os.path.isfile(path):
             os.remove(path)
@@ -250,7 +255,7 @@ def _schedule_remove(path: str) -> None:
     response_class=FileResponse,
     summary="Treino feature-engineering (domínio fixo)",
     description=(
-        "Domínio pela env **OBJECTIVE**. Manifest do baseline via ``pre_processed`` ou BD "
+        "Domínio pela env **OBJECTIVE**. Manifest do baseline via ``pre_processed`` ou banco de dados "
         "(``output_sample_csv_stable`` no manifest). Nesta versão **não** há upload de CSV na rota."
     ),
 )
@@ -265,6 +270,7 @@ async def admin_train_feature_engineering(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
 ):
+    """Executa treino FE síncrono e retorna um ZIP de artefatos."""
     try:
         objective = settings.objective.strip().lower()
         run, zip_path = await processor_service.run_feature_engineering(

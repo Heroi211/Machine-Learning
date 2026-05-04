@@ -1,9 +1,13 @@
+"""Modelo ORM para registros de predições realizadas pela API."""
+
 from sqlalchemy import Column, Integer, Float, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric
 
 
 class Predictions(modelsGeneric):
+    """Representa uma predição persistida com entrada, saída e probabilidade."""
+
     __tablename__ = "predictions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

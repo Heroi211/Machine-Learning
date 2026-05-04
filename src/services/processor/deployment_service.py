@@ -22,10 +22,12 @@ class NoActiveDeploymentError(Exception):
 
 
 def _normalize_domain(domain: str) -> str:
+    """Normaliza nomes de domínio para comparação no banco."""
     return domain.strip().lower()
 
 
 async def get_active_deployment(domain: str, db: AsyncSession) -> DeployedModels | None:
+    """Retorna o deployment ativo de um domínio, quando existir."""
     d = _normalize_domain(domain)
     stmt = (
         select(DeployedModels)
@@ -46,8 +48,8 @@ async def promote_active_feature_engineering_for_objective(
     db: AsyncSession,
 ) -> DeployedModels:
     """
-    Promove o único ``PipelineRuns`` de feature engineering **activo**, concluído e com o ``objective``
-    dado (tipicamente ``settings.objective``). Exige exactamente um candidato.
+    Promove o único ``PipelineRuns`` de feature engineering **ativo**, concluído e com o ``objective``
+    dado (tipicamente ``settings.objective``). Exige exatamente um candidato.
     """
     obj = _normalize_domain(objective)
     stmt = select(PipelineRuns).where(
@@ -60,13 +62,13 @@ async def promote_active_feature_engineering_for_objective(
     runs = list(res.scalars().all())
     if len(runs) == 0:
         raise ValueError(
-            "Nenhum pipeline feature_engineering activo e concluído para este objective. "
+            "Nenhum pipeline feature_engineering ativo e concluído para este objective. "
             "Execute o FE até haver um run vencedor (cv_*) ou reveja o estado em pipeline_runs."
         )
     if len(runs) > 1:
         raise ValueError(
-            f"Ambiguidade: {len(runs)} runs FE activos para objective={objective!r}. "
-            "É necessário exactamente um; desactive os obsoletos antes de promover."
+            f"Ambiguidade: {len(runs)} runs FE ativos para objective={objective!r}. "
+            "É necessário exatamente um; desative os obsoletos antes de promover."
         )
     run_id = runs[0].id
     return await promote_pipeline_run(
@@ -87,14 +89,14 @@ async def promote_pipeline_run(
 ) -> DeployedModels:
     """
     Arquiva o deployment ativo anterior do domínio e cria um novo como active.
-    ``pipeline_type`` deve ser ``feature_engineering`` e o run na BD tem de coincidir.
+    ``pipeline_type`` deve ser ``feature_engineering`` e o run no banco de dados precisa coincidir.
     """
     d = _normalize_domain(domain)
     pt = pipeline_type.strip().lower()
     if pt != "feature_engineering":
         raise ValueError("Apenas pipeline_type='feature_engineering' pode ser promovido.")
 
-    stmt_run = select(PipelineRuns).where(PipelineRuns.id == pipeline_run_id, PipelineRuns.active==True)
+    stmt_run = select(PipelineRuns).where(PipelineRuns.id == pipeline_run_id, PipelineRuns.active.is_(True))
     res = await db.execute(stmt_run)
     run = res.scalars().one_or_none()
     if not run:

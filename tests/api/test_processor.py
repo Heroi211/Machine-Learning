@@ -1,3 +1,5 @@
+"""Testes dos endpoints de predição do processor."""
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,11 +9,14 @@ from models.predictions import Predictions
 
 
 class DummyUser:
+    """Usuário autenticado mínimo para testes de predição."""
+
     id = 1
 
 
 @pytest.fixture(autouse=True)
 def app_overrides(monkeypatch):
+    """Substitui dependências e serviço de predição durante os testes."""
     app.dependency_overrides[processor.get_current_user] = lambda: DummyUser()
     app.dependency_overrides[processor.get_session] = lambda: None
 
@@ -31,6 +36,7 @@ def app_overrides(monkeypatch):
 
 
 def test_predict_endpoint_returns_success(client):
+    """Verifica predição bem-sucedida para payload válido."""
     payload = {
         "domain": "heart_disease",
         "features": {
@@ -63,6 +69,7 @@ def test_predict_endpoint_returns_success(client):
 
 
 def test_predict_endpoint_invalid_payload_returns_422(client):
+    """Verifica erro 422 quando o payload não contém features obrigatórias."""
     payload = {
         "domain": "heart_disease",
         "features": {"age": 60.0}
@@ -75,4 +82,5 @@ def test_predict_endpoint_invalid_payload_returns_422(client):
 
 @pytest.fixture
 def client():
+    """Cria cliente de teste para a aplicação FastAPI."""
     return TestClient(app)

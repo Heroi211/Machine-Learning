@@ -4,7 +4,7 @@
 #   2. echo "AIRFLOW_UID=$(id -u)" >> .env
 #   3. docker compose up --build
 #   4. API disponível em:       http://localhost:8000/docs
-#   5. Airflow disponível em:   http://localhost:8080  (user: airflow / pass: airflow)
+#   5. Airflow disponível em:   http://localhost:8080  (usuário: airflow / senha: airflow)
 #   6. Logs em tempo real:      http://localhost:8888  (Dozzle)
 #   7. Banco via pgAdmin:       http://localhost:5050
 # ---------------------------------------------------------------------------
@@ -24,7 +24,7 @@ x-airflow-common: &airflow-common
     ML_API_URL: http://api_processing:8000
     ML_PROJECT_ROOT: /opt/airflow/ml_project
     ML_CODE_ROOT: /opt/airflow/ml_code
-    # Artefactos de treino no volume partilhado (API monta o mesmo volume em /var/www/ml_shared)
+    # Artefatos de treino no volume compartilhado (API monta o mesmo volume em /var/www/ml_shared)
     PATH_DATA: /opt/airflow/ml_project
     PATH_DATA_PREPROCESSED: /opt/airflow/ml_project/pre_processed
     PATH_MODEL: /opt/airflow/ml_project/models

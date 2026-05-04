@@ -1,12 +1,15 @@
+"""Utilitários compartilhados de tempo e linhagem de dados de treino."""
+
 import logging
 import pytz
-from datetime import datetime, time
+from datetime import datetime
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 
 def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Converte datetime local de São Paulo para UTC sem timezone."""
     if dt is None:
         return None
 
@@ -17,6 +20,7 @@ def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt_utc
 
 def utcnow() -> datetime:
+    """Retorna o instante atual em UTC sem informação de timezone."""
     return datetime.now(pytz.UTC).replace(tzinfo=None)
 
 
@@ -50,7 +54,7 @@ def log_training_csv_to_active_run(
         return
     resolved = os.path.abspath(csv_path)
     if not os.path.isfile(resolved):
-        logger.warning("Linhagem MLflow: ficheiro inexistente %s; skip.", resolved)
+        logger.warning("Linhagem MLflow: arquivo inexistente %s; skip.", resolved)
         return
 
     try:
@@ -93,6 +97,6 @@ def log_training_csv_to_active_run(
         mlflow.log_input(dataset, context=context)
     except Exception as exc:
         logger.warning(
-            "mlflow.log_input falhou (parâmetros de linhagem já registados): %s",
+            "mlflow.log_input falhou (parâmetros de linhagem já registrados): %s",
             exc,
         )

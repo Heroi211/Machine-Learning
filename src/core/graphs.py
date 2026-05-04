@@ -1,3 +1,5 @@
+"""Geração e persistência de gráficos usados nos relatórios dos pipelines."""
+
 import logging
 import os
 
@@ -18,6 +20,8 @@ path_graphs = settings.path_graphs
 
 
 class Graphs:
+    """Agrupa rotinas de criação de gráficos para análise exploratória."""
+
     @staticmethod
     def _ensure_dir(base: str) -> None:
         if not os.path.exists(base):

@@ -1,3 +1,5 @@
+"""Agrega os roteadores da versão v1 da API FastAPI."""
+
 from fastapi import APIRouter,Depends
 from core.deps import get_current_user
 from api.v1.endpoints import users

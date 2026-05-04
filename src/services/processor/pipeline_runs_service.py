@@ -14,6 +14,7 @@ StatusLiteral = Literal["processing", "completed", "failed"]
 
 
 def _normalize_domain(domain: str) -> str:
+    """Normaliza nomes de domínio para filtros case-insensitive."""
     return domain.strip().lower()
 
 

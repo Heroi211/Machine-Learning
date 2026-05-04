@@ -1,3 +1,5 @@
+"""Testes dos schemas Pydantic usados pelo processor."""
+
 import pandas as pd
 import pandera.pandas as pa
 import pytest
@@ -7,6 +9,8 @@ from schemas.processor_schemas import HeartDiseaseFeaturesInput, MLDomain, Predi
 
 
 class TestProcessorSchemas:
+    """Cenários de validação dos schemas Pydantic do processor."""
+
     def test_predict_request_validates_pydantic_schema(self):
         payload = {
             "domain": "heart_disease",
@@ -107,6 +111,8 @@ class TestProcessorSchemas:
 
 
 class TestPredictionFeaturesDataFrameSchema:
+    """Cenários de validação do DataFrame de features de predição."""
+
     schema = pa.DataFrameSchema(
         {
             "age": pa.Column(float, nullable=False),

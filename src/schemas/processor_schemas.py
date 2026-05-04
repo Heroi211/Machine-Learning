@@ -1,3 +1,5 @@
+"""Schemas Pydantic para treino, deployment e predição dos pipelines."""
+
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Literal, Optional, Union
@@ -6,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class PipelineRunResponse(BaseModel):
+    """Resposta com metadados de uma execução de pipeline."""
+
     id: int
     user_id: int
     pipeline_type: str
@@ -147,6 +151,8 @@ PredictRequest = Annotated[
 
 
 class PredictResponse(BaseModel):
+    """Resposta padronizada para predições de modelos promovidos."""
+
     id: int
     domain: str
     pipeline_run_id: int
@@ -159,6 +165,8 @@ class PredictResponse(BaseModel):
 
 
 class DeployedModelResponse(BaseModel):
+    """Resposta com metadados de um deployment de modelo."""
+
     id: int
     domain: str
     pipeline_run_id: int
@@ -172,6 +180,8 @@ class DeployedModelResponse(BaseModel):
 
 
 class TriggerDagRequest(BaseModel):
+    """Payload documentado para disparo do DAG de treino."""
+
     objective: MLDomain = Field(description="Domínio do problema (mesmos valores do treino / Airflow).")
     optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Field(
         default="accuracy",
@@ -185,6 +195,8 @@ class TriggerDagRequest(BaseModel):
 
 
 class TriggerDagResponse(BaseModel):
+    """Resposta retornada após disparo do DAG no Airflow."""
+
     dag_run_id: str
     dag_id: str
     objective: str

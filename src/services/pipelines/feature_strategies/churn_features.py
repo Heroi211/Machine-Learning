@@ -1,3 +1,5 @@
+"""Estratégia de features para o domínio de churn de clientes."""
+
 import pandas as pd
 import numpy as np
 import logging
@@ -56,7 +58,8 @@ class ChurnFeatures(FeatureStrategy):
         out.columns = out.columns.str.lower()
 
         missing = set(self.required_columns()) - set(out.columns)
-        if missing: raise ValueError(f"Colunas obrigatórias ausentes: {missing}")
+        if missing:
+            raise ValueError(f"Colunas obrigatórias ausentes: {missing}")
 
         if self.monthly_median is None:
             self.fit(out)
@@ -65,7 +68,7 @@ class ChurnFeatures(FeatureStrategy):
         out["tenure_log"] = np.log1p(out["tenure"])
 
         contract_mapping = {'Month-to-month': 0, 'One year': 1, 'Two year': 2}
-                               
+
         out["contract_stability"] = out["contract"].map(contract_mapping)
 
         out["new_customer_in_mounth_contract"] = ((out["contract"] == "Month-to-month") & (out["is_new_customer"])).astype(int)
@@ -81,7 +84,8 @@ class ChurnFeatures(FeatureStrategy):
 
         service_cols = ["onlinesecurity","onlinebackup","deviceprotection","techsupport","streamingtv","streamingmovies"]
         missing_services = set(service_cols) - set(out.columns)
-        if missing_services: logger.warning(f"Colunas de serviço ausentes: {missing_services}")
+        if missing_services:
+            logger.warning(f"Colunas de serviço ausentes: {missing_services}")
 
         valid_service_cols = [c for c in service_cols if c in out.columns]
         out["num_services"] = out[valid_service_cols].sum(axis=1)

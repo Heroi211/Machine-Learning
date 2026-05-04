@@ -1,3 +1,5 @@
+"""Modelo ORM para deployments de modelos promovidos."""
+
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from core.generic import modelsGeneric
@@ -5,8 +7,8 @@ from core.generic import modelsGeneric
 
 class DeployedModels(modelsGeneric):
     """
-    Registo de modelos promovidos a produção por domínio.
-    No máximo um registo com status='active' por domain (garantido no serviço).
+    Registro de modelos promovidos a produção por domínio.
+    No máximo um registro com status='active' por domínio (garantido no serviço).
     """
 
     __tablename__ = "deployed_models"

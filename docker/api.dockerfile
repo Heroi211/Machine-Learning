@@ -1,8 +1,16 @@
-FROM python:3.11-alpine
+FROM python:3.11-slim
 LABEL maintainer "Gabriel Drumond <gabriel.drumond@cod3bit.com.br>"
 ENV PYTHONUNBUFFERED 1
 ENV PYTHONDONTWRITEBYTECODE 1
-RUN apk update && apk upgrade && apk add postgresql-dev python3-dev --no-cache build-base freetds freetds-dev  openssl krb5-dev
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y \
+        postgresql-dev \
+        python3-dev \
+        build-essential \
+        freetds-dev \
+        openssl \
+        krb5-dev
 
 COPY . /var/www
 WORKDIR /var/www

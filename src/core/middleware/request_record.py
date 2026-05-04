@@ -13,6 +13,7 @@ logger = logging.getLogger("api.request")
 
 
 def _utc_iso() -> str:
+    """Retorna timestamp atual em UTC no formato ISO-8601."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -22,6 +23,7 @@ def _skip_access_log(path: str) -> bool:
 
 
 async def request_record(request: Request, call_next):
+    """Registra método, caminho, status e latência de cada requisição."""
     if not settings.log_http_requests:
         return await call_next(request)
 

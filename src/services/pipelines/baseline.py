@@ -1,3 +1,5 @@
+"""Pipeline baseline de treinamento, validação e geração de artefatos."""
+
 import logging
 import mlflow
 import pandas as pd
@@ -1009,8 +1011,3 @@ if __name__=="__main__":
     except Exception as e:
         logger.error(f"Erro durante a execução do pipeline: {e}")
         raise ValueError("Pipeline interrompido devido a um erro.")
-    
-    
-
-        
-        

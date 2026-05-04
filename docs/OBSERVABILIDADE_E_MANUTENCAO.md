@@ -20,7 +20,7 @@ Este documento complementa o [Manual do utilizador](MANUAL_DO_USUARIO.md). Expli
 | **Logger** | `api.request` |
 | **Ficheiro** | `{PATH_API_REQUEST_LOGS}/access.jsonl` (padrão: `logs/api_requests/access.jsonl`) |
 | **Formato** | Uma linha **JSON** por pedido, com `method`, `path`, `status`, `duration_ms` (latência), `client`, `request_id`, `ts`, `error`. |
-| **Rotação** | Ficheiros `access.jsonl`, `access.jsonl.1`, … quando o tamanho máximo é atingido (variáveis `LOG_HTTP_REQUESTS_MAX_BYTES`, `LOG_HTTP_REQUESTS_BACK_COUNT`). |
+| **Rotação** | Ficheiros `access.jsonl`, `access.jsonl.1`, … quando o tamanho máximo é atingido (variáveis `LOG_HTTP_REQUESTS_MAX_BYTES`, `LOG_HTTP_REQUESTS_BACKUP_COUNT`). |
 | **Ativar / desativar** | `LOG_HTTP_REQUESTS` (registar no middleware), `LOG_HTTP_REQUESTS_FILE` (escrever em disco). |
 
 O middleware em `core/middleware/request_record.py` mede o tempo **de cada** pedido e grava `duration_ms`. O cabeçalho de resposta `X-Request-ID` correlaciona com o campo `request_id` no JSONL; pode enviar-se `X-Request-ID` no pedido para alinhar com outros sistemas.

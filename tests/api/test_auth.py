@@ -1,3 +1,5 @@
+"""Testes dos endpoints de cadastro e autenticação."""
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,8 @@ from services.auth import auth_service
 
 
 class MockRegisteredUser:
+    """Usuário simulado retornado pelo serviço de autenticação."""
+
     def __init__(self, id, name, email, active=True, created_at=None, role_id=1):
         self.id = id
         self.name = name
@@ -18,6 +22,7 @@ class MockRegisteredUser:
 
 @pytest.fixture(autouse=True)
 def app_overrides(monkeypatch):
+    """Substitui dependências externas usadas pelos endpoints de autenticação."""
     app.dependency_overrides[authorize.get_session] = lambda: None
 
     async def fake_register_user(user, db):
@@ -29,6 +34,7 @@ def app_overrides(monkeypatch):
 
 
 def test_signup_endpoint_creates_user(client):
+    """Verifica cadastro bem-sucedido de usuário pela API."""
     payload = {
         "name": "Gabriel",
         "email": "gabriel@example.com",
@@ -46,6 +52,7 @@ def test_signup_endpoint_creates_user(client):
 
 
 def test_signup_endpoint_rejects_invalid_payload(client):
+    """Verifica rejeição de payload com email inválido."""
     payload = {
         "name": "Gabriel",
         "email": "not-an-email",
@@ -59,4 +66,5 @@ def test_signup_endpoint_rejects_invalid_payload(client):
 
 @pytest.fixture
 def client():
+    """Cria cliente de teste para a aplicação FastAPI."""
     return TestClient(app)

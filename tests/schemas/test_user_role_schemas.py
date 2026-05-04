@@ -1,12 +1,15 @@
+"""Testes dos schemas Pydantic de usuários e papéis."""
+
 import pytest
 from pydantic import ValidationError
-from pydantic import EmailStr
 
-from schemas.users_schemas import users, users_create, users_update, usersGetData
+from schemas.users_schemas import users_create, users_update, usersGetData
 from schemas.roles_schemas import role, role_update
 
 
 class TestUsersSchemas:
+    """Cenários de validação dos schemas de usuários."""
+
     def test_user_create_requires_password(self):
         payload = {
             "name": "Gabriel",
@@ -64,6 +67,8 @@ class TestUsersSchemas:
 
 
 class TestRoleSchemas:
+    """Cenários de validação dos schemas de papéis."""
+
     def test_role_requires_description_and_active(self):
         with pytest.raises(ValidationError):
             role.model_validate({"description": "Admin"})

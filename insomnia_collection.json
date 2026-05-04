@@ -8,7 +8,7 @@
       "_id": "wrk_ml",
       "_type": "workspace",
       "name": "Machine Learning API",
-      "description": "Collection completa da API de ML",
+      "description": "Coleção completa da API de ML",
       "scope": "collection"
     },
     {

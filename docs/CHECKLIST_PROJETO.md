@@ -42,14 +42,15 @@ Legenda: `[ ]` pendente · `[x]` concluído · **P0** crítico · **P1** importa
 
 ## Bloco 3 — Orquestração com Airflow
 
-- [x] **P1** Criar `docker-compose.yml` com todos os serviços: `api` + `postgres` + `airflow` + `mlflow` com volumes compartilhados entre containers.
+- [x] **P1** Criar `docker-compose.yaml` com serviços principais: `api`, `postgres`, `pgAdmin`, `Dozzle` e `Airflow`. O MLflow usa tracking local via SQLite/artefatos, sem serviço dedicado no compose atual.
 - [x] **P1** Definir DAG `ml_training_pipeline` com tasks sequenciais:
   - `task_validate_input` — valida schema e colunas mínimas do CSV para o `objective`.
-  - `task_run_baseline` — executa `Baseline` e persiste `pipeline_run` no banco.
-  - `task_run_fe` — executa `FeatureEngineering` e persiste `pipeline_run` no banco.
-  - `task_notify_complete` — loga conclusão com `run_id` para o admin decidir sobre promoção.
+  - `task_run_baseline` — executa `Baseline`.
+  - `task_run_fe` — executa `FeatureEngineering`.
+  - `task_notify_complete` — loga conclusão, timestamps e métricas para decisão operacional.
+- [ ] **P1** Persistir `pipeline_runs` no banco também no caminho Airflow, com IDs rastreáveis para promoção.
 - [x] **P1** Endpoint na API `POST /processor/admin/train/trigger-dag` — grava CSV em volume compartilhado e dispara o DAG via Airflow REST API (desacopla treino da thread HTTP).
-- [x] **P2** Parametrizar DAG com `objective` e `optimization_metric` via `dag_run.conf` para suportar heart disease e churn no mesmo DAG.
+- [x] **P2** Parametrizar DAG com `objective` e `optimization_metric` via `dag_run.conf`; suporte real por domínio depende de `STRATEGY_REGISTRY` e schema de predição.
 - [x] **P2** Task de notificação ao admin quando o DAG conclui (log estruturado ou chamada a endpoint interno).
 
 ---

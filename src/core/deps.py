@@ -1,3 +1,5 @@
+"""Dependências FastAPI para sessão de banco, usuário atual e permissões."""
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import Session
@@ -12,51 +14,56 @@ from pydantic import BaseModel
 from sqlalchemy.future import select
 
 class TokenData(BaseModel):
+    """Dados mínimos extraídos do token JWT."""
+
     username:Optional[str] = None
 
 
 async def get_session():
+    """Fornece uma sessão assíncrona de banco por requisição."""
     session : AsyncSession = Session()
     try:
         yield session
     finally:
         await session.close()
-        
+
 async def get_current_user(db:Session = Depends(get_session),token:str = Depends(oauth2_scheme)) -> users_models:
+    """Obtém o usuário autenticado a partir do token bearer."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Não foi possível autenticar o usuario.",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
     try:
         payload = jwt.decode(
             token,
             settings.jwt_secret,
             algorithms=settings.algorithm,
             options={"verify_aud":False}
-        ) 
+        )
         username:str=payload.get("sub")
         if username is None:
             raise credentials_exception
-        
+
         token_data: TokenData = TokenData(username=username)
-    
+
     except JWTError:
         raise credentials_exception
-    
+
     async with db as session:
         querie = select(users_models).filter(users_models.id==int(token_data.username))
         resultset = await session.execute(querie)
         user:users_models = resultset.scalars().unique().one_or_none()
-        
+
         if user is None:
             raise credentials_exception
-        
+
         return user
 
 
 async def require_admin(user: users_models = Depends(get_current_user)) -> users_models:
+    """Garante que o usuário autenticado possui papel de administrador."""
     if user.role_id != Roles.ADMINISTRATOR:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

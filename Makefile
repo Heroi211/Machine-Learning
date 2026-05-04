@@ -11,7 +11,7 @@ requirements:
 	$(PIP) install -r requirements.txt
 
 lint:
-	ruff .
+	ruff check .
 
 format:
 	black .
@@ -33,4 +33,3 @@ docker-down:
 
 clean:
 	rm -rf build dist *.egg-info .pytest_cache __pycache__ htmlcov
-	
