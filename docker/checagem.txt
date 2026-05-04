@@ -1,19 +1,48 @@
-cd /home/gabriel/Machine-Learning
+# Checagem rápida do ambiente Docker
+
+Execute estes comandos na raiz do projeto, depois de criar o `.env` a partir do
+`.env_example` e subir os serviços com `docker compose up --build` ou
+`make docker-up`.
+
+## 1. Status dos containers
+
 docker compose ps -a
 
-curl -s -o /dev/null -w "API docs: %{http_code}\n" http://localhost:8000/docs
+## 2. Endpoints HTTP principais
+
+curl -s -o /dev/null -w "API docs (/docs): %{http_code}\n" http://localhost:8000/docs
+curl -s -o /dev/null -w "API health (/v1/health): %{http_code}\n" http://localhost:8000/v1/health
 curl -s -o /dev/null -w "Airflow health: %{http_code}\n" http://localhost:8080/health
 curl -s -o /dev/null -w "pgAdmin: %{http_code}\n" http://localhost:5050/
 curl -s -o /dev/null -w "Dozzle: %{http_code}\n" http://localhost:8888/
 
-curl -s http://localhost:8000/health 2>/dev/null || echo "(sem rota /health — usa /docs)"
+## 3. Banco de dados
 
 docker compose exec db_processing sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT current_database(), now();"'
 
+No pgAdmin, cadastre o servidor usando:
+
+host: db_processing
+porta: 5432
+banco: valor de DATABASE_NAME no `.env`
+usuario: valor de DATABASE_USER no `.env`
+senha: valor de DATABASE_PASS no `.env`
+
+## 4. Airflow
+
 docker compose exec airflow-scheduler airflow version
 docker compose exec airflow-scheduler airflow dags list
+docker compose exec airflow-scheduler airflow dags list-runs -d ml_training_pipeline
 
-http://localhost:8000/docs	Swagger abre
-http://localhost:8080	Login Airflow (airflow / airflow se não mudaste)
-http://localhost:5050	Login pgAdmin e ligação ao servidor db_processing
-http://localhost:8888	Dozzle mostra streams de logs
+Credenciais padrão do Airflow, se não forem alteradas no Compose:
+
+usuario: airflow
+senha: airflow
+
+## 5. URLs úteis
+
+http://localhost:8000/docs    Documentação Swagger da API
+http://localhost:8000/v1/health    Health check da API com teste de Postgres
+http://localhost:8080    Interface web do Airflow
+http://localhost:5050    Interface web do pgAdmin
+http://localhost:8888    Logs dos containers no Dozzle

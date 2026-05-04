@@ -4,7 +4,7 @@
 #   2. echo "AIRFLOW_UID=$(id -u)" >> .env
 #   3. docker compose up --build
 #   4. API disponível em:       http://localhost:8000/docs
-#   5. Airflow disponível em:   http://localhost:8080  (user: airflow / pass: airflow)
+#   5. Airflow disponível em:   http://localhost:8080  (usuário: airflow / senha: airflow)
 #   6. Logs em tempo real:      http://localhost:8888  (Dozzle)
 #   7. Banco via pgAdmin:       http://localhost:5050
 # ---------------------------------------------------------------------------
@@ -23,6 +23,16 @@ x-airflow-common: &airflow-common
     # Variáveis repassadas aos DAGs para acesso ao projeto ML
     ML_API_URL: http://api_processing:8000
     ML_PROJECT_ROOT: /opt/airflow/ml_project
+    ML_CODE_ROOT: /opt/airflow/ml_code
+    # Artefatos de treino no volume compartilhado (API monta o mesmo volume em /var/www/ml_shared)
+    PATH_DATA: /opt/airflow/ml_project
+    PATH_DATA_PREPROCESSED: /opt/airflow/ml_project/pre_processed
+    PATH_MODEL: /opt/airflow/ml_project/models
+    PATH_GRAPHS: /opt/airflow/ml_project/graphs
+    PATH_LOGS: logs
+    PATH_MAINTENANCE_REPORTS: /opt/airflow/ml_project/reports
+    MLFLOW_TRACKING_URI: sqlite:////opt/airflow/ml_project/mlflow.db
+    MLFLOW_ARTIFACT_ROOT: /opt/airflow/ml_project/mlruns
     DATABASE_USER: ${DATABASE_USER}
     DATABASE_PASS: ${DATABASE_PASS}
     DATABASE_SERVER: db_processing
@@ -34,8 +44,10 @@ x-airflow-common: &airflow-common
     # Volume nomeado evita Permission denied (UID airflow vs pasta no host)
     - airflow_logs:/opt/airflow/logs
     - ./airflow/plugins:/opt/airflow/plugins
-    # Volume compartilhado entre API e Airflow para troca de CSVs e modelos
+    # Volume compartilhado entre API e Airflow (CSVs, logs dos tasks)
     - ml_shared:/opt/airflow/ml_project
+    # Código Python alinhado ao layout ``src/`` da API (import services, core, …)
+    - ./src:/opt/airflow/ml_code:ro
   depends_on:
     db_processing:
       condition: service_healthy
@@ -89,11 +101,11 @@ services:
     networks:
       - nwprocessing
     volumes:
-      - api_data:/var/www/data
-      - api_models:/var/www/models
-      - api_artifacts:/var/www/artifacts
+      - api_data:/var/www/src/data
+      - api_models:/var/www/src/artifacts/models
+      - api_artifacts:/var/www/src/artifacts
       - api_logs:/var/www/logs
-      - api_graphs:/var/www/graphs
+      - api_graphs:/var/www/src/graphs
       # Volume compartilhado com Airflow
       - ml_shared:/var/www/ml_shared
 

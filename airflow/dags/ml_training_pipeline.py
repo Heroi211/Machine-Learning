@@ -1,4 +1,5 @@
-"""DAG: ml_training_pipeline.
+"""
+DAG: ml_training_pipeline
 
 Orquestra o fluxo completo de treino de um modelo de classificação binária:
   1. Validar CSV de entrada (colunas mínimas do domínio)
@@ -12,8 +13,9 @@ JSON na Variable e dar Trigger com conf vazio ou só overrides pontuais.
 
 Variable (Admin → Variables):
   - ``ml_training_pipeline_conf``: string JSON com pelo menos objective e csv_path, ex.::
-      {"objective":"heart_disease","csv_path":"/opt/airflow/ml_shared/uploads/dados.csv",
-       "optimization_metric":"accuracy","time_limit_minutes":30,"acc_target":0.85,"user_id":1}
+      {"objective":"churn","csv_path":"/opt/airflow/ml_shared/uploads/dados.csv",
+       "optimization_metric":"accuracy","time_limit_minutes":30,"acc_target":0.85,
+       "min_precision":0.7,"min_roc_auc":0.75,"tuning_n_iter":80,"user_id":1}
 
 Opcionalmente também ``ml_training_objective`` e ``ml_training_csv_path`` (strings) se
 não quiseres JSON completo — preenchem só esses dois campos quando faltam no JSON.
@@ -28,6 +30,8 @@ import logging
 import os
 import sys
 
+from pathlib import Path
+
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -35,8 +39,22 @@ from airflow.operators.python import PythonOperator
 log = logging.getLogger(__name__)
 
 ML_PROJECT_ROOT = os.environ.get("ML_PROJECT_ROOT", "/opt/airflow/ml_project")
-if ML_PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, ML_PROJECT_ROOT)
+ML_CODE_ROOT = os.environ.get("ML_CODE_ROOT", "").strip()
+
+
+def _bootstrap_ml_sys_path() -> None:
+    """Imports ``services`` / ``core`` vivem em ``src/`` (montado em ``ML_CODE_ROOT`` no compose)."""
+    code_root = ML_CODE_ROOT
+    if not code_root:
+        _candidate = Path(__file__).resolve().parents[2] / "src"
+        if _candidate.is_dir():
+            code_root = str(_candidate)
+    for p in (ML_PROJECT_ROOT, code_root):
+        if p and p not in sys.path:
+            sys.path.insert(0, p)
+
+
+_bootstrap_ml_sys_path()
 
 DEFAULT_ARGS = {
     "owner": "ml-engineering",
@@ -44,6 +62,24 @@ DEFAULT_ARGS = {
     "retry_delay": timedelta(minutes=5),
     "email_on_failure": False,
 }
+
+
+def _resolve_ml_artifact_path(path: str) -> str:
+    """
+    Caminhos gravados pelo Baseline costumam ser relativos ao diretório do projeto ML
+    (ex.: ``data/pre_processed/manifest.json``). O worker do Airflow pode ter CWD
+    diferente; tenta ``ML_PROJECT_ROOT`` antes de ``abspath`` isolado.
+    """
+    path = os.path.normpath(path.strip())
+    if os.path.isfile(path):
+        return os.path.abspath(path)
+    under_root = os.path.join(ML_PROJECT_ROOT, path)
+    if os.path.isfile(under_root):
+        return os.path.abspath(under_root)
+    abs_cwd = os.path.abspath(path)
+    if os.path.isfile(abs_cwd):
+        return abs_cwd
+    return os.path.abspath(under_root)
 
 
 def _merged_run_conf(context: dict) -> dict:
@@ -123,12 +159,20 @@ def task_validate_input(**context) -> None:
     except ImportError:
         log.warning("STRATEGY_REGISTRY não acessível neste worker — validação de colunas pulada.")
 
-    context["task_instance"].xcom_push(key="objective", value=objective)
-    context["task_instance"].xcom_push(key="csv_path", value=csv_path)
-    context["task_instance"].xcom_push(key="user_id", value=conf.get("user_id", 1))
-    context["task_instance"].xcom_push(key="optimization_metric", value=conf.get("optimization_metric", "accuracy"))
-    context["task_instance"].xcom_push(key="time_limit_minutes", value=int(conf.get("time_limit_minutes", 2)))
-    context["task_instance"].xcom_push(key="acc_target", value=float(conf.get("acc_target", 0.90)))
+    ti = context["task_instance"]
+    ti.xcom_push(key="objective", value=objective)
+    ti.xcom_push(key="csv_path", value=csv_path)
+    ti.xcom_push(key="user_id", value=conf.get("user_id", 1))
+    ti.xcom_push(key="optimization_metric", value=conf.get("optimization_metric", "accuracy"))
+    ti.xcom_push(key="time_limit_minutes", value=int(conf.get("time_limit_minutes", 2)))
+    ti.xcom_push(key="acc_target", value=float(conf.get("acc_target", 0.90)))
+
+    if conf.get("min_precision") is not None:
+        ti.xcom_push(key="min_precision", value=float(conf["min_precision"]))
+    if conf.get("min_roc_auc") is not None:
+        ti.xcom_push(key="min_roc_auc", value=float(conf["min_roc_auc"]))
+    if conf.get("tuning_n_iter") is not None:
+        ti.xcom_push(key="tuning_n_iter", value=int(conf["tuning_n_iter"]))
 
     log.info("Validação de input OK para domínio '%s'.", objective)
     log.info(f"CSV path: {csv_path}")
@@ -136,7 +180,12 @@ def task_validate_input(**context) -> None:
     log.info(f"Optimization metric: {conf.get('optimization_metric', 'accuracy')}")
     log.info(f"Time limit minutes: {int(conf.get('time_limit_minutes', 2))}")
     log.info(f"Acc target: {float(conf.get('acc_target', 0.90))}")
-
+    if conf.get("min_precision") is not None:
+        log.info("min_precision: %s", conf["min_precision"])
+    if conf.get("min_roc_auc") is not None:
+        log.info("min_roc_auc: %s", conf["min_roc_auc"])
+    if conf.get("tuning_n_iter") is not None:
+        log.info("tuning_n_iter: %s", conf["tuning_n_iter"])
 
 def task_run_baseline(**context) -> None:
     """Executa o pipeline Baseline e persiste o pipeline_run no banco."""
@@ -145,7 +194,12 @@ def task_run_baseline(**context) -> None:
     csv_path = ti.xcom_pull(key="csv_path", task_ids="validate_input")
     user_id = ti.xcom_pull(key="user_id", task_ids="validate_input")
 
-    log.info("Iniciando Baseline | objective=%s | csv=%s", objective, csv_path)
+    log.info(
+        "Iniciando Baseline | objective=%s | csv=%s | user_id=%s",
+        objective,
+        csv_path,
+        user_id,
+    )
 
     try:
         from core.custom_logger import setup_log
@@ -165,10 +219,29 @@ def task_run_baseline(**context) -> None:
         pipeline.run(start_time=datetime.now())
         pipeline.save_artifacts()
 
-        csv_output = os.path.join(ML_PROJECT_ROOT, "data", "pre_processed", f"{objective}_sample_{now}.csv")
-        ti.xcom_push(key="baseline_csv_output", value=csv_output)
+        manifest_rel = os.path.join(pipeline.path_data_preprocessed, pipeline.contract_manifest_name)
+        sample_rel = os.path.join(pipeline.path_data_preprocessed, pipeline.contract_sample_name)
+        baseline_manifest_path = _resolve_ml_artifact_path(manifest_rel)
+        baseline_sample_csv_path = _resolve_ml_artifact_path(sample_rel)
+
+        if not os.path.isfile(baseline_manifest_path):
+            raise FileNotFoundError(
+                f"Manifest do baseline não encontrado após save (tentado: {baseline_manifest_path}). "
+                f"CWD={os.getcwd()} ML_PROJECT_ROOT={ML_PROJECT_ROOT}"
+            )
+        if not os.path.isfile(baseline_sample_csv_path):
+            raise FileNotFoundError(
+                f"CSV estável do baseline não encontrado após save (tentado: {baseline_sample_csv_path})."
+            )
+
+        ti.xcom_push(key="baseline_manifest_path", value=baseline_manifest_path)
+        ti.xcom_push(key="baseline_sample_csv_path", value=baseline_sample_csv_path)
         ti.xcom_push(key="baseline_run_ts", value=now)
-        log.info("Baseline concluído | csv_output=%s", csv_output)
+        log.info(
+            "Baseline concluído | manifest=%s | sample_csv=%s",
+            baseline_manifest_path,
+            baseline_sample_csv_path,
+        )
 
     except ImportError as e:
         raise RuntimeError(f"Dependência ML não disponível no worker Airflow: {e}")
@@ -181,12 +254,24 @@ def task_run_fe(**context) -> None:
     optimization_metric = ti.xcom_pull(key="optimization_metric", task_ids="validate_input")
     time_limit_minutes = ti.xcom_pull(key="time_limit_minutes", task_ids="validate_input")
     acc_target = ti.xcom_pull(key="acc_target", task_ids="validate_input")
-    csv_path = ti.xcom_pull(key="baseline_csv_output", task_ids="run_baseline")
+    manifest_path = ti.xcom_pull(key="baseline_manifest_path", task_ids="run_baseline")
+    min_precision = ti.xcom_pull(key="min_precision", task_ids="validate_input")
+    min_roc_auc = ti.xcom_pull(key="min_roc_auc", task_ids="validate_input")
+    tuning_n_iter = ti.xcom_pull(key="tuning_n_iter", task_ids="validate_input")
 
-    if not csv_path or not os.path.isfile(csv_path):
-        raise FileNotFoundError(f"CSV pré-processado do Baseline não encontrado: {csv_path}")
+    if not manifest_path or not os.path.isfile(manifest_path):
+        raise FileNotFoundError(f"Manifest do Baseline não encontrado para o FE: {manifest_path}")
 
-    log.info("Iniciando Feature Engineering | objective=%s | metric=%s | csv=%s", objective, optimization_metric, csv_path)
+    log.info(
+        "Iniciando Feature Engineering | objective=%s | metric=%s | manifest=%s | "
+        "min_precision=%s min_roc_auc=%s tuning_n_iter=%s",
+        objective,
+        optimization_metric,
+        manifest_path,
+        min_precision,
+        min_roc_auc,
+        tuning_n_iter,
+    )
 
     try:
         from services.pipelines.feature_engineering import FeatureEngineering
@@ -194,7 +279,17 @@ def task_run_fe(**context) -> None:
 
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         strategy = STRATEGY_REGISTRY[objective]()
-        pipeline = FeatureEngineering(objective=objective, strategy=strategy, run_timestamp=now, csv_path=csv_path, optimization_metric=optimization_metric)
+        pipeline = FeatureEngineering(
+            objective=objective,
+            strategy=strategy,
+            run_timestamp=now,
+            csv_path=None,
+            manifest_path=manifest_path,
+            optimization_metric=optimization_metric,
+            min_precision=min_precision,
+            min_roc_auc=min_roc_auc,
+            tuning_n_iter=tuning_n_iter,
+        )
         pipeline.run(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
 
         ti.xcom_push(key="fe_run_ts", value=now)
@@ -222,9 +317,8 @@ def task_notify_complete(**context) -> None:
     log.info("FE run_ts        : %s", fe_run_ts)
     log.info("Melhor modelo FE : %s", fe_best_model)
     log.info("Métricas FE      : %s", fe_metrics)
-    log.info("Próximo passo: consultar pipeline_run_id no banco e promover via")
-    log.info("  POST /v1/processor/admin/promote")
-    log.info("  { 'domain': '%s', 'pipeline_run_id': <ID> }", objective)
+    log.info("Próximo passo: certificar um único FE activo no objective e promover via")
+    log.info("  POST /v1/processor/admin/promote (sem corpo; OBJECTIVE na env)")
     log.info("=" * 60)
 
 

@@ -1,273 +1,206 @@
-# ML Engineering - Pipeline de Classificacao Binaria
+# ML Engineering — Pipeline de Classificação Binária
 
-Plataforma de Machine Learning Engineering para treinamento, versionamento, promocao e inferencia de modelos de **classificacao binaria em dados tabulares**.
+Plataforma de Machine Learning Engineering para treinamento, versionamento e inferência de modelos de **classificação binária tabulada** (ex.: Heart Disease, Churn).
 
-O projeto cobre o fluxo:
+Cobre o ciclo completo: ingestão de dados → baseline → feature engineering → promoção de modelo → API de predição → monitoramento.
 
-```text
-CSV de treino -> Baseline -> Feature Engineering -> PipelineRuns
-              -> Promocao de modelo -> API de predicao -> Monitoramento offline
-```
-
-Documentacao complementar:
-
-- [Documentacao consolidada da solucao](docs/DOCUMENTACAO_SOLUCAO.md)
-- [Manual do usuario](docs/MANUAL_DO_USUARIO.md)
-- [Observabilidade e manutencao](docs/OBSERVABILIDADE_E_MANUTENCAO.md)
-- [Relatorio tecnico](docs/RELATORIO_TECNICO.md)
-- [Checklist do projeto](docs/CHECKLIST_PROJETO.md)
+**Documentação consolidada (arquitetura, ambientes dev/prod, contratos de API, débitos, novos domínios):** [`docs/DOCUMENTACAO_SOLUCAO.md`](docs/DOCUMENTACAO_SOLUCAO.md).
 
 ---
 
-## Estado atual do codigo
+## Sumário
 
-Antes de executar o fluxo completo, observe estes pontos do estado atual:
-
-| Area | Estado |
-|------|--------|
-| Dominio no enum da API | `heart_disease` e `churn` em `schemas/processor_schemas.py` |
-| Feature Engineering registrada | Apenas `heart_disease` em `STRATEGY_REGISTRY` |
-| Rotas HTTP de treino | `objective` esta tipado como `Literal["churn"]` em `api/v1/endpoints/processor.py` |
-| Predicao | `PredictRequest` usa schema estrito de features de `heart_disease` |
-
-Isso significa que a arquitetura ja aponta para multiplos dominios, mas o codigo precisa alinhar `objective` das rotas de treino com `STRATEGY_REGISTRY` para o fluxo HTTP completo funcionar sem ajuste. A documentacao abaixo descreve o funcionamento esperado da aplicacao e registra essas restricoes.
+1. [Pré-requisitos](#1-pré-requisitos)
+2. [Setup do ambiente](#2-setup-do-ambiente)
+3. [Subir os serviços](#3-subir-os-serviços)
+4. [Fluxo completo — passo a passo](#4-fluxo-completo--passo-a-passo)
+   - [4.1 Criar conta e autenticar](#41-criar-conta-e-autenticar)
+   - [4.2 Treino Baseline (admin)](#42-treino-baseline-admin)
+   - [4.3 Treino Feature Engineering (admin)](#43-treino-feature-engineering-admin)
+   - [4.4 Listar pipeline runs (admin)](#44-listar-pipeline-runs-admin)
+   - [4.5 Promover modelo (admin)](#45-promover-modelo-admin)
+   - [4.6 Predição (consumidor)](#46-predição-consumidor)
+5. [Contrato do CSV de treino](#5-contrato-do-csv-de-treino)
+6. [Domínios disponíveis](#6-domínios-disponíveis)
+7. [Monitoramento e manutenção](#7-monitoramento-e-manutenção)
+8. [Estrutura do projeto](#8-estrutura-do-projeto)
+   - [8.1 Pastas do Tech Challenge e deste repo](#81-pastas-do-tech-challenge-e-deste-repo)
+9. [SLO definido](#9-slo-definido)
+10. [Critério de promoção de modelos](#10-critério-de-promoção-de-modelos)
+11. [Limitações conhecidas](#11-limitações-conhecidas)
 
 ---
 
-## 1. Pre-requisitos
+## 1. Pré-requisitos
 
-- Docker 24+
-- Docker Compose 2.20+
-- Portas livres: `8000` (API), `5432` (PostgreSQL), `5050` (pgAdmin), `8080` (Airflow), `8888` (Dozzle)
+- [Docker](https://docs.docker.com/get-docker/) ≥ 24
+- [Docker Compose](https://docs.docker.com/compose/) ≥ 2.20
+- Porta `8000` (API), `5432` (Postgres), `5050` (pgAdmin), `8888` (Dozzle) livres
 
 ---
 
-## 2. Configuracao
-
-Crie o arquivo de ambiente:
+## 2. Setup do ambiente
 
 ```bash
+# 1. Clonar o repositório
+git clone <url-do-repositorio>
+cd Machine-Learning
+
+# 2. Criar o arquivo de variáveis de ambiente
 cp .env_example .env
 ```
 
-Preencha, no minimo:
+Abrir o `.env` e preencher **obrigatoriamente**:
 
-| Variavel | Uso |
-|----------|-----|
-| `PROJECT_NAME` | Nome exibido pela API |
-| `PROJECT_VERSION` | Prefixo das rotas, por exemplo `/v1` |
-| `DATABASE_USER`, `DATABASE_PASS`, `DATABASE_NAME` | Credenciais do PostgreSQL |
-| `DATABASE_SERVER` | Use `db_processing` no Docker Compose |
-| `SECRET` | Chave JWT, gerada com `python -c "import secrets; print(secrets.token_hex(32))"` |
-| `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES` | Configuracao do token |
-| `PGADMIN_EMAIL`, `PGADMIN_PASSWORD` | Login do pgAdmin |
-| `AIRFLOW_UID` | UID usado pelos containers do Airflow |
+| Variável | Descrição |
+|----------|-----------|
+| `DATABASE_USER` | Usuário do PostgreSQL |
+| `DATABASE_PASS` | Senha do PostgreSQL |
+| `DATABASE_NAME` | Nome do banco (ex.: `processing`) |
+| `SECRET` | Chave JWT — gerar com `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `PGADMIN_EMAIL` | E-mail de acesso ao pgAdmin |
+| `PGADMIN_PASSWORD` | Senha do pgAdmin |
+| `PROJECT_NAME` | Nome do projeto (ex.: `ML-Engineering`) |
+| `PROJECT_VERSION` | Prefixo da API (ex.: `/v1`) |
 
-Em macOS/Linux, ajuste o UID antes de subir o Compose:
-
-```bash
-echo "AIRFLOW_UID=$(id -u)" >> .env
-```
+> `DATABASE_SERVER` já está configurado como `db_processing` no compose — não alterar para uso com Docker.
 
 ---
 
-## 3. Subir os servicos
+## 3. Subir os serviços
 
 ```bash
 docker compose up --build
 ```
 
-URLs locais:
+| Serviço | URL | Descrição |
+|---------|-----|-----------|
+| API | http://localhost:8000/docs | Swagger — documentação interativa |
+| Dozzle | http://localhost:8888 | Logs de todos os containers em tempo real |
+| pgAdmin | http://localhost:5050 | Interface web do banco de dados |
 
-| Servico | URL |
-|---------|-----|
-| Swagger / OpenAPI | http://localhost:8000/docs |
-| Airflow | http://localhost:8080 |
-| pgAdmin | http://localhost:5050 |
-| Dozzle | http://localhost:8888 |
-
-Parar os containers:
-
+Para parar:
 ```bash
 docker compose down
 ```
 
-Resetar tambem volumes e banco:
-
+Para parar e remover volumes (reset completo):
 ```bash
 docker compose down -v
 ```
 
 ---
 
-## 4. Estrutura do projeto
+## 4. Fluxo completo — passo a passo
 
-```text
-api/v1/endpoints/        Rotas HTTP: auth, users, roles, processor
-core/                    Configuracoes, auth, banco, logging e middleware
-models/                  Modelos ORM SQLAlchemy
-schemas/                 Contratos Pydantic
-services/processor/      Orquestracao de treino, promocao e predicao
-services/pipelines/      Baseline, Feature Engineering e strategies por dominio
-airflow/dags/            DAG de treino
-scripts/maintenance/     Relatorios offline de latencia e drift
-init_db/                 SQL inicial do banco
-docker/                  Dockerfiles
-docs/                    Documentacao complementar
-```
+Todos os exemplos usam `curl`. O mesmo fluxo pode ser executado pelo Swagger em `/docs`.
 
----
+### 4.1 Criar conta e autenticar
 
-## 5. Autenticacao
-
-O prefixo abaixo usa `/v1`, mas ele vem de `PROJECT_VERSION`.
-
-Criar usuario:
-
+**Criar conta:**
 ```bash
 curl -X POST http://localhost:8000/v1/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "Usuario Demo",
-    "email": "usuario@exemplo.com",
-    "password": "senha_segura"
-  }'
+  -d '{"name": "Seu Nome", "email": "usuario@exemplo.com", "password": "sua_senha"}'
 ```
 
-Login:
-
+**Login — obter token:**
 ```bash
 curl -X POST http://localhost:8000/v1/auth/authenticate \
   -F "username=usuario@exemplo.com" \
-  -F "password=senha_segura"
+  -F "password=sua_senha"
 ```
 
 Resposta:
-
 ```json
-{
-  "access_token": "<TOKEN>",
-  "token_type": "bearer"
-}
+{ "access_token": "<TOKEN>", "token_type": "bearer" }
 ```
 
-Use o token em rotas protegidas:
-
-```text
-Authorization: Bearer <TOKEN>
-```
-
-Novos usuarios entram como perfil comum (`role_id=1`). Rotas administrativas exigem administrador (`role_id=2`).
+> Guardar o `access_token` — será usado em todas as rotas como `Authorization: Bearer <TOKEN>`.
 
 ---
 
-## 6. Contrato do CSV de treino
+### 4.2 Treino Baseline (admin)
 
-| Regra | Detalhe |
-|-------|---------|
-| Formato | CSV com cabecalho |
-| Target | A ultima coluna e tratada como alvo |
-| Problema | Apenas classificacao binaria |
-| ID | Remova colunas de identificador antes do upload |
-| Target nulo | Nao permitido |
-| Features ausentes | Imputadas no pipeline quando aplicavel |
-| Target numerico | Valores `> 0` viram classe positiva `1`; `0` vira classe negativa |
+> Requer conta com papel **Administrador**.
 
----
-
-## 7. Rotas principais
-
-Todas as rotas abaixo ficam sob `/v1/processor`.
-
-| Metodo | Rota | Auth | Descricao |
-|--------|------|------|-----------|
-| `POST` | `/predict` | Usuario autenticado | Predicao com modelo ativo |
-| `POST` | `/admin/promote` | Admin | Promove um `pipeline_run` concluido |
-| `POST` | `/admin/rollback` | Admin | Reativa o deployment arquivado mais recente |
-| `GET` | `/admin/deployments/{domain}/history` | Admin | Historico de modelos promovidos |
-| `POST` | `/admin/train/baseline` | Admin, nao producao | Treino baseline sincrono |
-| `POST` | `/admin/train/feature-engineering` | Admin, nao producao | Treino FE sincrono e retorno de ZIP |
-| `POST` | `/admin/train/trigger-dag` | Admin, nao producao | Upload de CSV e disparo do DAG no Airflow |
-
-Em `ENVIRONMENT=prd`, `prod` ou `production`, rotas de treino sincrono e trigger pela API retornam `403`; o treino deve ser feito pelo Airflow.
-
----
-
-## 8. Fluxo operacional
-
-### 8.1 Treinar baseline
+**Contrato do CSV:** ver [seção 5](#5-contrato-do-csv-de-treino).
 
 ```bash
 curl -X POST http://localhost:8000/v1/processor/admin/train/baseline \
-  -H "Authorization: Bearer <TOKEN_ADMIN>" \
-  -F "file=@dados.csv" \
-  -F "objective=churn"
+  -H "Authorization: Bearer <TOKEN>" \
+  -F "file=@caminho/para/dados.csv" \
+  -F "objective=heart_disease"
 ```
 
-A resposta e um CSV. Metadados importantes vem nos headers:
+A resposta inclui o CSV pré-processado no corpo e os metadados nos cabeçalhos `X-Pipeline-*`.
 
-- `X-Pipeline-Run-Id`
-- `X-Pipeline-Type`
-- `X-Pipeline-Objective`
-- `X-Pipeline-Metrics`
+Anotar o `pipeline_run_id` retornado nos cabeçalhos — necessário para promoção.
 
-### 8.2 Treinar Feature Engineering
+---
+
+### 4.3 Treino Feature Engineering (admin)
+
+Usar o CSV pré-processado devolvido pelo baseline como entrada.
 
 ```bash
 curl -X POST http://localhost:8000/v1/processor/admin/train/feature-engineering \
-  -H "Authorization: Bearer <TOKEN_ADMIN>" \
-  -F "file=@dados.csv" \
-  -F "objective=churn" \
-  -F "optimization_metric=recall" \
-  -F "time_limit_minutes=2"
+  -H "Authorization: Bearer <TOKEN>" \
+  -F "file=@caminho/para/dados_preprocessados.csv" \
+  -F "objective=heart_disease" \
+  -F "optimization_metric=recall"
 ```
 
-Metricas aceitas:
+Métricas disponíveis: `accuracy` · `precision` · `recall` · `f1` · `roc_auc`
 
-```text
-accuracy, precision, recall, f1, roc_auc
+Anotar o `pipeline_run_id` do cabeçalho de resposta.
+
+---
+
+### 4.4 Listar pipeline runs (admin)
+
+Lista execuções (`pipeline_runs`) para escolher o `pipeline_run_id` na promoção, com filtros opcionais (`domain` = **apenas `churn`** se quiser filtrar, `pipeline_type`, `status`, `limit`). Resposta ordenada por `created_at` (mais recentes primeiro).
+
+```bash
+curl -s -X GET "http://localhost:8000/v1/processor/admin/runs?domain=churn&pipeline_type=feature_engineering&status=completed&limit=20" \
+  -H "Authorization: Bearer <TOKEN>"
 ```
 
-A resposta e um ZIP com artefatos do run e headers `X-Pipeline-*`.
+Para ver todos os runs recentes sem filtro de domínio, omita os query params ou use apenas `limit`.
 
-> Ponto de atencao: no codigo atual, `objective=churn` passa pela validacao HTTP, mas o FE exige strategy registrada. Hoje o registry contem `heart_disease`; portanto, para o fluxo FE completo, e necessario alinhar a rota ou implementar/registrar `ChurnFeatures`.
+---
 
-### 8.3 Promover modelo
+### 4.5 Promover modelo (admin)
+
+Torna um run concluído o modelo **ativo** para o domínio. Apenas modelos promovidos são usados em predições.
+
+**Quem pode ser promovido:** apenas runs de **`feature_engineering`** com `status` concluído (`pipeline_type` no formulário). Runs só de baseline **não** entram em `/predict` por este fluxo.
 
 ```bash
 curl -X POST http://localhost:8000/v1/processor/admin/promote \
-  -H "Authorization: Bearer <TOKEN_ADMIN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "domain": "heart_disease",
-    "pipeline_run_id": 1
-  }'
+  -H "Authorization: Bearer <TOKEN>" \
+  -F "domain=churn" \
+  -F "pipeline_run_id=<ID_DO_RUN>" \
+  -F "pipeline_type=feature_engineering"
 ```
 
-A promocao exige:
+> `domain` deve ser idêntico ao `objective` usado no treino (hoje o promote está alinhado ao fluxo **churn** no Swagger).
 
-- `pipeline_run` existente e ativo;
-- `status="completed"`;
-- `objective` igual ao `domain`;
-- arquivo de modelo existente em `model_path`.
+#### O que a rota `/predict` carrega de facto (sklearn vs PyTorch)
 
-### 8.4 Ver historico e rollback
+| Aspeto | Comportamento neste projeto |
+|--------|-----------------------------|
+| **Artefacto em produção** | Ficheiro **`.joblib`** gerado pelo FE: `sklearn.pipeline.Pipeline` (pré-processamento + modelo selecionado no tuning, ex. Random Forest). A API faz `joblib.load` e usa `predict` / `predict_proba`. |
+| **MLP (PyTorch)** | Treinada no mesmo pipeline de FE para **comparação**; métricas e artefactos opcionais vão para o **MLflow**. **Não** é este tensor o que o `POST /predict` carrega hoje. Servir a MLP exigiria outro desenho (ex. TorchScript/ONNX + alinhamento ao mesmo pré-processamento). |
+| **Rastreio** | O run promovido continua ligado a um `pipeline_run_id`; o joblib apontado em `model_path` é o que vale para inferência. |
 
-```bash
-curl -X GET http://localhost:8000/v1/processor/admin/deployments/heart_disease/history \
-  -H "Authorization: Bearer <TOKEN_ADMIN>"
-```
+---
 
-```bash
-curl -X POST http://localhost:8000/v1/processor/admin/rollback \
-  -H "Authorization: Bearer <TOKEN_ADMIN>" \
-  -H "Content-Type: application/json" \
-  -d '{ "domain": "heart_disease" }'
-```
+### 4.6 Predição (consumidor)
 
-### 8.5 Predicao
+Qualquer usuário autenticado pode prever, desde que haja um modelo promovido para o domínio.
 
-O payload atual de predicao esta modelado para `heart_disease` e exige campos ja alinhados ao schema Pydantic:
+O corpo segue o **domínio** e o schema de `features` definidos no Swagger (ex. **churn**: atributos brutos alinhados ao treino; não enviar colunas pós–one-hot). O modelo executado é sempre o **Pipeline sklearn** do run promovido, conforme a tabela acima.
 
 ```bash
 curl -X POST http://localhost:8000/v1/processor/predict \
@@ -277,121 +210,219 @@ curl -X POST http://localhost:8000/v1/processor/predict \
     "domain": "heart_disease",
     "features": {
       "age": 55,
+      "sex": 1,
+      "cp": 2,
       "trestbps": 140,
       "chol": 250,
-      "fbs": false,
+      "fbs": 0,
+      "restecg": 1,
       "thalch": 150,
-      "exang": false,
+      "exang": 0,
       "oldpeak": 1.5,
+      "slope": 2,
       "ca": 0,
-      "sex_Male": true,
-      "cp_atypical angina": false,
-      "cp_non-anginal": true,
-      "cp_typical angina": false,
-      "restecg_normal": true,
-      "restecg_st-t abnormality": false,
-      "slope_flat": false,
-      "slope_upsloping": true,
-      "thal_normal": true,
-      "thal_reversable defect": false
+      "thal": 2
     }
   }'
 ```
 
-Resposta esperada:
-
+Resposta:
 ```json
 {
   "id": 1,
   "domain": "heart_disease",
   "pipeline_run_id": 3,
   "prediction": 1,
-  "probability": 82.0,
-  "input_data": {}
+  "probability": 0.82,
+  "input_data": { ... }
 }
 ```
 
-`probability` e retornada em percentual quando o modelo expoe `predict_proba`.
+---
+
+## 5. Contrato do CSV de treino
+
+| Regra | Detalhe |
+|-------|---------|
+| **Última coluna = target** | O pipeline detecta automaticamente a coluna alvo pela posição |
+| **Sem coluna de ID** | Remover antes do upload (ex.: `customer_id`, `patient_id`) |
+| **Tipo de problema** | Apenas **classificação binária** — o target é binarizado (qualquer valor > 0 vira 1) |
+| **Valores ausentes** | Imputados automaticamente: mediana para numéricos, moda para categóricos |
+| **Formato** | `.csv` com cabeçalho na primeira linha |
 
 ---
 
-## 9. Airflow
+## 6. Domínios disponíveis
 
-O DAG `ml_training_pipeline` executa:
+| `objective` / `domain` | Dataset de referência | Features obrigatórias |
+|------------------------|-----------------------|-----------------------|
+| `heart_disease` | UCI Heart Disease | `age`, `chol` (mínimo) |
+| `churn` | *(em implementação)* | *(a definir)* |
 
-```text
-validate_input -> run_baseline -> run_fe -> notify_complete
-```
-
-Parametros podem vir de `dag_run.conf` ou da Airflow Variable `ml_training_pipeline_conf`.
-
-Exemplo de JSON:
-
-```json
-{
-  "objective": "heart_disease",
-  "csv_path": "/opt/airflow/ml_shared/uploads/dados.csv",
-  "optimization_metric": "accuracy",
-  "time_limit_minutes": 30,
-  "acc_target": 0.85,
-  "user_id": 1
-}
-```
-
-Em producao, use a UI do Airflow para configurar Variables e disparar o DAG manualmente.
+> Para adicionar um novo domínio: implementar `FeatureStrategy` em `services/pipelines/feature_strategies/` e registrar em `__init__.py`.
 
 ---
 
-## 10. Observabilidade e manutencao
+## 7. Monitoramento e manutenção
 
-| Item | Local |
-|------|-------|
-| Logs HTTP | `logs/api_requests/access.jsonl` |
-| Logs de pipeline | `data/logs/<timestamp>/pipeline_<timestamp>.txt` |
-| Relatorios | `artifacts/reports/` |
-| MLflow local | `artifacts/mlruns/` |
+### Logs em tempo real
+Acesse **http://localhost:8888** (Dozzle) para visualizar os logs de todos os containers.
 
-Relatorio de latencia:
+Logs persistidos em volume:
+- `logs/api_requests/access.jsonl` — uma linha JSON por requisição HTTP
+- `src/data/logs/<timestamp>/pipeline_<timestamp>.txt` — log de cada execução de pipeline (treinos sob `PATH_DATA`/`PATH_LOGS`)
 
+### Relatório de latência
 ```bash
+# Dentro do container da API ou com o ambiente local configurado:
 python scripts/maintenance/latency_report.py --slo-ms 300
 ```
+Gera CSV em `artifacts/reports/latency_summary_<timestamp>.csv` com p50/p90/p95/p99 por rota e status do SLO.
 
-Relatorio de drift:
-
+### Relatório de drift
 ```bash
+# 1. Exportar predições do banco:
+# COPY (SELECT id, pipeline_run_id, input_data, prediction, probability FROM predictions)
+# TO '/tmp/predictions.csv' WITH CSV HEADER;
+
+# 2. Rodar o relatório:
 python scripts/maintenance/drift_report.py \
-  --train-csv data/referencia.csv \
+  --train-csv data/heart_disease_reference.csv \
   --predictions-csv exports/predictions.csv
 ```
+Gera CSV em `artifacts/reports/drift_psi_<timestamp>.csv` com PSI por feature e status `ok / warning / critical`.
 
-SLO documentado:
+### Processo de decisão
 
-| Rota | Metrica | Limite |
-|------|---------|--------|
-| `POST /processor/predict` | p95 de latencia | `< 300ms` |
+| Situação | Ação |
+|----------|------|
+| Latência p95 > SLO (`breach`) | Investigar modelo pesado ou infra; considerar retreino mais leve |
+| Drift PSI `warning` (0.10–0.25) | Aumentar frequência de monitoramento |
+| Drift PSI `critical` (> 0.25) | Coletar dados recentes → retreinar → promover novo run → reavaliar drift |
 
----
-
-## 11. Evolucao de dominios
-
-Para adicionar ou completar um dominio:
-
-1. Adicionar o valor em `MLDomain` (`schemas/processor_schemas.py`).
-2. Criar uma classe `FeatureStrategy` em `services/pipelines/feature_strategies/`.
-3. Registrar a strategy em `STRATEGY_REGISTRY`.
-4. Definir labels em `CLASS_LABELS`.
-5. Ajustar o schema de predicao para o novo dominio.
-6. Garantir que as rotas de treino aceitam o mesmo `objective`.
-7. Documentar contrato de CSV, features e payload de predicao.
+**Periodicidade recomendada:** após cada deploy e semanalmente com volume de predições ativo.
 
 ---
 
-## 12. Limitacoes conhecidas
+## 8. Estrutura do projeto
 
-- Escopo restrito a classificacao binaria tabular.
-- FE multi-dominio ainda precisa de alinhamento entre API e registry.
-- Predicao esta tipada para features de `heart_disease`.
-- Drift e latencia agregada sao analisados por scripts offline, nao por alertas em tempo real.
-- MLflow usa tracking local por padrao.
-- Treinos sincronizados pela API devem ser usados apenas em desenvolvimento.
+O **código FastAPI + pipelines ML** está sob **`src/`** (equivalente ao `src/` pedido em materiais tipo Tech Challenge). Docker, Airflow e `docker-compose` ficam na **raiz** do repositório.
+
+```
+├── src/
+│   ├── api/v1/endpoints/   # Rotas HTTP (auth, users, roles, processor, health)
+│   ├── core/               # Config, auth, logging, middleware, deps
+│   ├── models/             # ORM SQLAlchemy
+│   ├── schemas/            # Pydantic
+│   ├── services/           # Pipelines ML, processor, auth
+│   ├── data/               # CSVs, pre_processed, logs de pipeline (opcional no VCS)
+│   ├── artifacts/          # MLflow (mlruns), modelos .joblib, relatórios
+│   ├── graphs/             # Gráficos exportados pelo baseline/FE
+│   └── scripts/maintenance/
+├── airflow/                # DAGs (fora de src)
+├── docker/
+├── docs/
+├── init_db/
+├── main.py                 # FastAPI — faz `sys.path` → `src/`
+├── docker-compose.yaml     # API: volumes em /var/www/src/... e /var/www/logs
+└── .env_example
+```
+
+### 8.1 Pastas do Tech Challenge e deste repo
+
+| Pedido habitual (TC) | Onde está aqui |
+|----------------------|----------------|
+| `src/` (código) | **`src/`** — `api/`, `core/`, `services/`, `schemas/` (+ ORM em `src/models/`) |
+| `data/` | **`src/data/`** por omissão (`PATH_*` no `.env`) |
+| `models/` (pesos ML) | **`src/artifacts/models/`** (`PATH_MODEL`) — não confundir com `src/models/` (ORM) |
+| `tests/` | Outro membro (`pytest` planeado) |
+| `notebooks/` | Opcional (`reference/`, etc.) |
+| `docs/` | `docs/` na raiz |
+
+---
+
+## 9. SLO definido
+
+| Rota | Métrica | Threshold |
+|------|---------|-----------|
+| `POST /processor/predict` | p95 de latência | < 300ms |
+
+Verificar com: `python scripts/maintenance/latency_report.py --slo-ms 300`
+
+---
+
+## 10. Critério de promoção de modelos
+
+Um modelo só deve ser promovido para produção quando **todas** as condições abaixo forem atendidas:
+
+| Critério | Threshold |
+|----------|-----------|
+| Métrica principal do novo run > modelo ativo | ≥ +2% |
+| PSI médio das features (drift) | < 0.10 |
+| Run com `status = completed` e artefato existente | Obrigatório |
+
+**Processo:**
+1. Rodar `drift_report.py` com CSV de treino e export de predições recentes.
+2. Confirmar PSI médio abaixo de 0.10.
+3. Comparar métricas do run candidato com `GET /processor/admin/deployments/{domain}/history`.
+4. Se aprovado: `POST /processor/admin/promote`.
+5. Em caso de problema após promoção: `POST /processor/admin/rollback`.
+
+---
+
+## 11. Limitações conhecidas
+
+- **Escopo:** apenas classificação binária tabulada. Regressão e multiclasse não suportados.
+- **Desbalanceamento:** tratado via `class_weight='balanced'` na Regressão Logística do Baseline. Estratégias de reamostragem (SMOTE) não implementadas.
+- **Drift:** monitoramento offline (script manual/agendado), sem alertas em tempo real no predict.
+- **Orquestração:** treinos executados na thread HTTP. Integração com Airflow prevista — ver `docs/CHECKLIST_PROJETO.md` Bloco 3.
+- **MLflow:** tracking local (SQLite). Para uso em equipe, configurar servidor MLflow externo via `MLFLOW_TRACKING_URI`.
+
++------------------------------------------------------------------------------------------+
+|                              MÁQUINA / DOCKER HOST                                        |
+|                                                                                          |
+|  +------------------+       +----------------------------------------------------------+|
+|  | Cliente          |       |  Rede Docker (ex.: nwprocessing)                        ||
+|  | (Browser / curl) |       |                                                           ||
+|  +--------+---------+       |  +-------------------------+     +----------------------+  ||
+|           |                 |  | API FastAPI (:8000)      |     | PostgreSQL (:5432)    |  ||
+|           | HTTPS/HTTP      |  | main.py + pacote em src/ |     | users, roles, runs,   |  ||
+|           v                 |  |  /v1/auth  (JWT)         |     | deployments, predicts |  ||
+|  +------------------+      |  |  /v1/processor          |<--->|                       |  ||
+|  | Swagger / Insomnia   |   |  |    train, runs,        |     +----------------------+  ||
+|  +------------------+      |  |    promote, predict      |                               ||
+|                             |  |  /v1/health            |                               ||
+|                             |  +------------+------------+                               ||
+|                             |               |                                             ||
+|                             |               v                                             ||
+|                             |  +-------------------------+    +-------------------------+  ||
+|                             |  | Volumes API             |    | Airflow                 |  ||
+|                             |  |  src/data               |    |  Web :8080 / Scheduler  |  ||
+|                             |  |  src/artifacts (joblib,|    |  DAG: Baseline -> FE    |  ||
+|                             |  |            mlruns…)     |    |  Imports: pasta src     |  ||
+|                             |  |  logs/api_requests      |    |    montada (ml_code)    |  ||
+|                             |  |  ml_shared (upload CSV) |<-->+  Volume ml_project       |  ||
+|                             |  |                         |    |  (mesmo vol. que API    |  ||
+|                             |  |                         |    |   chama ml_shared)      |  ||
+|                             |  +-------------------------+    +-------------------------+  ||
+|                             |                                                             ||
+|                             |  +----------+    +----------+  (opcional)                  ||
+|                             |  | pgAdmin  |    | Dozzle   |                               ||
+|                             |  | :5050    |    | :8888    |                               ||
+|                             |  +----------+    +----------+                               ||
+|                             +----------------------------------------------------------+|
++------------------------------------------------------------------------------------------+
+
+Fluxo de negócio (resumo):
+
+  CSV  --->  [ Baseline ]  --->  manifest + sample  --->  [ Feature Engineering ]
+                |                                              |
+                +------------ MLflow (métricas, artefactos) --+
+                |
+  Admin  --->  POST promote (run FE)  --->  modelo ativo no domínio
+                |
+  Utilizador -> POST predict  --->  joblib + resposta (predição / prob)
+
+Legenda:
+  <-->  lê/escreve na mesma base ou no mesmo volume conforme configuração
+  API   trabalho síncrono; Airflow orquestra o mesmo tipo de pipelines no worker
