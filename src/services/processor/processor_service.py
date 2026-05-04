@@ -17,9 +17,66 @@ from core.configs import settings
 from core.custom_logger import setup_pipeline_run_logging
 from models.pipeline_runs import PipelineRuns
 from models.predictions import Predictions
+from schemas.processor_schemas import InferenceReport
+from services.processor.inference_report import (
+    attach_fe_model_comparison_table,
+    attach_mlp_metrics_snapshot,
+    build_inference_report,
+)
 from services.utils import utcnow
 
 logger = logging.getLogger(__name__)
+
+
+async def fetch_active_baseline_metrics_snapshot(session: AsyncSession, objective: str) -> dict | None:
+    """
+    Lê o baseline ``completed`` + ``active`` para o domínio — usado ao fechar o FE para o relatório
+    (baseline sklearn vs MLP / FE na mesma resposta de ``/predict``).
+    """
+    d = objective.strip().lower()
+    stmt = (
+        select(PipelineRuns)
+        .where(
+            PipelineRuns.pipeline_type == "baseline",
+            PipelineRuns.active.is_(True),
+            PipelineRuns.status == "completed",
+            func.lower(PipelineRuns.objective) == d,
+        )
+        .limit(1)
+    )
+    res = await session.execute(stmt)
+    row = res.scalars().one_or_none()
+    if row is None:
+        return None
+    m = dict(row.metrics or {})
+
+    def _f(*keys: str) -> float | None:
+        for key in keys:
+            raw = m.get(key)
+            if raw is None:
+                continue
+            try:
+                x = float(raw)
+                return x if math.isfinite(x) else None
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    return {
+        "baseline_pipeline_run_id": row.id,
+        "role": "baseline_sklearn",
+        "description": (
+            "Métricas de **teste** do pipeline Baseline (sklearn, p.ex. regressão logística + "
+            "pré-processamento do contrato). Referência **antes** do feature engineering; não é o modelo servido em /predict."
+        ),
+        "test_accuracy": _f("test_accuracy"),
+        "test_precision": _f("test_precision"),
+        "test_recall": _f("test_recall"),
+        "test_f1": _f("test_f1"),
+        "test_pr_auc": _f("test_pr_auc"),
+        "test_roc_auc": _f("test_roc_auc"),
+        "classification_decision_threshold": _f("classification_decision_threshold"),
+    }
 
 
 def _recall_from_metrics(metrics: dict | None) -> float:
@@ -679,10 +736,12 @@ async def run_feature_engineering(
             tf.write(pipeline.best_model_name or "")
 
         active_dep = None
+        baseline_ref = None
         async with db as s2:
             ad = await get_active_deployment(objective, s2)
             if ad is not None:
                 active_dep = ad.id
+            baseline_ref = await fetch_active_baseline_metrics_snapshot(s2, objective)
 
         merged_metrics: dict = {
             "fe_training_csv": csv_baseline,
@@ -703,6 +762,8 @@ async def run_feature_engineering(
             "tuning_time_limit_effective_minutes": effective_tuning_minutes,
             "tuning_time_limit_requested": time_limit_minutes,
         }
+        if baseline_ref:
+            merged_metrics["baseline_reference_metrics"] = baseline_ref
         _bcs = float(pipeline.best_cv_score)
         merged_metrics["best_cv_score"] = _bcs
         if math.isfinite(_bcs):
@@ -715,6 +776,8 @@ async def run_feature_engineering(
                 pass
         merged_metrics.update(dict(pipeline.tuned_metrics))
         merged_metrics.update(dict(pipeline.guardrails_summary))
+        attach_mlp_metrics_snapshot(merged_metrics, pipeline)
+        attach_fe_model_comparison_table(merged_metrics, pipeline)
         if pipeline.best_model_name:
             merged_metrics["best_model_name"] = pipeline.best_model_name
 
@@ -821,7 +884,9 @@ def _resolve_shared_artifact_path(p: str | None) -> str | None:
     return p
 
 
-async def predict_for_domain(domain: str, features: dict, user_id: int, db: AsyncSession) -> Predictions:
+async def predict_for_domain(
+    domain: str, features: dict, user_id: int, db: AsyncSession
+) -> tuple[Predictions, InferenceReport]:
     """Resolve o modelo ativo do domínio e prediz para um indivíduo.
 
     O ramo de inferência (sklearn vs MLP PyTorch) vem do campo ``inference_backend`` do
@@ -881,5 +946,6 @@ async def predict_for_domain(domain: str, features: dict, user_id: int, db: Asyn
         session.add(pred)
         await session.commit()
         await session.refresh(pred)
+        report = build_inference_report(dict(run.metrics or {}), backend)
 
-    return pred
+    return pred, report

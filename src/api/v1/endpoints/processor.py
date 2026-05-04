@@ -40,7 +40,7 @@ ML_SHARED_PATH = settings.ml_shared_path
 async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = Depends(get_session), user_logged: users_models = Depends(get_current_user)):
     try:
         features_dict = payload.features.model_dump(mode="json", by_alias=True)
-        pred = await processor_service.predict_for_domain(
+        pred, inference_report = await processor_service.predict_for_domain(
             domain=payload.domain, features=features_dict, user_id=user_logged.id, db=db
         )
         prob_pct = None
@@ -53,6 +53,7 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
             prediction=pred.prediction,
             probability=prob_pct,
             input_data=pred.input_data if isinstance(pred.input_data, dict) else dict(pred.input_data),
+            inference_report=inference_report,
         )
     except NoActiveDeploymentError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

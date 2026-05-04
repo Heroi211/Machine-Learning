@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -151,13 +151,85 @@ PredictRequest = Annotated[
 ]
 
 
+class MetricSnapshot(BaseModel):
+    """Métricas de classificação binária no holdout de treino (um único split de teste)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    accuracy: Optional[float] = Field(default=None, description="Acurácia no conjunto de teste do run.")
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    f1: Optional[float] = None
+    roc_auc: Optional[float] = None
+
+
+class InferenceReport(BaseModel):
+    """
+    Mini-relatório para o consumidor de ``/predict``: o que está servido e o que foi medido no treino.
+
+    **Nota:** probabilidade e classe deste JSON são da **linha atual**; blocos ``*_holdout*``
+    vêm das métricas gravadas no ``PipelineRun`` (histórico do treino).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    inference_backend: str = Field(..., description="`sklearn` ou `mlp`.")
+    predict_model: str = Field(..., description="Identificador lógico, ex.: sklearn_pipeline ou pytorch_mlp.")
+    sklearn_benchmark_classifier: Optional[str] = Field(
+        default=None,
+        description="Nome do melhor estimador sklearn na fase de CV / estudo (pode não ser o servido).",
+    )
+    optimization_metric: Optional[str] = None
+    best_cv_score: Optional[float] = Field(default=None, description="Melhor média de CV na seleção interna.")
+    classification_decision_threshold: Optional[float] = Field(
+        default=None,
+        description="Limiar usado ao calcular métricas de teste sklearn (holdout), se registado.",
+    )
+    served_holdout_metrics: Optional[MetricSnapshot] = Field(
+        default=None,
+        description="Métricas de teste do **modelo efectivamente servido** (sklearn após tuning ou MLP).",
+    )
+    sklearn_holdout_test: Optional[MetricSnapshot] = Field(
+        default=None,
+        description="Quando o servido é MLP: métricas holdout do sklearn no mesmo run (se existirem).",
+    )
+    baseline_reference: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Snapshot do PipelineRun **baseline** activo no momento do treino FE (metadados + test_*).",
+    )
+    baseline_holdout_metrics: Optional[MetricSnapshot] = Field(
+        default=None,
+        description="Métricas de teste do Baseline (sklearn simples), para comparar com o modelo servido.",
+    )
+    fe_model_comparison: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Tabela do FE: modelos sklearn pré/pós-tuning e MLP (holdout de teste do run).",
+    )
+    mlp_training_summary: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Resumo do treino MLP (épocas, val_loss, hiperparâmetros) quando aplicável.",
+    )
+    notes: list[str] = Field(default_factory=list, description="Avisos e contexto para interpretação.")
+    summary_lines: list[str] = Field(
+        default_factory=list,
+        description="Frases curtas para UI ou relatório (Markdown leve).",
+    )
+
+
 class PredictResponse(BaseModel):
     id: int
     domain: str
     pipeline_run_id: int
     prediction: int
-    probability: Optional[float] = None
+    probability: Optional[float] = Field(
+        default=None,
+        description="Probabilidade estimada da classe positiva em percentual (0–100), quando disponível.",
+    )
     input_data: dict
+    inference_report: InferenceReport = Field(
+        ...,
+        description="Contexto do modelo servido e métricas de holdout do treino associadas a este run.",
+    )
 
     class Config:
         from_attributes = True

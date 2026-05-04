@@ -9,6 +9,7 @@ from main import app
 from api.v1.endpoints import processor, authorize
 from models.predictions import Predictions
 from services.auth import auth_service
+from services.processor.inference_report import build_inference_report
 
 
 class DummyUser:
@@ -40,7 +41,7 @@ def app_overrides(monkeypatch):
 
     # Mock predict service
     async def fake_predict_for_domain(domain, features, user_id, db):
-        return Predictions(
+        pred = Predictions(
             id=1,
             user_id=user_id,
             pipeline_run_id=123,
@@ -48,6 +49,11 @@ def app_overrides(monkeypatch):
             prediction=1,
             probability=0.8,
         )
+        report = build_inference_report(
+            {"inference_backend": "sklearn", "predict_model": "sklearn_pipeline"},
+            "sklearn",
+        )
+        return pred, report
 
     # Mock auth service
     async def fake_register_user(user, db):
@@ -116,3 +122,6 @@ class TestSmokePredictorFlow:
         assert response.status_code == 200
         assert response.json()["prediction"] == 1
         assert response.json()["probability"] == 80.0
+        body = response.json()
+        assert "inference_report" in body
+        assert body["inference_report"]["inference_backend"] == "sklearn"

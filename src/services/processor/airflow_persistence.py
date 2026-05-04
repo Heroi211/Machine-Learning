@@ -26,7 +26,12 @@ from services.processor.deployment_service import (
     get_active_deployment,
     promote_active_feature_engineering_for_objective,
 )
-from services.processor.processor_service import _baseline_recall_winner, _fe_recall_winner
+from services.processor.inference_report import attach_fe_model_comparison_table, attach_mlp_metrics_snapshot
+from services.processor.processor_service import (
+    _baseline_recall_winner,
+    _fe_recall_winner,
+    fetch_active_baseline_metrics_snapshot,
+)
 from services.utils import utcnow
 
 logger = logging.getLogger(__name__)
@@ -167,9 +172,11 @@ async def persist_airflow_feature_engineering_run(
     session = Session()
     try:
         active_dep = None
+        baseline_ref = None
         dep = await get_active_deployment(objective.strip().lower(), session)
         if dep is not None:
             active_dep = dep.id
+        baseline_ref = await fetch_active_baseline_metrics_snapshot(session, objective)
 
         merged_metrics: dict = {
             "fe_training_csv": csv_baseline,
@@ -191,6 +198,8 @@ async def persist_airflow_feature_engineering_run(
             "tuning_time_limit_requested": time_limit_minutes,
             "airflow_dag": True,
         }
+        if baseline_ref:
+            merged_metrics["baseline_reference_metrics"] = baseline_ref
         _ml = getattr(pipeline, "mlflow_run_id", None)
         if _ml:
             merged_metrics["mlflow_run_id"] = _ml
@@ -209,6 +218,8 @@ async def persist_airflow_feature_engineering_run(
                 pass
         merged_metrics.update(dict(pipeline.tuned_metrics))
         merged_metrics.update(dict(pipeline.guardrails_summary))
+        attach_mlp_metrics_snapshot(merged_metrics, pipeline)
+        attach_fe_model_comparison_table(merged_metrics, pipeline)
         if pipeline.best_model_name:
             merged_metrics["best_model_name"] = pipeline.best_model_name
         if active_dep is not None:
