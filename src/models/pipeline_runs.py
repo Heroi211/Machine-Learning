@@ -18,6 +18,7 @@ class PipelineRuns(modelsGeneric):
     metrics = Column(JSON, nullable=True)
     error_message = Column(String(1000), nullable=True)
     completed_at = Column(DateTime, nullable=True)
+    inference_backend = Column(String(20), nullable=False, default="sklearn")
 
     user = relationship("Users", lazy="joined")
     predictions = relationship("Predictions", back_populates="pipeline_run", lazy="select")

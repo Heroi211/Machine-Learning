@@ -121,12 +121,39 @@ async def _baseline_recall_winner(session: AsyncSession, run: PipelineRuns, run_
         )
 
 
+async def _deactivate_other_fe_runs_for_objective(
+    session: AsyncSession, *, objective: str, keep_run_id: int
+) -> None:
+    """Garante no máximo um FE `active` por domínio: desliga todos os outros concluídos."""
+    obj = objective.strip().lower()
+    res = await session.execute(
+        select(PipelineRuns).where(
+            PipelineRuns.id != keep_run_id,
+            PipelineRuns.pipeline_type == "feature_engineering",
+            PipelineRuns.active.is_(True),
+            func.lower(PipelineRuns.objective) == obj,
+        )
+    )
+    for other in res.scalars().all():
+        other.active = False
+        session.add(other)
+        logger.info(
+            "FE run %s desactivado (só um campeão activo por objective): cede lugar ao run %s.",
+            other.id,
+            keep_run_id,
+        )
+
+
 async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
     """
     Mantém no máximo um FE ``active`` por ``objective`` quando há linhagem comparável:
     compara o **melhor score em CV** da ``optimization_metric`` (ex. ``cv_recall``), não métricas
     no holdout de teste; exige ``best_model_name`` e ``optimization_metric`` iguais a um campeão.
     Não altera ``pre_processed`` (contrato continua a ser do baseline).
+
+    Após marcar um run como vencedor, **desactiva qualquer outro** FE activo do mesmo objective
+    (independentemente de Airflow vs manual ou ``inference_backend``), para evitar dois ``active``
+    simultâneos e confusão no promote/predict.
     """
     if run.pipeline_type != "feature_engineering" or run.status != "completed":
         return
@@ -142,12 +169,14 @@ async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
             PipelineRuns.status == "completed",
             PipelineRuns.active.is_(True),
             PipelineRuns.is_airflow_run.is_(run.is_airflow_run),
+            PipelineRuns.inference_backend == (run.inference_backend or "sklearn"),
             func.lower(PipelineRuns.objective) == obj,
         )
     )
     champions = list(res.scalars().all())
 
     if not champions:
+        await _deactivate_other_fe_runs_for_objective(session, objective=run.objective, keep_run_id=run.id)
         run.active = True
         logger.info(
             "FE run %s primeiro FE ou sem campeões activos no objective %r — marcado activo.",
@@ -180,21 +209,17 @@ async def _fe_recall_winner(session: AsyncSession, run: PipelineRuns) -> None:
     best_prev = max((_fe_competition_score_from_metrics(c.metrics) for c in compatible), default=float("-inf"))
 
     if new_score > best_prev:
-        for c in champions:
-            c.active = False
-            session.add(c)
-            logger.info(
-                "FE run %s desactivado pelo comparador cv_%s (vencedor run %s, score=%.6f > %.6f, "
-                "modelo=%r métrica_optim=%r).",
-                c.id,
-                new_metric,
-                run.id,
-                new_score,
-                best_prev,
-                new_name,
-                new_metric,
-            )
+        await _deactivate_other_fe_runs_for_objective(session, objective=run.objective, keep_run_id=run.id)
         run.active = True
+        logger.info(
+            "FE run %s campeão cv_%s (score=%.6f > %.6f, modelo=%r métrica_optim=%r). Outros FE do objective desactivados.",
+            run.id,
+            new_metric,
+            new_score,
+            best_prev,
+            new_name,
+            new_metric,
+        )
     else:
         run.active = False
         logger.info(
@@ -737,11 +762,19 @@ async def run_feature_engineering(
             safe_unlink(zip_path)
         zip_tree(run_root, zip_path)
 
+        backend = "mlp" if settings.use_mlp_for_prediction else "sklearn"
+        merged_metrics["inference_backend"] = backend
+        merged_metrics["predict_model"] = "pytorch_mlp" if backend == "mlp" else "sklearn_pipeline"
+        merged_metrics["sklearn_benchmark_classifier"] = pipeline.best_model_name
+        if backend == "mlp" and pipeline.mlp_artifact_prefix:
+            merged_metrics["mlp_artifact_prefix"] = pipeline.mlp_artifact_prefix
+
         run.status = "completed"
         run.model_path = fe_joblib
         run.csv_output_path = None
         run.metrics = merged_metrics
         run.completed_at = utcnow()
+        run.inference_backend = backend
 
     except Exception as e:
         logger.error(f"Feature Engineering falhou: {e}", exc_info=True)
@@ -767,8 +800,35 @@ async def run_feature_engineering(
     return merged, zip_path
 
 
+# Airflow (worker) e API (FastAPI) montam o **mesmo volume** ``ml_shared`` em mount points
+# diferentes (``/opt/airflow/ml_project`` vs ``/var/www/ml_shared``). Caminhos gravados pelo
+# Airflow precisam ser remapeados em runtime para ler do volume dentro da API.
+_SHARED_PATH_REMAP: tuple[tuple[str, str], ...] = (
+    ("/opt/airflow/ml_project/", "/var/www/ml_shared/"),
+)
+
+
+def _resolve_shared_artifact_path(p: str | None) -> str | None:
+    """Traduz prefixos cross-container do volume partilhado ml_shared.
+
+    Mantém ``None`` e caminhos já no formato local inalterados.
+    """
+    if not p:
+        return p
+    for src, dst in _SHARED_PATH_REMAP:
+        if p.startswith(src):
+            return dst + p[len(src):]
+    return p
+
+
 async def predict_for_domain(domain: str, features: dict, user_id: int, db: AsyncSession) -> Predictions:
-    """Resolve o modelo ativo do domínio e prediz para um indivíduo."""
+    """Resolve o modelo ativo do domínio e prediz para um indivíduo.
+
+    O ramo de inferência (sklearn vs MLP PyTorch) vem do campo ``inference_backend`` do
+    ``PipelineRuns`` promovido — não da env. Assim, alternar ``USE_MLP_FOR_PREDICTION``
+    afeta apenas **novos treinos/promotes**, não muda silenciosamente o que já está em
+    produção.
+    """
     from services.processor.deployment_service import NoActiveDeploymentError, get_active_deployment
 
     async with db as session:
@@ -779,20 +839,36 @@ async def predict_for_domain(domain: str, features: dict, user_id: int, db: Asyn
             )
 
         run = deployment.pipeline_run
-        if not run.model_path or not os.path.exists(run.model_path):
-            raise ValueError(f"Modelo não encontrado em: {run.model_path}")
-
-        model = joblib.load(run.model_path)
+        backend = (run.inference_backend or "sklearn").strip().lower()
 
         df_input = _prepare_prediction_features(run, domain, features)
-        df_input = _align_dataframe_to_model(model, df_input)
 
-        prediction_value = int(model.predict(df_input)[0])
+        if backend == "mlp":
+            from services.pipelines.mlp_inference import load_mlp_bundle, predict_with_mlp
 
-        probability = None
-        if hasattr(model, "predict_proba"):
-            proba = model.predict_proba(df_input)[0]
-            probability = float(proba[1])
+            prefix = _resolve_shared_artifact_path((run.metrics or {}).get("mlp_artifact_prefix"))
+            if not prefix:
+                raise ValueError(
+                    f"Run {run.id} promovido com inference_backend='mlp' mas sem 'mlp_artifact_prefix' "
+                    "nas métricas. Treine o FE de novo com USE_MLP_FOR_PREDICTION=true."
+                )
+            bundle = load_mlp_bundle(prefix)
+            label, prob = predict_with_mlp(bundle, df_input)
+            prediction_value = int(label)
+            probability = float(prob)
+        else:
+            local_model_path = _resolve_shared_artifact_path(run.model_path)
+            if not local_model_path or not os.path.exists(local_model_path):
+                raise ValueError(f"Modelo não encontrado em: {run.model_path}")
+
+            model = joblib.load(local_model_path)
+            df_input = _align_dataframe_to_model(model, df_input)
+            prediction_value = int(model.predict(df_input)[0])
+
+            probability = None
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(df_input)[0]
+                probability = float(proba[1])
 
         pred = Predictions(
             user_id=user_id,

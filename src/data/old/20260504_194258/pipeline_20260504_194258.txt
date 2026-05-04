@@ -1,0 +1,144 @@
+2026-05-04 19:42:58,885 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Pipeline run log file attached | path=/home/gabriel/Machine-Learning/src/data/old/20260504_194258/pipeline_20260504_194258.txt
+2026-05-04 19:42:58,890 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Objective: churn
+2026-05-04 19:42:58,890 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Random state: 42
+2026-05-04 19:42:58,890 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Test size: 0.2
+2026-05-04 19:42:58,891 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | classification_decision_threshold: 0.5
+2026-05-04 19:42:58,891 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando Dataset...
+2026-05-04 19:42:58,892 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Arquivo CSV (rota explícita): /home/gabriel/Machine-Learning/src/data/WA_Fn-UseC_-Telco-Customer-Churn.csv
+2026-05-04 19:42:58,924 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Dataset carregado (7043, 20)
+2026-05-04 19:42:58,963 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | 5 primeiras linhas    gender  SeniorCitizen Partner  ... MonthlyCharges  TotalCharges Churn
+0  Female              0     Yes  ...          29.85         29.85    No
+1    Male              0      No  ...          56.95        1889.5    No
+2    Male              0      No  ...          53.85        108.15   Yes
+3    Male              0      No  ...          42.30       1840.75    No
+4  Female              0      No  ...          70.70        151.65   Yes
+
+[5 rows x 20 columns]
+2026-05-04 19:42:58,964 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Dados carregados: 0:00:00.072246
+2026-05-04 19:42:58,964 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Informações gerais do dataset:
+
+2026-05-04 19:42:59,090 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | None
+2026-05-04 19:42:59,090 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Colunas presentes no dataset:
+
+2026-05-04 19:42:59,091 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Index(['gender', 'SeniorCitizen', 'Partner', 'Dependents', 'tenure',
+       'PhoneService', 'MultipleLines', 'InternetService', 'OnlineSecurity',
+       'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV',
+       'StreamingMovies', 'Contract', 'PaperlessBilling', 'PaymentMethod',
+       'MonthlyCharges', 'TotalCharges', 'Churn'],
+      dtype='object')
+2026-05-04 19:42:59,092 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Estatísticas inciiais do dataset:
+
+2026-05-04 19:42:59,103 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline |        SeniorCitizen       tenure  MonthlyCharges
+count    7043.000000  7043.000000     7043.000000
+mean        0.162147    32.371149       64.761692
+std         0.368612    24.559481       30.090047
+min         0.000000     0.000000       18.250000
+25%         0.000000     9.000000       35.500000
+50%         0.000000    29.000000       70.350000
+75%         0.000000    55.000000       89.850000
+max         1.000000    72.000000      118.750000
+2026-05-04 19:42:59,118 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Overview gerado: 0:00:00.226555
+2026-05-04 19:42:59,118 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Inicializando a identificação dos missings values
+2026-05-04 19:42:59,159 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=gender taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,197 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=Partner taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,234 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=Dependents taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,272 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=PhoneService taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,311 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=MultipleLines taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,354 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=InternetService taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,394 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=OnlineSecurity taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,433 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=OnlineBackup taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,472 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=DeviceProtection taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,512 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=TechSupport taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,552 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=StreamingTV taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,591 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=StreamingMovies taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,635 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=Contract taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,673 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=PaperlessBilling taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,718 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=PaymentMethod taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,752 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=TotalCharges taxa=1.0 preenchidos=7043 convertidos=7032 recomenda=True
+2026-05-04 19:42:59,790 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | [object->numeric] col=Churn taxa=0.0 preenchidos=7043 convertidos=0 recomenda=False
+2026-05-04 19:42:59,810 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Relatório de conversão para numérico:
+              Coluna  ...  Recomenda_converter
+0       TotalCharges  ...                 True
+1             gender  ...                False
+2            Partner  ...                False
+3       PhoneService  ...                False
+4         Dependents  ...                False
+5    InternetService  ...                False
+6     OnlineSecurity  ...                False
+7       OnlineBackup  ...                False
+8      MultipleLines  ...                False
+9   DeviceProtection  ...                False
+10       TechSupport  ...                False
+11   StreamingMovies  ...                False
+12       StreamingTV  ...                False
+13          Contract  ...                False
+14  PaperlessBilling  ...                False
+15     PaymentMethod  ...                False
+16             Churn  ...                False
+
+[17 rows x 5 columns]
+2026-05-04 19:43:00,400 | WARNING | run_id=3 | objective=churn | pipeline_type=baseline | Colunas com dtype object convertíveis para numérico (taxa >= 0.8): ['TotalCharges']
+2026-05-04 19:43:00,435 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | [coerce] col=TotalCharges dtype object -> float64 n_nan=11 integer_like=False
+2026-05-04 19:43:00,435 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Coerção aplicada. Refinamentos por coluna serão feitos na etapa de FE.
+2026-05-04 19:43:00,452 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Missing values identificados na fonte de dados:                     Coluna  Missing_count  Missing_percentage
+TotalCharges  TotalCharges             11                0.16
+2026-05-04 19:43:00,762 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Identificados Missings: 0:00:01.870708
+2026-05-04 19:43:00,844 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Pre-processamento: 0:00:01.953068
+2026-05-04 19:43:00,845 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando a análise da target
+2026-05-04 19:43:00,846 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Variável target definida
+2026-05-04 19:43:00,846 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Convertendo variável target para binário
+2026-05-04 19:43:00,850 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Target codificada: {'0': np.int64(0), '1': np.int64(1)}
+2026-05-04 19:43:00,851 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando analise de balancemanto da variável target
+2026-05-04 19:43:00,854 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Contagem
+ target
+0    5174
+1    1869
+Name: count, dtype: int64
+2026-05-04 19:43:00,854 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | 
+Percentual:
+2026-05-04 19:43:00,854 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Não Churn (0): 73.46
+2026-05-04 19:43:00,855 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Churn (1): 26.54
+2026-05-04 19:43:01,360 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | 
+ Ratio de Balancemanto: 0.36
+2026-05-04 19:43:01,360 | WARNING | run_id=3 | objective=churn | pipeline_type=baseline | Dataset desbalanceado (ratio=0.36). Mitigação aplicada: class_weight='balanced' na Regressão Logística. Estratégias de reamostragem (SMOTE, undersampling) estão fora do escopo deste pipeline.
+2026-05-04 19:43:01,361 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Análise da target: 0:00:02.469828
+2026-05-04 19:43:01,361 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando análise de outliers...
+2026-05-04 19:43:04,483 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Análise de outliers: 0:00:05.591783
+2026-05-04 19:43:04,483 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando visualização dos dados...
+2026-05-04 19:43:04,487 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Amostra salva em: src/graphs/data_view_20260504_194258.csv
+2026-05-04 19:43:07,968 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Visualização de dados: 0:00:09.077025
+2026-05-04 19:43:07,969 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Preparando frame de modelagem (sem imputação/encoding pré-split)...
+2026-05-04 19:43:07,970 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Frame de modelagem: (7043, 20) (valores ausentes nas features serão tratados no treino do Pipeline)
+2026-05-04 19:43:07,971 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Colunas: ['gender', 'SeniorCitizen', 'Partner', 'Dependents', 'tenure', 'PhoneService', 'MultipleLines', 'InternetService', 'OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies', 'Contract', 'PaperlessBilling', 'PaymentMethod', 'MonthlyCharges', 'TotalCharges', 'target']
+2026-05-04 19:43:07,971 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Frame de modelagem: 0:00:09.079565
+2026-05-04 19:43:07,971 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando split data...
+2026-05-04 19:43:07,982 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Split de dados: 0:00:09.091057
+2026-05-04 19:43:07,983 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando treino do baseline (Pipeline sklearn)...
+2026-05-04 19:43:07,988 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Classificação de colunas | binárias=12 contínuas=3 categóricas=4
+2026-05-04 19:43:07,989 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Colunas binárias: ['SeniorCitizen', 'Partner', 'Dependents', 'PhoneService', 'MultipleLines', 'OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies', 'PaperlessBilling']
+2026-05-04 19:43:07,989 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Colunas contínuas: ['tenure', 'MonthlyCharges', 'TotalCharges']
+2026-05-04 19:43:07,989 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Colunas categóricas: ['gender', 'InternetService', 'Contract', 'PaymentMethod']
+2026-05-04 19:43:19,817 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Train Accuracy:  0.7533
+2026-05-04 19:43:19,818 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Train Precision: 0.5228
+2026-05-04 19:43:19,818 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Train Recall:    0.8067
+2026-05-04 19:43:19,819 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Train F1:        0.6344
+2026-05-04 19:43:19,819 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Train PR-AUC:    0.6648
+2026-05-04 19:43:19,819 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Test Accuracy:   0.7395
+2026-05-04 19:43:19,820 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Test F1:         0.6165
+2026-05-04 19:43:19,820 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Test Precision:  0.5060
+2026-05-04 19:43:19,820 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Test Recall:     0.7888
+2026-05-04 19:43:19,821 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Test PR-AUC:     0.6350
+2026-05-04 19:43:19,821 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Overfitting:    0.0138
+2026-05-04 19:43:19,821 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Treino e logs concluídos.
+2026-05-04 19:43:19,842 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Treino do baseline: 0:00:20.950552
+2026-05-04 19:43:19,842 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Iniciando o salvamento dos artefatos...
+2026-05-04 19:43:19,877 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Sample por run (defer global FE) → src/data/old/20260504_194258/baseline_sample.csv | (7043, 20)
+2026-05-04 19:43:19,885 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Modelo salvo em: src/artifacts/models/baseline_model_churn_20260504_194258.joblib
+2026-05-04 19:43:19,886 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Manifest da corrida salvo em: src/data/old/20260504_194258/manifest.json
+2026-05-04 19:43:19,946 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Modelo, sample e manifest registrados no MLflow.
+2026-05-04 19:43:19,946 | DEBUG | run_id=3 | objective=churn | pipeline_type=baseline | Artefatos salvos: 0:00:21.054924
+2026-05-04 19:43:19,947 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Arquivando artefatos em: src/data/old/20260504_194258
+2026-05-04 19:43:19,948 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | CSV original copiado para snapshot: src/data/old/20260504_194258/input.csv
+2026-05-04 19:43:19,949 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Sample já gravado nesta pasta snapshot (src/data/old/20260504_194258/baseline_sample.csv — skip cópia).
+2026-05-04 19:43:19,949 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Manifest já neste snapshot (src/data/old/20260504_194258/manifest.json — skip cópia).
+2026-05-04 19:43:19,951 | INFO | run_id=3 | objective=churn | pipeline_type=baseline | Gráficos movidos para: src/data/old/20260504_194258/graphs

@@ -59,6 +59,7 @@ class Settings(BaseSettings):
         description="Domínio ML quando o endpoint não aceita objective no formulário (baseline na API).",
     )
     
+    use_mlp_for_prediction: bool = Field(default=True, validation_alias="USE_MLP_FOR_PREDICTION", description="Usar MLP para predição")
     project_name: str = Field(validation_alias="PROJECT_NAME", description="Nome do projeto")
     project_version: str = Field(validation_alias="PROJECT_VERSION", description="Versão do projeto")
     

@@ -214,6 +214,14 @@ async def persist_airflow_feature_engineering_run(
         if active_dep is not None:
             merged_metrics["active_deployment_id_at_train"] = active_dep
 
+        backend = "mlp" if settings.use_mlp_for_prediction else "sklearn"
+        mlp_prefix = getattr(pipeline, "mlp_artifact_prefix", None)
+        merged_metrics["inference_backend"] = backend
+        merged_metrics["predict_model"] = "pytorch_mlp" if backend == "mlp" else "sklearn_pipeline"
+        merged_metrics["sklearn_benchmark_classifier"] = pipeline.best_model_name
+        if backend == "mlp" and mlp_prefix:
+            merged_metrics["mlp_artifact_prefix"] = mlp_prefix
+
         run = PipelineRuns(
             user_id=user_id,
             pipeline_type="feature_engineering",
@@ -225,6 +233,7 @@ async def persist_airflow_feature_engineering_run(
             metrics=merged_metrics,
             completed_at=utcnow(),
             is_airflow_run=True,
+            inference_backend=backend,
         )
         session.add(run)
         await session.commit()

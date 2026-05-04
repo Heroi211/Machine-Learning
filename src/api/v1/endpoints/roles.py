@@ -6,7 +6,6 @@ from core.deps import get_session, get_current_user
 from services.roles import roles_services as roles_service
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 from typing import List
 

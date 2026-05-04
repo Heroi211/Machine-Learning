@@ -51,11 +51,13 @@ async def promote_active_feature_engineering_for_objective(
     dado (tipicamente ``settings.objective``). Exige exactamente um candidato.
     """
     obj = _normalize_domain(objective)
+    backend = "mlp" if settings.use_mlp_for_prediction else "sklearn"
     predicates = [
         PipelineRuns.pipeline_type == "feature_engineering",
         PipelineRuns.status == "completed",
         PipelineRuns.active.is_(True),
         func.lower(PipelineRuns.objective) == obj,
+        PipelineRuns.inference_backend == backend,
     ]
     if settings.is_production:
         predicates.append(PipelineRuns.is_airflow_run.is_(True))
@@ -64,13 +66,14 @@ async def promote_active_feature_engineering_for_objective(
     runs = list(res.scalars().all())
     if len(runs) == 0:
         raise ValueError(
-            "Nenhum pipeline feature_engineering activo e concluído para este objective. "
-            "Execute o FE até haver um run vencedor (cv_*) ou reveja o estado em pipeline_runs."
+            f"Nenhum pipeline feature_engineering activo e concluído para objective={objective!r} "
+            f"e inference_backend={backend!r}. Treine FE com USE_MLP_FOR_PREDICTION coerente "
+            "ou reveja o estado em pipeline_runs."
         )
     if len(runs) > 1:
         raise ValueError(
-            f"Ambiguidade: {len(runs)} runs FE activos para objective={objective!r}. "
-            "É necessário exactamente um; desactive os obsoletos antes de promover."
+            f"Ambiguidade: {len(runs)} runs FE activos para objective={objective!r} "
+            f"e inference_backend={backend!r}. Desactive os obsoletos antes de promover."
         )
     run_id = runs[0].id
     return await promote_pipeline_run(
@@ -98,7 +101,10 @@ async def promote_pipeline_run(
     if pt != "feature_engineering":
         raise ValueError("Apenas pipeline_type='feature_engineering' pode ser promovido.")
 
-    stmt_run = select(PipelineRuns).where(PipelineRuns.id == pipeline_run_id, PipelineRuns.active==True)
+    stmt_run = select(PipelineRuns).where(
+        PipelineRuns.id == pipeline_run_id,
+        PipelineRuns.active.is_(True),
+    )
     res = await db.execute(stmt_run)
     run = res.scalars().one_or_none()
     if not run:
@@ -114,8 +120,30 @@ async def promote_pipeline_run(
         raise ValueError(
             f"Domínio '{domain}' não coincide com o objective do run ('{run.objective}')."
         )
-    if not run.model_path or not os.path.exists(run.model_path):
-        raise ValueError(f"Artefato do modelo não encontrado em: {run.model_path}")
+    from services.processor.processor_service import _resolve_shared_artifact_path
+
+    local_model_path = _resolve_shared_artifact_path(run.model_path)
+    if not local_model_path or not os.path.exists(local_model_path):
+        raise ValueError(
+            "Artefato do modelo não encontrado. "
+            f"caminho_na_BD={run.model_path!r} "
+            f"caminho_resolvido_na_API={local_model_path!r} "
+            "(esperado existir se o treino foi no Airflow e o volume ml_shared está montado em "
+            "/var/www/ml_shared no contentor api_processing). "
+            "Se acabou de alterar o código Python, faça rebuild: "
+            "`docker compose build api_processing && docker compose up -d api_processing`."
+        )
+
+    await db.execute(
+        update(PipelineRuns)
+        .where(
+            PipelineRuns.id != pipeline_run_id,
+            PipelineRuns.pipeline_type == "feature_engineering",
+            func.lower(PipelineRuns.objective) == d,
+        )
+        .values(active=False),
+        execution_options={"synchronize_session": False},
+    )
 
     await db.execute(
         update(DeployedModels)

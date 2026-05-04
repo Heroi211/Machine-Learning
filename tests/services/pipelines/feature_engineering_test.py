@@ -1,10 +1,7 @@
-import unittest
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import Mock, patch
 import numpy as np
 import pandas as pd
 import pytest
-from datetime import datetime
-import tempfile
 import os
 from contextlib import nullcontext
 
@@ -517,7 +514,6 @@ class TestFinalizeTunedMetrics:
 
     def test_finalize_tuned_metrics_with_proba(self):
         """Test finalization with probability predictions"""
-        y_test = np.array([0, 1, 1, 0, 1])
         y_pred = np.array([0, 1, 1, 0, 1])
         y_proba = np.array([0.1, 0.9, 0.8, 0.2, 0.85])
 

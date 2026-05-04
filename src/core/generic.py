@@ -1,4 +1,4 @@
-from sqlalchemy import Column,Integer, Boolean,DateTime
+from sqlalchemy import Column,Boolean,DateTime
 from sqlalchemy.ext.declarative import as_declarative, declared_attr
 from services.utils import utcnow
 

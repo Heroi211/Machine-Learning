@@ -1,17 +1,12 @@
 from fastapi import APIRouter,HTTPException,status,Depends,Response
-from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import JSONResponse
 from models.users import Users as users_models
 
 from schemas import users_schemas as users_schemas
 from core.deps import get_session,get_current_user
 from typing import List
-from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
 from services.user import users_services as users_service
-from sqlalchemy.exc import IntegrityError
-from core.auth import _generate_access_token
 from core.security import get_password_hash
 
 router = APIRouter()

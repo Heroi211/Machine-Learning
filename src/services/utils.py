@@ -1,6 +1,6 @@
 import logging
 import pytz
-from datetime import datetime, time
+from datetime import datetime
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)

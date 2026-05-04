@@ -18,6 +18,10 @@ class PipelineRunResponse(BaseModel):
     metrics: Optional[dict] = None
     error_message: Optional[str] = None
     active: bool = Field(default=True, description="Run lógico ativo no painel interno.")
+    inference_backend: str = Field(
+        default="sklearn",
+        description="Backend servido em /predict para este run: 'sklearn' (joblib) ou 'mlp' (PyTorch).",
+    )
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 

@@ -1,8 +1,7 @@
 import pytest
 from pydantic import ValidationError
-from pydantic import EmailStr
 
-from schemas.users_schemas import users, users_create, users_update, usersGetData
+from schemas.users_schemas import users_create, users_update, usersGetData
 from schemas.roles_schemas import role, role_update
 
 

@@ -5,7 +5,6 @@ import os
 import sys
 import time
 import json
-import re
 from contextlib import nullcontext
 
 import numpy as np
@@ -30,7 +29,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
 from sklearn.inspection import permutation_importance
-from scipy.stats import randint, uniform
 
 from core.configs import settings
 from core.custom_logger import setup_log
@@ -151,6 +149,8 @@ class FeatureEngineering:
         self.mlp_torch_result: TorchTabularMLPResult | None = None
         self.mlp_torch_hparams: dict[str, Any] = {}
         self.mlp_torch_checkpoint_path: str | None = None
+        # Prefixo (sem extensão) do bundle MLP servível: <prefix>.pt + <prefix>_preprocess.joblib + <prefix>_meta.json
+        self.mlp_artifact_prefix: str | None = None
 
         for metric_name, metric_value in (
             ("min_precision", self.min_precision),
@@ -342,8 +342,8 @@ class FeatureEngineering:
 
         logger.info(f"Colunas: {df.columns.tolist()}")
 
-        if not 'target' in df.columns:
-            logger.error(f"Coluna 'target' não encontrada no dataset pré-processado no final do CSV.")
+        if 'target' not in df.columns:
+            logger.error("Coluna 'target' não encontrada no dataset pré-processado no final do CSV.")
             raise ValueError("Pipeline interrompido — coluna 'target' não encontrada no dataset pré-processado.")
         
         null_total = df.isnull().sum().sum()
@@ -480,7 +480,7 @@ class FeatureEngineering:
         self.results_df = pd.DataFrame(results).sort_values("CV Score", ascending=False).reset_index(drop=True).round(4)
         logger.info(f"Ranking de modelos:\n{self.results_df.to_string()}")
 
-        eligible = self.results_df[self.results_df["Pass Guardrails"] == True]
+        eligible = self.results_df[self.results_df["Pass Guardrails"]]
         if not eligible.empty:
             winner_row = eligible.iloc[0]
             self.guardrails_summary["selection_guardrails_passed"] = True
@@ -797,15 +797,39 @@ class FeatureEngineering:
             return
 
         os.makedirs(self.path_model, exist_ok=True)
-        ckpt = os.path.join(self.path_model, f"pytorch_mlp_{self.objective}_{self.now}.pt")
+        prefix = os.path.join(self.path_model, f"pytorch_mlp_{self.objective}_{self.now}")
+        ckpt = f"{prefix}.pt"
+        preprocess_path = f"{prefix}_preprocess.joblib"
+        meta_path = f"{prefix}_meta.json"
         torch.save(self.mlp_torch_result.state_dict, ckpt)
+        # Bundle de inferência: o ColumnTransformer fitted é necessário para servir o MLP.
+        joblib.dump(preprocess, preprocess_path)
+        meta = {
+            "schema_version": 1,
+            "objective": self.objective,
+            "run_timestamp": self.now,
+            "hidden_dims": list(self.mlp_hidden_dims),
+            "dropout": float(self.mlp_dropout),
+            "n_features_in": int(X_train_t.shape[1]),
+            "decision_threshold": float(self.decision_threshold),
+            "feature_columns_in_order": list(map(str, self.x_train.columns)),
+            "feature_groups": {k: list(v) for k, v in (self.feature_groups or {}).items()},
+            "best_epoch": int(self.mlp_torch_result.best_epoch),
+            "best_val_loss": float(self.mlp_torch_result.best_val_loss),
+            "metrics_test": dict(self.mlp_torch_result.metrics_test),
+            "metrics_val": dict(self.mlp_torch_result.metrics_val),
+            "torch_version": str(self.mlp_torch_hparams.get("torch_version", "")),
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
         self.mlp_torch_checkpoint_path = ckpt
+        self.mlp_artifact_prefix = prefix
         logger.info(
-            "MLP PyTorch (MVP): melhor época=%s val_loss=%.4f | test metrics=%s | checkpoint=%s",
+            "MLP PyTorch (MVP): melhor época=%s val_loss=%.4f | test metrics=%s | bundle=%s",
             self.mlp_torch_result.best_epoch,
             self.mlp_torch_result.best_val_loss,
             self.mlp_torch_result.metrics_test,
-            ckpt,
+            prefix,
         )
 
     # ------------------------------------------------------------------
@@ -828,6 +852,61 @@ class FeatureEngineering:
                 feat_names = feat_names[selector.get_support()]
         return feat_names
 
+    def _build_model_comparison_table(self) -> pd.DataFrame | None:
+        """
+        Consolida métricas de teste de todos os modelos do run num DataFrame único:
+        sklearn pré-tuning (``results_df``) + sklearn pós-tuning (``tuned_metrics``) + MLP.
+
+        Útil para o Model Card / relatório (PDF Etapa 2: tabela comparativa).
+        """
+        rows: list[dict[str, Any]] = []
+
+        if self.results_df is not None and not self.results_df.empty:
+            for _, r in self.results_df.iterrows():
+                rows.append(
+                    {
+                        "Modelo": str(r.get("Modelo", "")),
+                        "Origem": "sklearn (pré-tuning)",
+                        "Accuracy": float(r.get("Acurácia", float("nan"))),
+                        "Precision": float(r.get("Precisão", float("nan"))),
+                        "Recall": float(r.get("Recall", float("nan"))),
+                        "F1": float(r.get("F1", float("nan"))),
+                        "ROC AUC": float(r.get("ROC AUC", float("nan"))),
+                    }
+                )
+
+        if self.tuned_metrics:
+            rows.append(
+                {
+                    "Modelo": f"{self.best_model_name or 'best'} (tuned)",
+                    "Origem": "sklearn (pós-tuning, promovido)",
+                    "Accuracy": float(self.tuned_metrics.get("Acurácia", float("nan"))),
+                    "Precision": float(self.tuned_metrics.get("Precisão", float("nan"))),
+                    "Recall": float(self.tuned_metrics.get("Recall", float("nan"))),
+                    "F1": float(self.tuned_metrics.get("F1", float("nan"))),
+                    "ROC AUC": float(self.tuned_metrics.get("ROC AUC", float("nan"))),
+                }
+            )
+
+        if self.mlp_torch_result is not None:
+            mt = self.mlp_torch_result.metrics_test or {}
+            rows.append(
+                {
+                    "Modelo": "PyTorch MLP",
+                    "Origem": "rede neural (teste)",
+                    "Accuracy": float(mt.get("accuracy", float("nan"))),
+                    "Precision": float(mt.get("precision", float("nan"))),
+                    "Recall": float(mt.get("recall", float("nan"))),
+                    "F1": float(mt.get("f1", float("nan"))),
+                    "ROC AUC": float(mt.get("roc_auc", float("nan"))),
+                }
+            )
+
+        if not rows:
+            return None
+        df = pd.DataFrame(rows)[["Modelo", "Origem", "Accuracy", "Precision", "Recall", "F1", "ROC AUC"]]
+        return df.round(4)
+
     def _export_fe_bundle(self, joblib_path: str) -> str:
         """Pasta com comparação de modelos, resumo PyTorch, CSV pré-transform (pós-strategy) e pós-transform (entrada do modelo)."""
         bundle = os.path.join(
@@ -838,6 +917,33 @@ class FeatureEngineering:
 
         if self.results_df is not None:
             self.results_df.to_csv(os.path.join(bundle, "model_selection_comparison.csv"), index=False)
+
+        comparison_df = self._build_model_comparison_table()
+        if comparison_df is not None:
+            comparison_csv = os.path.join(bundle, "model_comparison_full.csv")
+            comparison_md = os.path.join(bundle, "model_comparison_full.md")
+            comparison_df.to_csv(comparison_csv, index=False)
+            try:
+                md_table = comparison_df.to_markdown(index=False, floatfmt=".4f")
+            except ImportError:
+                # tabulate ausente: fallback simples (cabeçalho + linhas pipe-separated)
+                hdr = "| " + " | ".join(comparison_df.columns) + " |"
+                sep = "| " + " | ".join(["---"] * len(comparison_df.columns)) + " |"
+                lines = [
+                    "| " + " | ".join(
+                        f"{v:.4f}" if isinstance(v, float) else str(v) for v in row
+                    ) + " |"
+                    for row in comparison_df.itertuples(index=False, name=None)
+                ]
+                md_table = "\n".join([hdr, sep, *lines])
+            header = (
+                f"# Comparação de modelos — {self.objective} ({self.now})\n\n"
+                f"- Threshold de decisão: `{float(self.decision_threshold)}`\n"
+                f"- Métrica de optimização: `{self.optimization_metric}`\n"
+                f"- Best model (sklearn promovido): `{self.best_model_name or '-'}`\n\n"
+            )
+            with open(comparison_md, "w", encoding="utf-8") as f:
+                f.write(header + md_table + "\n")
 
         df_pre_tr = self.x_train.copy()
         df_pre_tr["target"] = self.y_train
@@ -1031,6 +1137,11 @@ class FeatureEngineering:
                                 mlflow.log_metric(f"pytorch_mlp_{split_name}_{k}", float(v))
                     if self.mlp_torch_checkpoint_path and os.path.isfile(self.mlp_torch_checkpoint_path):
                         mlflow.log_artifact(self.mlp_torch_checkpoint_path, artifact_path="pytorch_mlp")
+                    if self.mlp_artifact_prefix:
+                        for ext in ("_preprocess.joblib", "_meta.json"):
+                            p = f"{self.mlp_artifact_prefix}{ext}"
+                            if os.path.isfile(p):
+                                mlflow.log_artifact(p, artifact_path="pytorch_mlp")
                 else:
                     mlflow.log_param("pytorch_mlp_enabled", False)
 
@@ -1076,9 +1187,23 @@ class FeatureEngineering:
     def _run_tuning_evaluation_and_persistence(self, start_time, time_limit_minutes: int, acc_target: float | None):
         """
         Responsabilidade: tuning, avaliação final e persistência.
+
+        Atalho: quando ``USE_MLP_FOR_PREDICTION=true`` o tuning sklearn é **pulado** (a MLP
+        é o modelo servido em /predict). O ``best_pipeline`` sklearn fica como vencedor de
+        ``train_models()`` (pré-tuning) — suficiente para preservar ``model_path``,
+        importância de features, exportação de bundles e tabela comparativa.
         """
-        self.tune(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
-        logger.debug(f"Tuning concluído: {datetime.now() - start_time}")
+        if settings.use_mlp_for_prediction:
+            logger.info(
+                "Tuning sklearn DESLIGADO (USE_MLP_FOR_PREDICTION=true). best_pipeline = "
+                "vencedor de train_models() (sem RandomSearch). best_model_name=%s "
+                "best_cv_score=%.6f. tuned_metrics fica vazio na tabela comparativa.",
+                self.best_model_name,
+                float(self.best_cv_score) if np.isfinite(self.best_cv_score) else float("nan"),
+            )
+        else:
+            self.tune(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
+            logger.debug(f"Tuning concluído: {datetime.now() - start_time}")
 
         # MLP PyTorch: comparável no MLflow aos sklearn; não altera best_pipeline nem artefato promovido.
         self._run_mlp_torch_mvp()

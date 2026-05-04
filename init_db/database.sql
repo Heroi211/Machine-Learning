@@ -60,8 +60,10 @@ CREATE TABLE public.pipeline_runs (
 	created_at timestamp NOT NULL DEFAULT NOW(),
 	completed_at timestamp NULL,
 	active bool NOT NULL DEFAULT true,
+	inference_backend varchar(20) NOT NULL DEFAULT 'sklearn',
 	CONSTRAINT pipeline_runs_pkey PRIMARY KEY (id),
-	CONSTRAINT pipeline_runs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+	CONSTRAINT pipeline_runs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+	CONSTRAINT pipeline_runs_inference_backend_chk CHECK (inference_backend IN ('sklearn','mlp'))
 );
 
 CREATE TABLE public.predictions (

@@ -1,16 +1,11 @@
-import unittest
-from unittest.mock import Mock, MagicMock, patch, create_autospec
+from unittest.mock import patch
 import pytest
-from datetime import datetime
-from sqlalchemy import Column, Integer, Float, ForeignKey, JSON, DateTime, Boolean, String
-from sqlalchemy.orm import relationship, Session
+from sqlalchemy import Integer, Float
 from sqlalchemy.inspection import inspect
 
 from models.predictions import Predictions
 from models.users import Users
 from models.pipeline_runs import PipelineRuns
-from models.roles import Roles
-from models.deployed_models import DeployedModels
 from core.generic import modelsGeneric
 
 

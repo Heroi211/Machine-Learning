@@ -1,0 +1,42 @@
+{
+  "objective": "churn",
+  "run_timestamp": "20260504_194258",
+  "input_csv_source": "/home/gabriel/Machine-Learning/src/data/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+  "input_csv_snapshot": "src/data/old/20260504_194258/input.csv",
+  "output_sample_csv_stable": "/home/gabriel/Machine-Learning/src/data/old/20260504_194258/baseline_sample.csv",
+  "output_sample_csv_snapshot": "/home/gabriel/Machine-Learning/src/data/old/20260504_194258/baseline_sample.csv",
+  "manifest_snapshot": "/home/gabriel/Machine-Learning/src/data/old/20260504_194258/manifest.json",
+  "model_path": "/home/gabriel/Machine-Learning/src/artifacts/models/baseline_model_churn_20260504_194258.joblib",
+  "input_row_count": 7043,
+  "sample_row_count": 7043,
+  "sample_column_count": 20,
+  "sample_schema": "raw_clean",
+  "feature_groups": {
+    "binary": [
+      "SeniorCitizen",
+      "Partner",
+      "Dependents",
+      "PhoneService",
+      "MultipleLines",
+      "OnlineSecurity",
+      "OnlineBackup",
+      "DeviceProtection",
+      "TechSupport",
+      "StreamingTV",
+      "StreamingMovies",
+      "PaperlessBilling"
+    ],
+    "continuous": [
+      "tenure",
+      "MonthlyCharges",
+      "TotalCharges"
+    ],
+    "categorical": [
+      "gender",
+      "InternetService",
+      "Contract",
+      "PaymentMethod"
+    ]
+  },
+  "graphs_dir": "src/data/old/20260504_194258/graphs"
+}

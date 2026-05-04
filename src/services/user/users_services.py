@@ -9,20 +9,24 @@ import secrets
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from sqlalchemy import func
 from models.roles import Roles as roles_models
 
 
 async def select_all_users(db:AsyncSession) -> List[users_schemas.usersGetData]:
     async with db as session:
-        querie = select(users_models).order_by(users_models.id.asc()).filter(users_models.active==True)
+        querie = select(users_models).order_by(users_models.id.asc()).filter(
+            users_models.active.is_(True)
+        )
         resultset = await session.execute(querie)
         users:List[users_schemas.usersGetData] = resultset.scalars().unique().all()
         
         users_list = []
         for user in users:
             #role
-            role = select(roles_models).filter(roles_models.id == user.role_id,roles_models.active==True)
+            role = select(roles_models).filter(
+                roles_models.id == user.role_id,
+                roles_models.active.is_(True),
+            )
             role = await session.execute(role)
             role = role.scalars().unique().one_or_none()
             
@@ -41,12 +45,18 @@ async def select_all_users(db:AsyncSession) -> List[users_schemas.usersGetData]:
     
 async def select_user(id_user:int,db:AsyncSession) -> users_schemas.usersGetData | None:
     async with db as session:
-        querie = select(users_models).filter(users_models.id==id_user,users_models.active==True)
+        querie = select(users_models).filter(
+            users_models.id == id_user,
+            users_models.active.is_(True),
+        )
         resultset = await session.execute(querie)
         user = resultset.scalars().unique().one_or_none()
         
         if user:
-            role = select(roles_models).filter(roles_models.id == user.role_id,roles_models.active==True)
+            role = select(roles_models).filter(
+                roles_models.id == user.role_id,
+                roles_models.active.is_(True),
+            )
             role = await session.execute(role)
             role = role.scalars().unique().one_or_none()
             return users_schemas.usersGetData(
@@ -61,7 +71,10 @@ async def select_user(id_user:int,db:AsyncSession) -> users_schemas.usersGetData
 
 async def update_user(id_user:int,user:dict,db:AsyncSession) -> bool:
     async with db as session:
-        querie = select(users_models).filter(users_models.id == id_user,users_models.active==True)
+        querie = select(users_models).filter(
+            users_models.id == id_user,
+            users_models.active.is_(True),
+        )
         resultset = await session.execute(querie)
         user_up:users_schemas.users | None = resultset.scalars().unique().one_or_none()
         
@@ -82,7 +95,10 @@ async def update_user(id_user:int,user:dict,db:AsyncSession) -> bool:
     
 async def drop_user(id_user:int, db:AsyncSession):
     async with db as session:
-        querie = select(users_models).filter(users_models.id==int(id_user),users_models.active==True)
+        querie = select(users_models).filter(
+            users_models.id == int(id_user),
+            users_models.active.is_(True),
+        )
         result_set = await session.execute(querie)
         user_delete = result_set.scalars().unique().one_or_none()
         if user_delete:
@@ -94,7 +110,10 @@ async def drop_user(id_user:int, db:AsyncSession):
             
 async def get_user_by_email(email:str,db:AsyncSession):
     async with db as session:
-        querie = select(users_models).filter(users_models.email==email,users_models.active==True)
+        querie = select(users_models).filter(
+            users_models.email == email,
+            users_models.active.is_(True),
+        )
         resultset = await session.execute(querie)
         user_up:users_schemas.users = resultset.scalars().unique().one_or_none()
         if user_up:
@@ -150,7 +169,10 @@ async def send_email(email: str,token:str):
     
 async def get_user_by_reset_token(token: str, db: AsyncSession):
     async with db as session:
-        query = select(users_models).filter(users_models.reset_password_token == token,users_models.active==True)
+        query = select(users_models).filter(
+            users_models.reset_password_token == token,
+            users_models.active.is_(True),
+        )
         resultset = await session.execute(query)
         user_up: users_schemas.users_update = resultset.scalars().unique().one_or_none()
         if user_up:

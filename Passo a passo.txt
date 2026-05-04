@@ -1,0 +1,94 @@
+docker compose up -d
+
+---
+
+pgAdmin — login e ligação ao PostgreSQL
+
+Nota: A ligação é ao servidor PostgreSQL (contentor/serviço da base de dados), o mesmo que a API usa. O contentor da API não é o host do Postgres.
+
+1) Abrir no browser: http://localhost:5050
+
+2) Entrar no pgAdmin com as credenciais definidas no .env:
+   - Email: PGADMIN_EMAIL
+   - Palavra-passe: PGADMIN_PASSWORD
+
+3) Registar o servidor Postgres (menu Servers → Register → Server):
+
+   Separador General:
+   - Name: um nome à escolha (ex.: processing)
+
+   Separador Connection:
+   - Host name/address: db_processing
+     (nome do serviço no docker-compose; na rede Docker resolve para o Postgres.
+     Alternativa equivalente na mesma rede: database_processing — nome do contentor.)
+   - Port: valor de DATABASE_PORT no .env (por omissão 5432)
+   - Maintenance database: DATABASE_NAME (no .env)
+   - Username: DATABASE_USER (no .env)
+   - Password: DATABASE_PASS (no .env)
+   - Guardar palavra-passe: opcional (Save password)
+
+4) Guardar. Expandir Servers → o nome escolhido → Databases → ver a base DATABASE_NAME.
+
+---
+
+Swagger — criar conta (signup)
+
+1) Com a API no ar, abrir a documentação interativa:
+   http://localhost:8001/docs
+   (Se no teu compose a porta for 8000, usar http://localhost:8000/docs.)
+
+2) Localizar `POST /v1/auth/signup` (ou o prefixo de versão definido em PROJECT_VERSION no .env).
+
+3) Executar Try it out e enviar um corpo JSON no formato do schema. Exemplo usado:
+
+   - name: Gabriel Drumond
+   - email: gabriel.drumond@cod3bit.com.br
+   - password: (definir à mão no Swagger; não colocar a palavra-passe neste ficheiro nem em repositório público)
+
+   Campos opcionais que o OpenAPI pode aceitar no modelo (conforme versão do schema):
+   - created_at, active, role_id — atenção: o seed da BD (`init_db`) costuma criar apenas roles 1 (User) e 2 (Administrator).
+     Se enviares role_id que não existir na tabela roles, o signup pode falhar por FK.
+
+   Corpo mínimo habitual para signup:
+   {"name": "...", "email": "...", "password": "..."}
+
+4) Resposta esperada em caso de sucesso: HTTP 201 com os dados do utilizador criado.
+
+---
+
+Recomeçar do zero (Docker)
+
+  docker compose down -v
+  docker compose up -d --build
+
+  (-v apaga volumes nomeados: BD Postgres vazia no próximo up; init_db corre de novo.
+   Não apaga pastas bind mount no host: ex. ml_data/uploads — limpar à mão se quiseres.)
+
+---
+
+DAG ml_training_pipeline — Antes (preparação)
+
+1) Ambiente: mesma DATABASE_URL na API e no Airflow; modo produção na API se quiseres regras reais de promote.
+2) Base: coluna is_airflow_run (em BD antiga, correr init_db/zz_add_pipeline_runs_is_airflow_run.sql manualmente; no primeiro docker init corre depois de database.sql).
+3) Zerar só fluxo ML (ordem por FK): DELETE/TRUNCATE predictions → deployed_models → pipeline_runs.
+   Manter pelo menos um user em users para o user_id da Variable do Airflow.
+4) OBJECTIVE na env da API = objective do DAG (ex. churn). CSV válido para o domínio.
+5) CSV acessível no container Airflow: ex. host ml_data/uploads/... → /opt/airflow/ml_project/uploads/...
+6) Airflow Variable ml_training_pipeline_conf (JSON): objective, csv_path (caminho no container), user_id existente, restante conforme necessidade; auto_promote true/false.
+7) Opcional: limpar artefactos velhos em disco (models, logs) para não confundir.
+
+---
+
+DAG ml_training_pipeline — Depois (execução do DAG)
+
+1) validate_input — confirma CSV e domínio.
+2) deactivate_manual_runs — desactiva na BD runs manuais (is_airflow_run=false) desse objective.
+3) run_baseline — treina baseline, persiste pipeline_run baseline com is_airflow_run=true, XCom com manifest.
+4) run_fe — FE com manifest; persiste FE com is_airflow_run=true; comparador cv_*; XCom fe_pipeline_run_id, fe_recall_champion.
+5) promote_fe_optional — só se auto_promote e campeão; chama promote como a API.
+6) notify_complete — logs com resumos e ids.
+
+Verificação: na BD, dois pipeline_runs novos (baseline + FE), is_airflow_run=true; active/deployment conforme regras.
+
+
+docker exec airflow_scheduler test -f "/opt/airflow/ml_project/uploads/WA_Fn-UseC_-Telco-Customer-Churn.csv" && echo "OK: ficheiro existe" || echo "FALTA o ficheiro"
