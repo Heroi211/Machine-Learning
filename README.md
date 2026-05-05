@@ -69,7 +69,7 @@ Pipeline End-to-End de classificação binária para **churn** em telecomunicaç
 | Pipeline Baseline | EDA, qualidade, target, split, LR, manifest + sample | `src/services/pipelines/baseline.py` |
 | Pipeline FE | Strategy → comparação → tuning → MLP PyTorch → bundle | `src/services/pipelines/feature_engineering.py` |
 | MLP PyTorch | Definição + treino + serving | `mlp_torch_tabular.py`, `mlp_inference.py` |
-| Feature Strategies | Lógica por domínio (`ChurnFeatures`, `HeartDiseaseFeatures`) | `src/services/pipelines/feature_strategies/` |
+| Feature Strategies | Lógica por domínio (`ChurnFeatures`) | `src/services/pipelines/feature_strategies/` |
 | Processor / Deployment | Persistência de runs, eleição de campeão, promote, rollback | `src/services/processor/` |
 | PostgreSQL | `users`, `roles`, `pipeline_runs`, `deployed_models`, `predictions` | `init_db/database.sql` |
 | MLflow | Tracking SQLite no volume `ml_shared` | `src/artifacts/mlruns/` |
@@ -247,16 +247,191 @@ Schema discriminado por `domain` (`src/schemas/processor_schemas.py`).
 > Enviar colunas pós-OHE (ex.: `internetservice_Fiber optic`) → erro 400.
 
 ### Saída do `/predict`
+
+A resposta tem **4 blocos**: identificação · predição · eco do payload · relatório de auditoria.
+
 ```json
 {
-  "id": 42,
+  "id": 1,
   "domain": "churn",
-  "pipeline_run_id": 7,
-  "prediction": 1,
-  "probability": 73.45,
-  "input_data": { "...": "..." }
+  "pipeline_run_id": 2,
+  "prediction": 0,
+  "probability": 5.07,
+
+  "input_data": {
+    "gender": "Male", 
+    "seniorcitizen": 0, 
+    "partner": 0, 
+    "dependents": 0,
+    "tenure": 72, 
+    "phoneservice": 1,
+     "multiplelines": 1,
+    "internetservice": "Fiber optic",
+    "onlinesecurity": 0, 
+    "onlinebackup": 1, 
+    "deviceprotection": 1,
+    "techsupport": 1, 
+    "streamingtv": 1, 
+    "streamingmovies": 1,
+    "contract": "Two year", 
+    "paperlessbilling": 0,
+    "paymentmethod": "Bank transfer (automatic)",
+    "monthlycharges": 109.2, 
+    "totalcharges": 7878.3
+  },
+
+  "inference_report": {
+    "inference_backend": "sklearn",
+    "predict_model": "sklearn_pipeline",
+    "sklearn_benchmark_classifier": "Gradient Boosting",
+    "optimization_metric": "recall",
+    "best_cv_score": 0.5258,
+    "classification_decision_threshold": 0.3,
+
+    "served_holdout_metrics": {
+      "accuracy": 0.7672, 
+      "precision": 0.5449, 
+      "recall": 0.7460,
+      "f1": 0.6298, 
+      "roc_auc": 0.8450
+    },
+
+    "baseline_holdout_metrics": {
+      "accuracy": 0.7395,
+      "precision": 0.5060,
+      "recall": 0.7888,
+      "f1": 0.6165, 
+      "roc_auc": null
+    },
+    "baseline_reference": {
+      "role": "baseline_sklearn",
+      "baseline_pipeline_run_id": 1,
+      "classification_decision_threshold": 0.5,
+      "test_accuracy": 0.7395, "test_precision": 0.5060, "test_recall": 0.7888,
+      "test_f1": 0.6165, "test_roc_auc": null, "test_pr_auc": 0.6350,
+      "description": "Métricas de teste do pipeline Baseline (sklearn). Referência antes do feature engineering; não é o modelo servido em /predict."
+    },
+
+    "fe_model_comparison": [
+      { "Modelo": "Gradient Boosting",         
+      "Origem": "sklearn (pré-tuning)",           
+       "Accuracy": 0.7608, 
+       "Precision": 0.5358, 
+       "Recall": 0.7406, 
+       "F1": 0.6218, 
+       "ROC AUC": 0.8428 },
+
+      { "Modelo": "Decision Tree",            
+       "Origem": "sklearn (pré-tuning)",           
+        "Accuracy": 0.7331, 
+        "Precision": 0.4975, 
+        "Recall": 0.5428, 
+        "F1": 0.5192, 
+        "ROC AUC": 0.6729 },
+
+      { "Modelo": "Random Forest",            
+       "Origem": "sklearn (pré-tuning)",           
+        "Accuracy": 0.7473, 
+        "Precision": 0.5171, 
+        "Recall": 0.7273, 
+        "F1": 0.6044, 
+        "ROC AUC": 0.8208 },
+
+      { "Modelo": "SVM",                       
+      "Origem": "sklearn (pré-tuning)",           
+       "Accuracy": 0.7970, 
+       "Precision": 0.6341, 
+       "Recall": 0.5561,
+        "F1": 0.5926, 
+        "ROC AUC": 0.7876 },
+
+      { "Modelo": "Gradient Boosting (tuned)",
+       "Origem": "sklearn (pós-tuning, promovido)",
+        "Accuracy": 0.7672, 
+        "Precision": 0.5449, 
+        "Recall": 0.7460, 
+        "F1": 0.6298, 
+        "ROC AUC": 0.8450 },
+
+      { "Modelo": "PyTorch MLP",              
+       "Origem": "rede neural (teste)",       
+             "Accuracy": 0.7970,
+              "Precision": 0.6333,
+               "Recall": 0.5588, 
+               "F1": 0.5938, 
+               "ROC AUC": 0.8454 }
+    ],
+
+    "mlp_training_summary": {
+      "hidden_dims": [64, 32], 
+      "dropout": 0,
+      "lr": 0.001,
+       "weight_decay": 1e-5,
+      "batch_size": 64,
+       "max_epochs": 300, 
+       "early_stopping_patience": 20,
+      "val_fraction": 0.15,
+      "best_epoch": 14, 
+      "best_val_loss": 0.4169
+    },
+
+    "summary_lines": [
+      "Backend: sklearn · modelo declarado: sklearn_pipeline.",
+      "Classificador de referência (CV / estudo no FE): Gradient Boosting.",
+      "Melhor score de CV (recall): 0.5258.",
+      "Teste holdout — Baseline vs servido (FE sklearn) — Recall: 0.7888 → 0.7460."
+    ]
+  }
 }
 ```
+
+#### Como ler esta resposta
+
+**Bloco 1 — Identificação**
+
+| Campo | Significado |
+|-------|-------------|
+| `id` | PK em `predictions` (rastreabilidade da chamada). |
+| `domain` | Domínio do modelo (`churn`). |
+| `pipeline_run_id` | Run que serviu a inferência — ligar com `/admin/runs`. |
+
+**Bloco 2 — Predição**
+
+| Campo | Significado |
+|-------|-------------|
+| `prediction` | `0` ou `1` após aplicar `classification_decision_threshold`. |
+| `probability` | P(churn) **em percentual** (0–100). No exemplo: `5.07` = 5,07% de risco. |
+
+> Exemplo: cliente com `tenure=72` (6 anos), contrato de 2 anos, pagamento automático e múltiplos serviços ativos → perfil "fiel" → P(churn) ≈ 5%. `prediction=0` é coerente.
+
+**Bloco 3 — `input_data`**
+
+Eco do payload original (auditoria + drift). Útil para reconstruir o caso e correlacionar com PSI.
+
+**Bloco 4 — `inference_report`** (campos de auditoria)
+
+| Subcampo | O que mostra |
+|----------|--------------|
+| `inference_backend` | `"sklearn"` (joblib) ou `"mlp"` (bundle PyTorch) — qual artefato gerou a predição. |
+| `predict_model` | `sklearn_pipeline` ou `pytorch_mlp` — etiqueta do modelo servido. |
+| `sklearn_benchmark_classifier` | Algoritmo sklearn vencedor da comparação (no exemplo: Gradient Boosting tunado). |
+| `optimization_metric` | Métrica que dirigiu seleção e tuning no FE (no exemplo: `recall`). |
+| `best_cv_score` | Score em CV 5-fold da métrica de otimização (`cv_recall = 0.5258`). |
+| `classification_decision_threshold` | Threshold P(positiva) usado **neste run** (no exemplo: `0.3` — agressivo para recall). |
+| `served_holdout_metrics` | Métricas no **holdout do treino** (test_size=20%) do modelo **promovido**. |
+| `baseline_holdout_metrics` / `baseline_reference` | Métricas do **Baseline anterior** (Logistic Regression). Permite calcular ganho do FE. |
+| `fe_model_comparison` | Tabela com **todos** os modelos avaliados no run FE: 4 sklearn pré-tuning + sklearn pós-tuning (promovido) + MLP PyTorch. |
+| `mlp_training_summary` | Hiperparâmetros + `best_epoch` / `best_val_loss` da MLP — só presente quando `enable_mlp_torch=True`. |
+| `summary_lines` | Resumo legível, pronto para colar em ticket / Slack. |
+
+> Os valores em `served_holdout_metrics`, `baseline_holdout_metrics` e `fe_model_comparison` referem-se ao **conjunto de teste do treino** daquele run, **não** ao indivíduo do pedido. Servem como prova de qualidade do modelo, não de confiança da predição individual (essa é dada por `probability`).
+
+#### Lendo o exemplo
+
+- **Backend servido**: sklearn (joblib do `Gradient Boosting` tunado).
+- **Threshold**: `0.3` (otimizado para recall — captura mais positivos ao custo de mais FP).
+- **Ganho do FE sobre o Baseline**: `f1 0.6165 → 0.6298` (+1,3pp); `roc_auc null → 0.8450`. Recall caiu (0.7888 → 0.7460) porque o FE prioriza `f1`/`roc_auc` enquanto otimiza recall em CV.
+- **MLP** ficou com melhor `roc_auc` (0.8454 vs 0.8450) e melhor `accuracy/precision`, mas pior `recall` — não foi promovido neste run porque `USE_MLP_FOR_PREDICTION=false` no momento do treino.
 
 ### Saída do treino
 - **Baseline**: CSV `baseline_sample.csv` (raw_clean) + cabeçalhos `X-Pipeline-*` + joblib em `src/artifacts/models/`.
