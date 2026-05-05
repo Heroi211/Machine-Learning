@@ -165,5 +165,7 @@ logs/
 *.png
 mlflow.db
 artifacts/
+# Treinos: snapshots em src/data/old (API local / Airflow com bind em src)
+src/data/old/
 data/old/*
 data/pre_processed/*

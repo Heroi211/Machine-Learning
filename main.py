@@ -6,6 +6,10 @@ _SRC = Path(__file__).resolve().parent / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+# Vários .joblib (pipelines sklearn do FE) deserializam com referência a ``dill``.
+# Deve constar de docker/requirements-api.txt; sem isto, /predict falha com "No module named 'dill'".
+import dill  # noqa: F401
+
 from fastapi import FastAPI
 from core.configs import settings
 from core.logging_setup import setup_root_logging

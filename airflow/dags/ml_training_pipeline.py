@@ -301,12 +301,13 @@ def task_run_baseline(**context) -> None:
     )
 
     try:
+        from core.configs import settings as ml_settings
         from core.custom_logger import setup_pipeline_run_logging
         from services.pipelines.baseline import Baseline
         from services.pipelines.feature_strategies import get_class_labels
 
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
-        snapshot_path = os.path.join(ML_PROJECT_ROOT, "logs", now)
+        snapshot_path = os.path.join(ml_settings.path_data, ml_settings.path_logs, now)
         # Não usar ``setup_log`` aqui: ele faz ``root.handlers.clear()`` e remove os handlers
         # que o Airflow instala no worker, o que esconde tracebacks e pode gerar zombie tasks.
         setup_pipeline_run_logging(
@@ -324,6 +325,7 @@ def task_run_baseline(**context) -> None:
             class_labels=get_class_labels(objective),
             defer_global_preprocess_contract=True,
             decision_threshold=decision_threshold,
+            artifact_name_suffix="_automatic",
         )
         pipeline.run(start_time=datetime.now())
         pipeline.save_artifacts()
@@ -378,7 +380,7 @@ def task_run_baseline(**context) -> None:
     except ImportError as e:
         raise RuntimeError(f"Dependência ML não disponível no worker Airflow: {e}") from e
     except Exception:
-        log.exception("run_baseline falhou (ver também pipeline_*.txt no snapshot em ml_project/logs).")
+        log.exception("run_baseline falhou (ver também pipeline_*.txt em src/data/old no host).")
         raise
 
 
@@ -413,14 +415,37 @@ def task_run_fe(**context) -> None:
     )
 
     try:
+        from core.configs import settings as ml_settings
+        from core.custom_logger import setup_pipeline_run_logging
         from services.pipelines.feature_engineering import FeatureEngineering
         from services.pipelines.feature_strategies import STRATEGY_REGISTRY
         from services.processor.airflow_persistence import (
             persist_airflow_feature_engineering_run,
+            reserve_airflow_fe_pipeline_run,
             run_async,
         )
 
+        fe_run_id = run_async(
+            reserve_airflow_fe_pipeline_run(
+                objective=objective,
+                user_id=int(user_id),
+                manifest_path=manifest_path,
+                airflow_dag_run_id=context["dag_run"].run_id,
+            )
+        )
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fe_snapshot = os.path.join(ml_settings.path_data, ml_settings.path_logs, f"{now}_fe{fe_run_id}")
+        os.makedirs(fe_snapshot, exist_ok=True)
+        setup_pipeline_run_logging(
+            fe_snapshot,
+            now,
+            run_id=fe_run_id,
+            objective=objective,
+            pipeline_type="feature_engineering",
+        )
+        fe_plots = os.path.join(fe_snapshot, "plots")
+        os.makedirs(fe_plots, exist_ok=True)
+
         strategy = STRATEGY_REGISTRY[objective]()
         pipeline = FeatureEngineering(
             objective=objective,
@@ -432,7 +457,9 @@ def task_run_fe(**context) -> None:
             min_precision=min_precision,
             min_roc_auc=min_roc_auc,
             tuning_n_iter=tuning_n_iter,
+            export_figures_dir=fe_plots,
             decision_threshold=decision_threshold,
+            artifact_name_suffix="_automatic",
         )
         # Airflow: sem teto SYNC_FE — usa o valor integral do conf/Variable
         pipeline.run(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
@@ -451,6 +478,7 @@ def task_run_fe(**context) -> None:
                 time_limit_minutes=time_limit_minutes,
                 effective_tuning_minutes=time_limit_minutes,
                 airflow_dag_run_id=context["dag_run"].run_id,
+                existing_run_id=fe_run_id,
             )
         )
 

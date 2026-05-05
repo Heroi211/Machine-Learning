@@ -27,7 +27,7 @@ import re
 
 import shutil
 
-from services.utils import log_training_csv_to_active_run
+from services.utils import log_training_csv_to_active_run, filename_with_suffix
 from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
 
 
@@ -80,6 +80,7 @@ class Baseline:
         class_labels: tuple[str, str] | None = None,
         *,
         defer_global_preprocess_contract: bool = False,
+        artifact_name_suffix: str | None = None,
         decision_threshold: float | None = None,
     ):
         """
@@ -98,6 +99,9 @@ class Baseline:
         defer_global_preprocess_contract : bool
             Quando ``True``, ``baseline_sample.csv`` + ``manifest.json`` só na pasta snapshot;
             o chamador deve copiar para ``pre_processed`` se o run vencer comparador recall.
+        artifact_name_suffix : str, optional
+            Inserido antes da extensão em contratos, joblib e nomes de gráficos (ex.: no Airflow
+            usar ``_automatic`` para distinguir runs orquestrados de runs manuais pela API).
         decision_threshold : float, optional
             P(classe positiva) mínima para classificar como positivo (precision/recall nos relatórios).
             Omite-se ``settings.classification_decision_threshold`` (env ``CLASSIFICATION_DECISION_THRESHOLD``).
@@ -112,9 +116,10 @@ class Baseline:
         self.random_state = prandom_state
         self.threshold_numeric_coercion = 0.8
         self._explicit_csv_path = os.path.abspath(csv_path) if csv_path else None
-        self.contract_input_name = "input.csv"
-        self.contract_sample_name = "baseline_sample.csv"
-        self.contract_manifest_name = "manifest.json"
+        self._artifact_suffix = (artifact_name_suffix or "").strip()
+        self.contract_input_name = filename_with_suffix("input.csv", self._artifact_suffix)
+        self.contract_sample_name = filename_with_suffix("baseline_sample.csv", self._artifact_suffix)
+        self.contract_manifest_name = filename_with_suffix("manifest.json", self._artifact_suffix)
         
         if class_labels is not None:
             self.label_neg, self.label_pos = class_labels
@@ -154,6 +159,18 @@ class Baseline:
         logger.info(f"Random state: {self.random_state}")
         logger.info(f"Test size: {self.test_size}")
         logger.info("classification_decision_threshold: %s", self.decision_threshold)
+
+    @property
+    def _graph_run_stamp(self) -> str:
+        """Carimbo em nomes de ficheiros de gráfico/CSV auxiliar (inclui sufixo tipo ``_automatic``)."""
+        return f"{self.now}{self._artifact_suffix}"
+
+    def baseline_model_joblib_path(self) -> str:
+        """Caminho absoluto do joblib do baseline para este run (alinhado a ``save()``)."""
+        name = filename_with_suffix(
+            f"baseline_model_{self.objective}_{self.now}.joblib", self._artifact_suffix
+        )
+        return os.path.join(self.path_model, name)
     
     def load_data(self):
         """
@@ -341,7 +358,7 @@ class Baseline:
                 y_data=report_convertion['Taxa_numerica'] * 100,
                 title="Distribuição de conversão por coluna",
                 xlabel="Porcentagem (%)",
-                filename=f"convert_object_to_numeric_{self.now}.png",
+                filename=filename_with_suffix(f"convert_object_to_numeric_{self.now}.png", self._artifact_suffix),
                 color="skyblue",
             )
 
@@ -382,7 +399,7 @@ class Baseline:
             y_data=missing['Missing_percentage'],
             title="Distribuição de Missing Values por Coluna",
             xlabel="Porcentagem (%)",
-            filename=f"missing_values_{self.now}.png",
+            filename=filename_with_suffix(f"missing_values_{self.now}.png", self._artifact_suffix),
             color="skyblue"
             )
             
@@ -457,7 +474,7 @@ class Baseline:
             x_data=target_counts.values,
             labels=[f"{self.label_neg} (0)", f"{self.label_pos} (1)"],
             title="Proporção da Variável Target",
-            filename=f"target_distribution_pie_{self.now}.png",
+            filename=filename_with_suffix(f"target_distribution_pie_{self.now}.png", self._artifact_suffix),
             color="coral"
         )
         gr.build_report(
@@ -466,7 +483,7 @@ class Baseline:
             y_data=target_counts.values,
             title="Distribuição Absoluta da Target",
             ylabel="Quantidade",
-            filename=f"target_distribution_bar_{self.now}.png",
+            filename=filename_with_suffix(f"target_distribution_bar_{self.now}.png", self._artifact_suffix),
             color="skyblue"
         )
             
@@ -489,7 +506,9 @@ class Baseline:
         """
         logger.info("Iniciando visualização dos dados...")
         os.makedirs(self.path_graphs, exist_ok=True)
-        sample_path = os.path.join(self.path_graphs, f"data_view_{self.now}.csv")
+        sample_path = os.path.join(
+            self.path_graphs, filename_with_suffix(f"data_view_{self.now}.csv", self._artifact_suffix)
+        )
         try:
             self.data.head(5).to_csv(sample_path, index=False)
             logger.info("Amostra salva em: %s", sample_path)
@@ -501,7 +520,7 @@ class Baseline:
 
         gr.build_churn_view_data_eda(
             self.data,
-            self.now,
+            self._graph_run_stamp,
             self.label_neg,
             self.label_pos,
             graph_root=self.path_graphs,
@@ -521,7 +540,7 @@ class Baseline:
         gr.build_outliers_report(
             data=self.data, 
             numeric_cols=numeric_cols, 
-            filename=f"outliers_boxplot_{self.now}.png"
+            filename=filename_with_suffix(f"outliers_boxplot_{self.now}.png", self._artifact_suffix)
         )
             
        
@@ -759,17 +778,17 @@ class Baseline:
             if str(self.objective).lower() == "churn":
                 try:
                     gr.build_lr_coeff_importance_bars(
-                        self.model, self.now, graph_root=self.path_graphs
+                        self.model, self._graph_run_stamp, graph_root=self.path_graphs
                     )
                 except Exception as e:
                     logger.warning("Importância LR (gráfico) não gerada: %s", e)
 
             try:
                 gr.build_precision_recall_curve(
-                    self.y_test, y_proba_test, self.now, graph_root=self.path_graphs, split_label="test"
+                    self.y_test, y_proba_test, self._graph_run_stamp, graph_root=self.path_graphs, split_label="test"
                 )
                 gr.build_precision_recall_curve(
-                    self.y_train, y_proba_train, self.now, graph_root=self.path_graphs, split_label="train"
+                    self.y_train, y_proba_train, self._graph_run_stamp, graph_root=self.path_graphs, split_label="train"
                 )
             except Exception as e:
                 logger.warning("Curvas Precision–Recall não geradas: %s", e)
@@ -855,8 +874,7 @@ class Baseline:
             logger.info("Sample FE estável atualizado em: %s", sample_stable_path)
 
         os.makedirs(self.path_model, exist_ok=True)
-        model_name = f"baseline_model_{self.objective}_{self.now}.joblib"
-        joblib_path = os.path.join(self.path_model, model_name)
+        joblib_path = self.baseline_model_joblib_path()
         joblib.dump(self.model, joblib_path)
         logger.info(f"Modelo salvo em: {joblib_path}")
 

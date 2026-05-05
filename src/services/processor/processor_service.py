@@ -1,3 +1,4 @@
+import glob
 import logging
 import math
 import os
@@ -26,6 +27,25 @@ from services.processor.inference_report import (
 from services.utils import utcnow
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_snapshot_manifest_and_sample(snap_root: str) -> tuple[str, str]:
+    """
+    Localiza ``manifest*.json`` e ``baseline_sample*.csv`` na pasta de snapshot
+    (nomes sem sufixo ou com sufixo tipo ``_automatic``).
+    """
+    root = os.path.abspath(snap_root)
+    if not os.path.isdir(root):
+        raise FileNotFoundError(f"Snapshot inexistente: {root}")
+    manifests = glob.glob(os.path.join(root, "manifest*.json"))
+    if not manifests:
+        raise FileNotFoundError(f"Nenhum manifest*.json em {root}")
+    manifests.sort(key=lambda p: (0 if os.path.basename(p) == "manifest.json" else 1, p))
+    samples = glob.glob(os.path.join(root, "baseline_sample*.csv"))
+    if not samples:
+        raise FileNotFoundError(f"Nenhum baseline_sample*.csv em {root}")
+    samples.sort(key=lambda p: (0 if os.path.basename(p) == "baseline_sample.csv" else 1, p))
+    return manifests[0], samples[0]
 
 
 async def fetch_active_baseline_metrics_snapshot(session: AsyncSession, objective: str) -> dict | None:
@@ -393,7 +413,10 @@ def _prepare_prediction_features(run: PipelineRuns, domain: str, features: dict)
 def _ts_from_baseline_model_path(model_path: str | None) -> str | None:
     if not model_path:
         return None
-    m = re.search(r"baseline_model_[^_]+_(\d{8}_\d{6})\.joblib$", os.path.basename(model_path))
+    m = re.search(
+        r"baseline_model_[^_]+_(\d{8}_\d{6})(?:_[A-Za-z][A-Za-z0-9_]*)?\.joblib$",
+        os.path.basename(model_path),
+    )
     return m.group(1) if m else None
 
 
@@ -437,18 +460,23 @@ async def _resolve_fe_manifest(session: AsyncSession, objective: str) -> str:
 
     outp = run.csv_output_path or ""
     if outp and os.path.isfile(outp):
-        snap_manifest = os.path.join(os.path.dirname(os.path.abspath(outp)), "manifest.json")
-        if os.path.isfile(snap_manifest):
-            resolved = os.path.abspath(snap_manifest)
+        snap_dir = os.path.dirname(os.path.abspath(outp))
+        try:
+            sm, _ = _resolve_snapshot_manifest_and_sample(snap_dir)
+            resolved = os.path.abspath(sm)
+        except FileNotFoundError:
+            pass
 
     if not resolved:
         ts = _ts_from_baseline_model_path(run.model_path)
         if ts:
-            by_ts = os.path.abspath(
-                os.path.join(settings.path_data, settings.path_logs, ts, "manifest.json")
-            )
-            if os.path.isfile(by_ts):
-                resolved = by_ts
+            try:
+                sm, _ = _resolve_snapshot_manifest_and_sample(
+                    os.path.join(settings.path_data, settings.path_logs, ts)
+                )
+                resolved = os.path.abspath(sm)
+            except FileNotFoundError:
+                pass
 
     if not resolved:
         raise FileNotFoundError(
@@ -479,16 +507,11 @@ async def _resolve_fe_manifest_isolated_session(objective: str) -> str:
 
 def _publish_global_baseline_from_snapshot(run_timestamp: str) -> None:
     """
-    Copia ``baseline_sample`` + ``manifest.json`` do snapshot para ``pre_processed/``,
-    ajustando no JSON o campo ``output_sample_csv_stable``.
+    Copia ``baseline_sample*.csv`` + ``manifest*.json`` do snapshot para ``pre_processed/``,
+    ajustando no JSON o campo ``output_sample_csv_stable``. Suporta sufixos (ex.: ``_automatic``).
     """
     snap_root = os.path.join(settings.path_data, settings.path_logs, run_timestamp.strip())
-    src_manifest = os.path.join(snap_root, "manifest.json")
-    src_sample = os.path.join(snap_root, "baseline_sample.csv")
-    if not os.path.isfile(src_manifest):
-        raise FileNotFoundError(f"Manifest snapshot inexistente: {src_manifest}")
-    if not os.path.isfile(src_sample):
-        raise FileNotFoundError(f"Sample baseline no snapshot inexistente: {src_sample}")
+    src_manifest, src_sample = _resolve_snapshot_manifest_and_sample(snap_root)
 
     os.makedirs(settings.path_data_preprocessed, exist_ok=True)
     dst_sample = os.path.abspath(os.path.join(settings.path_data_preprocessed, "baseline_sample.csv"))
@@ -557,7 +580,7 @@ async def run_baseline(file: UploadFile, objective: str, user_id: int, db: Async
             pipeline.run(start_time=datetime.now())
             pipeline.save_artifacts()
 
-            model_path = os.path.join(settings.path_model, f"baseline_model_{objective}_{pipeline.now}.joblib")
+            model_path = pipeline.baseline_model_joblib_path()
             csv_path = os.path.join(pipeline.snapshot_path, pipeline.contract_sample_name)
 
             model = pipeline.model
@@ -725,10 +748,10 @@ async def run_feature_engineering(
         )
         pipeline.run(time_limit_minutes=effective_tuning_minutes, acc_target=acc_target)
 
-        fe_joblib = os.path.join(settings.path_model, f"best_{objective}_{pipeline.now}.joblib")
+        fe_joblib = pipeline.fe_sklearn_joblib_path()
         copy_if_exists(fe_joblib, fe_d)
         # Conteúdo de _export_fe_bundle (CSVs + resumo PyTorch) — entra no ZIP em 20_feature_engineering/fe_export/
-        fe_export_src = os.path.join(settings.path_model, f"fe_export_{objective}_{pipeline.now}")
+        fe_export_src = pipeline.fe_export_bundle_dir(fe_joblib)
         if os.path.isdir(fe_export_src):
             fe_export_dst = os.path.join(fe_d, "fe_export")
             shutil.copytree(fe_export_src, fe_export_dst, dirs_exist_ok=True)

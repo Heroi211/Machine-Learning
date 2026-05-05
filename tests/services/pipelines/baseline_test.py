@@ -20,6 +20,21 @@ def test_init_default_labels():
     assert baseline.data is None
 
 
+def test_artifact_name_suffix_prepended_before_extension():
+    b = Baseline(
+        pobjective="churn",
+        run_timestamp="20250101_120000",
+        csv_path="/tmp/dummy.csv",
+        artifact_name_suffix="_automatic",
+    )
+    assert b.contract_manifest_name == "manifest_automatic.json"
+    assert b.contract_sample_name == "baseline_sample_automatic.csv"
+    assert b.contract_input_name == "input_automatic.csv"
+    assert b.baseline_model_joblib_path().endswith(
+        "baseline_model_churn_20250101_120000_automatic.joblib"
+    )
+
+
 def test_init_custom_class_labels():
     baseline = Baseline(pobjective="heart_disease", class_labels=("No HD", "HD"))
 
@@ -236,7 +251,7 @@ def test_save_writes_preprocessed_csv_and_model(monkeypatch, tmp_path):
 
     baseline.save()
 
-    assert os.path.exists(tmp_path / "preprocessed" / "target_sample_now.csv")
+    assert os.path.exists(tmp_path / "preprocessed" / "baseline_sample.csv")
     assert any(path.name.startswith("baseline_model_target_now") for path in (tmp_path / "models").iterdir())
 
 

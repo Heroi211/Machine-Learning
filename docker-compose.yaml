@@ -15,7 +15,15 @@
 #       Airflow:  /opt/airflow/ml_project/uploads/<ficheiro>.csv
 #       API:      /var/www/ml_shared/uploads/<ficheiro>.csv
 #     (bind mount sobre o subdirectório `uploads` do volume ml_shared.)
-#   - MLflow: Airflow usa /opt/airflow/ml_project/{mlflow.db,mlruns/}; na API compose força-se
+#   - Saída Baseline/FE no repositório (mesma árvore que ``PATH_*`` na API / .env):
+#     ``./src/data/old/<ts>/`` (snapshots baseline + ficheiros pipeline_*.txt),
+#     ``./src/data/old/<ts>_fe<id>/`` (logs FE), ``./src/artifacts/models/`` (joblibs + fe_export),
+#     ``./src/graphs/``, ``./src/data/pre_processed/``, ``./src/artifacts/reports``,
+#     ``./src/artifacts/mlruns`` (MLflow no Airflow alinhado ao layout em src).
+#     Estes caminhos são bind mounts **por cima** de ml_shared no Airflow; a API precisa dos
+#     mesmos binds em /var/www/ml_shared/... para promote/inferência verem os artefactos
+#     (caminhos na BD começam por /opt/airflow/ml_project/ e são remapados em código).
+#   - MLflow (API no compose): continua em ``/var/www/ml_shared``; Airflow usa ``src/artifacts/mlruns``.
 #     sqlite:////var/www/ml_shared/mlflow.db e /var/www/ml_shared/mlruns (mesmo volume).
 #   - LocalExecutor: scheduler e webserver usam o mesmo bloco x-airflow-common → mesmo mount.
 #   - Build da imagem Airflow inclui deps do projeto (ver docker/airflow.dockerfile); após
@@ -49,15 +57,15 @@ x-airflow-common: &airflow-common
     ML_CODE_ROOT: /opt/airflow/ml_code
     # Pip ``--target`` na imagem (docker/airflow.dockerfile); opcional sobrescrever no compose.
     ML_AIRFLOW_SITE_PACKAGES: /opt/airflow/ml_libs
-    # Artefactos de treino no volume partilhado (API monta o mesmo volume em /var/www/ml_shared)
-    PATH_DATA: /opt/airflow/ml_project
-    PATH_DATA_PREPROCESSED: /opt/airflow/ml_project/pre_processed
-    PATH_MODEL: /opt/airflow/ml_project/models
-    PATH_GRAPHS: /opt/airflow/ml_project/graphs
-    PATH_LOGS: logs
-    PATH_MAINTENANCE_REPORTS: /opt/airflow/ml_project/reports
-    MLFLOW_TRACKING_URI: sqlite:////opt/airflow/ml_project/mlflow.db
-    MLFLOW_ARTIFACT_ROOT: /opt/airflow/ml_project/mlruns
+    # Mesmos PATH_* que rotas manuais (.env): src/data/old, src/artifacts/models, …
+    PATH_DATA: /opt/airflow/ml_project/src/data
+    PATH_DATA_PREPROCESSED: /opt/airflow/ml_project/src/data/pre_processed
+    PATH_MODEL: /opt/airflow/ml_project/src/artifacts/models
+    PATH_GRAPHS: /opt/airflow/ml_project/src/graphs
+    PATH_LOGS: old
+    PATH_MAINTENANCE_REPORTS: /opt/airflow/ml_project/src/artifacts/reports
+    MLFLOW_TRACKING_URI: sqlite:////opt/airflow/ml_project/src/artifacts/mlruns/mlflow.db
+    MLFLOW_ARTIFACT_ROOT: /opt/airflow/ml_project/src/artifacts/mlruns
     DATABASE_USER: ${DATABASE_USER}
     DATABASE_PASS: ${DATABASE_PASS}
     DATABASE_SERVER: db_processing
@@ -77,6 +85,12 @@ x-airflow-common: &airflow-common
     - ml_shared:/opt/airflow/ml_project
     # Datasets no host (opção A): mesma pasta visível na API em /var/www/ml_shared/uploads
     - ./ml_data/uploads:/opt/airflow/ml_project/uploads
+    # Árvore ``src/`` como na API local (baseline → data/old, modelos em artifacts/models, …)
+    - ./src/data:/opt/airflow/ml_project/src/data
+    - ./src/artifacts/models:/opt/airflow/ml_project/src/artifacts/models
+    - ./src/graphs:/opt/airflow/ml_project/src/graphs
+    - ./src/artifacts/mlruns:/opt/airflow/ml_project/src/artifacts/mlruns
+    - ./src/artifacts/reports:/opt/airflow/ml_project/src/artifacts/reports
     # Código Python alinhado ao layout ``src/`` da API (import services, core, …)
     - ./src:/opt/airflow/ml_code:ro
     # Defaults da Variable ml_training_pipeline_conf (airflow-init importa para a BD do Airflow)
@@ -146,6 +160,12 @@ services:
       # Volume compartilhado com Airflow
       - ml_shared:/var/www/ml_shared
       - ./ml_data/uploads:/var/www/ml_shared/uploads
+      # Overlays iguais ao bloco Airflow (ficheiros reais estão no host em ./src/..., não só no volume nomeado).
+      - ./src/data:/var/www/ml_shared/src/data
+      - ./src/artifacts/models:/var/www/ml_shared/src/artifacts/models
+      - ./src/graphs:/var/www/ml_shared/src/graphs
+      - ./src/artifacts/mlruns:/var/www/ml_shared/src/artifacts/mlruns
+      - ./src/artifacts/reports:/var/www/ml_shared/src/artifacts/reports
 
   # ---------- pgAdmin (interface web para o banco) -------------------------
   pgadmin:
@@ -192,11 +212,12 @@ services:
         set -e
         mkdir -p /opt/airflow/logs/scheduler /opt/airflow/logs/dag_processor
         mkdir -p /opt/airflow/ml_project/uploads \
-          /opt/airflow/ml_project/mlruns \
-          /opt/airflow/ml_project/models \
-          /opt/airflow/ml_project/graphs \
-          /opt/airflow/ml_project/pre_processed \
-          /opt/airflow/ml_project/reports \
+          /opt/airflow/ml_project/src/data/old \
+          /opt/airflow/ml_project/src/data/pre_processed \
+          /opt/airflow/ml_project/src/artifacts/models \
+          /opt/airflow/ml_project/src/artifacts/mlruns \
+          /opt/airflow/ml_project/src/artifacts/reports \
+          /opt/airflow/ml_project/src/graphs \
           /opt/airflow/ml_project/.matplotlib
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/ml_project

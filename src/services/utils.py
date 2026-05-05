@@ -1,9 +1,26 @@
 import logging
+import os
 import pytz
 from datetime import datetime
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def filename_with_suffix(filename: str, suffix: str | None) -> str:
+    """
+    Insere ``suffix`` imediatamente antes da extensão.
+
+    Ex.: ``manifest.json`` + ``_automatic`` → ``manifest_automatic.json``.
+    Sem extensão (nada após o último ``.`` no nome base), concatena no fim: ``foo`` → ``foo_automatic``.
+    """
+    suf = (suffix or "").strip()
+    if not suf:
+        return filename
+    stem, ext = os.path.splitext(filename)
+    if not ext:
+        return f"{filename}{suf}"
+    return f"{stem}{suf}{ext}"
 
 
 def to_utc(dt: Optional[datetime]) -> Optional[datetime]:

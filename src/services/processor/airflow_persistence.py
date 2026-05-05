@@ -77,7 +77,7 @@ async def persist_airflow_baseline_run(
         recall_score,
     )
 
-    model_path = os.path.join(settings.path_model, f"baseline_model_{objective}_{pipeline.now}.joblib")
+    model_path = pipeline.baseline_model_joblib_path()
     csv_path = os.path.join(pipeline.snapshot_path, pipeline.contract_sample_name)
 
     from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
@@ -134,6 +134,48 @@ async def persist_airflow_baseline_run(
         await session.close()
 
 
+async def reserve_airflow_fe_pipeline_run(
+    *,
+    objective: str,
+    user_id: int,
+    manifest_path: str,
+    airflow_dag_run_id: str | None = None,
+) -> int:
+    """
+    Cria um ``PipelineRuns`` FE em ``processing`` antes do treino — necessário para a pasta de
+    logs ``src/data/old/<ts>_fe<id>``, igual à rota manual.
+    """
+    resolved_manifest_path = os.path.abspath(manifest_path)
+    with open(resolved_manifest_path, encoding="utf-8") as f:
+        baseline_manifest = json.load(f)
+    csv_baseline = baseline_manifest.get("output_sample_csv_stable")
+    if not csv_baseline:
+        raise ValueError("Manifest inválido: campo 'output_sample_csv_stable' ausente.")
+    original_filename = os.path.basename(os.path.abspath(csv_baseline))
+
+    session = Session()
+    try:
+        meta: dict = {}
+        if airflow_dag_run_id:
+            meta["airflow_dag_run_id"] = airflow_dag_run_id
+        run = PipelineRuns(
+            user_id=user_id,
+            pipeline_type="feature_engineering",
+            objective=objective,
+            status="processing",
+            original_filename=original_filename,
+            is_airflow_run=True,
+            metrics=meta or None,
+        )
+        session.add(run)
+        await session.commit()
+        await session.refresh(run)
+        logger.info("FE Airflow reservado (pipeline_run_id=%s, processing).", run.id)
+        return run.id
+    finally:
+        await session.close()
+
+
 async def persist_airflow_feature_engineering_run(
     *,
     objective: str,
@@ -148,6 +190,7 @@ async def persist_airflow_feature_engineering_run(
     time_limit_minutes: int,
     effective_tuning_minutes: int,
     airflow_dag_run_id: str | None = None,
+    existing_run_id: int | None = None,
 ) -> tuple[int, bool]:
     from services.pipelines.fe_model_selection import normalize_optimization_metric
 
@@ -167,7 +210,7 @@ async def persist_airflow_feature_engineering_run(
     baseline_input_path = os.path.abspath(baseline_input_path) if baseline_input_path else None
     fe_training_csv_basename = os.path.basename(csv_baseline)
     original_filename = fe_training_csv_basename
-    fe_joblib = os.path.join(settings.path_model, f"best_{objective}_{pipeline.now}.joblib")
+    fe_joblib = pipeline.fe_sklearn_joblib_path()
 
     session = Session()
     try:
@@ -233,22 +276,45 @@ async def persist_airflow_feature_engineering_run(
         if backend == "mlp" and mlp_prefix:
             merged_metrics["mlp_artifact_prefix"] = mlp_prefix
 
-        run = PipelineRuns(
-            user_id=user_id,
-            pipeline_type="feature_engineering",
-            objective=objective,
-            status="completed",
-            original_filename=original_filename,
-            model_path=fe_joblib,
-            csv_output_path=None,
-            metrics=merged_metrics,
-            completed_at=utcnow(),
-            is_airflow_run=True,
-            inference_backend=backend,
-        )
-        session.add(run)
-        await session.commit()
-        await session.refresh(run)
+        if existing_run_id is not None:
+            run = await session.get(PipelineRuns, existing_run_id)
+            if run is None:
+                raise ValueError(f"PipelineRuns id={existing_run_id} não encontrado.")
+            if run.pipeline_type != "feature_engineering":
+                raise ValueError(f"Run id={existing_run_id} não é feature_engineering.")
+            if int(run.user_id) != int(user_id):
+                raise ValueError(f"Run id={existing_run_id}: user_id não coincide com o reservado.")
+            if str(run.objective).strip().lower() != str(objective).strip().lower():
+                raise ValueError(f"Run id={existing_run_id}: objective não coincide com o reservado.")
+            run.status = "completed"
+            run.objective = objective
+            run.original_filename = original_filename
+            run.model_path = fe_joblib
+            run.csv_output_path = None
+            run.metrics = merged_metrics
+            run.completed_at = utcnow()
+            run.inference_backend = backend
+            run.is_airflow_run = True
+            session.add(run)
+            await session.commit()
+            await session.refresh(run)
+        else:
+            run = PipelineRuns(
+                user_id=user_id,
+                pipeline_type="feature_engineering",
+                objective=objective,
+                status="completed",
+                original_filename=original_filename,
+                model_path=fe_joblib,
+                csv_output_path=None,
+                metrics=merged_metrics,
+                completed_at=utcnow(),
+                is_airflow_run=True,
+                inference_backend=backend,
+            )
+            session.add(run)
+            await session.commit()
+            await session.refresh(run)
 
         await _fe_recall_winner(session, run)
         m_final = dict(run.metrics or {})
@@ -286,4 +352,21 @@ async def promote_airflow_fe_if_requested(*, objective: str, user_id: int, auto_
 
 
 def run_async(coro):
-    return asyncio.run(coro)
+    """
+    Executa uma corrotina num loop novo (``asyncio.run``).
+
+    Em workers Airflow há frequentemente **várias** chamadas a ``run_async`` na mesma task
+    (ex.: reservar FE e depois persistir). O pool do ``AsyncEngine`` associa ligações ao
+    event loop; é preciso ``await engine.dispose()`` **no mesmo loop** antes de o
+    ``asyncio.run`` terminar. Um segundo ``asyncio.run`` só para o dispose fecha o loop
+    primeiro e deixa as conexões órfãs (erro "attached to a different loop").
+    """
+    from core.database import engine
+
+    async def _with_cleanup() -> Any:
+        try:
+            return await coro
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_with_cleanup())

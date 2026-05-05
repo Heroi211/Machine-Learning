@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any
 from services.pipelines.feature_strategies.base import FeatureStrategy
 from services.pipelines.fe_hyperparameter_tuning import param_distributions_for
 from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, sklearn_scoring_parameter
-from services.utils import log_training_csv_to_active_run
+from services.utils import filename_with_suffix, log_training_csv_to_active_run
 from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
 
 if TYPE_CHECKING:
@@ -80,6 +80,7 @@ class FeatureEngineering:
         mlp_max_epochs: int = 300,
         mlp_early_stopping_patience: int = 20,
         *,
+        artifact_name_suffix: str | None = None,
         decision_threshold: float | None = None,
     ):
         self.objective = objective
@@ -97,6 +98,7 @@ class FeatureEngineering:
         self.path_model = settings.path_model
         self.test_size = settings.test_size
         self.random_state = settings.random_state
+        self._artifact_suffix = (artifact_name_suffix or "").strip()
 
         if run_timestamp is not None:
             self.now = run_timestamp
@@ -162,6 +164,16 @@ class FeatureEngineering:
             raise ValueError(f"tuning_n_iter deve ser > 0. Recebido: {self.tuning_n_iter}")
         if not (0.0 < self.mlp_val_fraction < 1.0):
             raise ValueError(f"mlp_val_fraction deve estar em (0, 1). Recebido: {self.mlp_val_fraction}")
+
+    def fe_sklearn_joblib_path(self) -> str:
+        name = filename_with_suffix(
+            f"best_{self.objective}_{self.now}.joblib", self._artifact_suffix
+        )
+        return os.path.join(self.path_model, name)
+
+    def fe_export_bundle_dir(self, joblib_path: str) -> str:
+        dname = f"fe_export_{self.objective}_{self.now}{self._artifact_suffix or ''}"
+        return os.path.join(os.path.dirname(os.path.abspath(joblib_path)), dname)
 
     def _passes_guardrails(self, precision_value: float, roc_auc_value: float) -> bool:
         if self.min_precision is not None and precision_value < self.min_precision:
@@ -797,7 +809,9 @@ class FeatureEngineering:
             return
 
         os.makedirs(self.path_model, exist_ok=True)
-        prefix = os.path.join(self.path_model, f"pytorch_mlp_{self.objective}_{self.now}")
+        prefix = os.path.join(
+            self.path_model, f"pytorch_mlp_{self.objective}_{self.now}{self._artifact_suffix or ''}"
+        )
         ckpt = f"{prefix}.pt"
         preprocess_path = f"{prefix}_preprocess.joblib"
         meta_path = f"{prefix}_meta.json"
@@ -909,19 +923,17 @@ class FeatureEngineering:
 
     def _export_fe_bundle(self, joblib_path: str) -> str:
         """Pasta com comparação de modelos, resumo PyTorch, CSV pré-transform (pós-strategy) e pós-transform (entrada do modelo)."""
-        bundle = os.path.join(
-            os.path.dirname(os.path.abspath(joblib_path)),
-            f"fe_export_{self.objective}_{self.now}",
-        )
+        bundle = self.fe_export_bundle_dir(joblib_path)
         os.makedirs(bundle, exist_ok=True)
+        _f = lambda n: filename_with_suffix(n, self._artifact_suffix)
 
         if self.results_df is not None:
-            self.results_df.to_csv(os.path.join(bundle, "model_selection_comparison.csv"), index=False)
+            self.results_df.to_csv(os.path.join(bundle, _f("model_selection_comparison.csv")), index=False)
 
         comparison_df = self._build_model_comparison_table()
         if comparison_df is not None:
-            comparison_csv = os.path.join(bundle, "model_comparison_full.csv")
-            comparison_md = os.path.join(bundle, "model_comparison_full.md")
+            comparison_csv = os.path.join(bundle, _f("model_comparison_full.csv"))
+            comparison_md = os.path.join(bundle, _f("model_comparison_full.md"))
             comparison_df.to_csv(comparison_csv, index=False)
             try:
                 md_table = comparison_df.to_markdown(index=False, floatfmt=".4f")
@@ -949,8 +961,8 @@ class FeatureEngineering:
         df_pre_tr["target"] = self.y_train
         df_pre_te = self.x_test.copy()
         df_pre_te["target"] = self.y_test
-        df_pre_tr.to_csv(os.path.join(bundle, "train_features_pre_transform.csv"), index=False)
-        df_pre_te.to_csv(os.path.join(bundle, "test_features_pre_transform.csv"), index=False)
+        df_pre_tr.to_csv(os.path.join(bundle, _f("train_features_pre_transform.csv")), index=False)
+        df_pre_te.to_csv(os.path.join(bundle, _f("test_features_pre_transform.csv")), index=False)
 
         kv_rows: list[tuple[str, str]] = []
         kv_rows.append(("pytorch_mvp_enabled", str(self.mlp_torch_result is not None)))
@@ -966,7 +978,7 @@ class FeatureEngineering:
             for k, v in self.mlp_torch_result.metrics_test.items():
                 kv_rows.append((f"pytorch_metrics_test_{k}", str(float(v))))
         pd.DataFrame(kv_rows, columns=["key", "value"]).to_csv(
-            os.path.join(bundle, "pytorch_mvp_summary.csv"),
+            os.path.join(bundle, _f("pytorch_mvp_summary.csv")),
             index=False,
         )
 
@@ -985,8 +997,8 @@ class FeatureEngineering:
         df_tr["target"] = self.y_train.to_numpy()
         df_te = pd.DataFrame(Xte, columns=cols)
         df_te["target"] = self.y_test.to_numpy()
-        df_tr.to_csv(os.path.join(bundle, "train_model_input.csv"), index=False)
-        df_te.to_csv(os.path.join(bundle, "test_model_input.csv"), index=False)
+        df_tr.to_csv(os.path.join(bundle, _f("train_model_input.csv")), index=False)
+        df_te.to_csv(os.path.join(bundle, _f("test_model_input.csv")), index=False)
 
         logger.info("FE exportado em: %s", bundle)
         return bundle
@@ -1015,9 +1027,12 @@ class FeatureEngineering:
             plt.tight_layout()
             if self.export_figures_dir:
                 os.makedirs(self.export_figures_dir, exist_ok=True)
-                gini_png = os.path.join(self.export_figures_dir, "feature_importance_gini_top20.png")
+                gini_name = filename_with_suffix("feature_importance_gini_top20.png", self._artifact_suffix)
+                gini_png = os.path.join(self.export_figures_dir, gini_name)
                 fig.savefig(gini_png, dpi=200, bbox_inches="tight")
-            self.figs_to_log.append(("feature_importance_gini_top20.png", fig))
+            self.figs_to_log.append(
+                (filename_with_suffix("feature_importance_gini_top20.png", self._artifact_suffix), fig)
+            )
             plt.close(fig)
         else:
             logger.info("Modelo não expõe feature_importances_. Pulando gráfico Gini.")
@@ -1055,9 +1070,12 @@ class FeatureEngineering:
         plt.tight_layout()
         if self.export_figures_dir:
             os.makedirs(self.export_figures_dir, exist_ok=True)
-            p_png = os.path.join(self.export_figures_dir, "feature_importance_permutation_top20.png")
+            perm_name = filename_with_suffix("feature_importance_permutation_top20.png", self._artifact_suffix)
+            p_png = os.path.join(self.export_figures_dir, perm_name)
             fig2.savefig(p_png, dpi=200, bbox_inches="tight")
-        self.figs_to_log.append(("feature_importance_permutation_top20.png", fig2))
+        self.figs_to_log.append(
+            (filename_with_suffix("feature_importance_permutation_top20.png", self._artifact_suffix), fig2)
+        )
         plt.close(fig2)
 
     # ------------------------------------------------------------------
@@ -1069,7 +1087,7 @@ class FeatureEngineering:
 
         os.makedirs(self.path_model, exist_ok=True)
 
-        joblib_path = os.path.join(self.path_model, f"best_{self.objective}_{self.now}.joblib")
+        joblib_path = self.fe_sklearn_joblib_path()
         joblib.dump(self.best_pipeline, joblib_path)
         logger.info(f"Modelo salvo em: {joblib_path}")
 
@@ -1084,7 +1102,8 @@ class FeatureEngineering:
             if not mlflow.get_experiment_by_name(experiment_name):
                 mlflow.create_experiment(experiment_name, artifact_location=settings.mlflow_artifact_root)
             mlflow.set_experiment(experiment_name)
-            with mlflow.start_run(run_name=f"fe_{self.objective}_{self.now}") as _mfe:
+            run_nm = f"fe_{self.objective}_{self.now}{self._artifact_suffix or ''}"
+            with mlflow.start_run(run_name=run_nm) as _mfe:
                 self.mlflow_run_id = _mfe.info.run_id
                 log_training_csv_to_active_run(
                     self._training_csv_path_resolved,
@@ -1105,7 +1124,10 @@ class FeatureEngineering:
                 for k, v in self.guardrails_summary.items():
                     mlflow.log_param(k, bool(v))
                 if self.baseline_manifest is not None:
-                    mlflow.log_dict(self.baseline_manifest, "baseline_manifest.json")
+                    mlflow.log_dict(
+                        self.baseline_manifest,
+                        filename_with_suffix("baseline_manifest.json", self._artifact_suffix),
+                    )
 
                 if np.isfinite(self.best_cv_score):
                     mlflow.log_metric(f"cv_{self.optimization_metric}", float(self.best_cv_score))
