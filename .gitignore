@@ -163,7 +163,6 @@ logs/
 *.pkl.tar.tar.gz
 *.pkl.tar.tar.bz2
 *.png
-*.csv
 mlflow.db
 artifacts/
 data/old/*
