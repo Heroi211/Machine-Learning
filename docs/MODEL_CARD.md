@@ -1,7 +1,6 @@
 # Model Card — Previsão de Churn (Telco)
 
-> Documento exigido pelo Tech Challenge (Etapa 4). Linguagem voltada à banca + uso operacional.
-> Última atualização: preencher na data da entrega final.
+> Última atualização: 05/05/2026
 
 ---
 
@@ -16,14 +15,14 @@
 | Modelos comparados | DummyClassifier, Logistic Regression (Baseline), Decision Tree, Random Forest, SVM, Gradient Boosting, MLP PyTorch |
 | Modelo servido em produção | MLP PyTorch (`Linear→ReLU→Dropout→Linear(1)`) com pré-processamento via `ColumnTransformer` |
 | Dataset | Telco Customer Churn (IBM) — `WA_Fn-UseC_-Telco-Customer-Churn.csv` |
-| Data do treino | _preencher (`run_timestamp`)_ |
+| Data do treino | 05/05/2026 |
 
 ---
 
 ## 2. Uso pretendido
 
-- **Quem usa:** equipa de retenção; analistas de CRM; processo batch nocturno e API síncrona.
-- **Decisão suportada:** sinalizar clientes com risco elevado de cancelamento, para acção de retenção.
+- **Quem usa:** equipe de retenção; analistas de CRM; API síncrona e consumidores batch/orquestrados downstream.
+- **Decisão suportada:** sinalizar clientes com risco elevado de cancelamento, para ação de retenção.
 - **Fora de escopo:**
   - Estimativa do **valor monetário** de churn (LTV) — só prevê probabilidade.
   - **Causalidade**: o modelo não responde “porque é que vai cancelar”.
@@ -35,7 +34,7 @@
 
 - **Fonte**: dataset público Telco Customer Churn (IBM, ~7.043 linhas).
 - **Target**: coluna binária `Churn` (Yes/No → 1/0).
-- **Features**: tabulares (demográficas, contratuais, faturação) — engenharia adicional pela `ChurnFeatures` strategy.
+- **Features**: tabulares (contratuais, faturação) — engenharia adicional pela `ChurnFeatures` strategy.
 - **Versão do CSV no run**: registado nos metrics (`fe_training_csv_basename`) e como dataset MLflow (`{objective}_fe_baseline_sample_csv`).
 - **Split**: estratificado (80/20) com `random_state` fixo (`settings.random_state = 42`).
 - **CV**: `StratifiedKFold(n_splits=5, shuffle=True, random_state=42)`.
@@ -48,11 +47,11 @@
 
 ---
 
-## 4. Arquitetura do modelo principal (PyTorch MLP)
+## 4. Arquitetura da MLP PyTorch MLP
 
 | Componente | Valor |
 |------------|-------|
-| Tipo | Perceptrão multicamadas para classificação binária |
+| Tipo | Perceptron multicamadas para classificação binária |
 | Camadas | `Linear(n_features, 64) → ReLU → Dropout → Linear(64, 32) → ReLU → Dropout → Linear(32, 1)` |
 | Saída | 1 logit; probabilidade via `sigmoid(logit)` |
 | Função de perda | `BCEWithLogitsLoss` |
@@ -78,15 +77,7 @@ Bundle servido em produção (em `PATH_MODEL`):
 - **Threshold de decisão (`decision_threshold`)**: configurável (`CLASSIFICATION_DECISION_THRESHOLD`). Default `0.5`. Em runs orientados a recall pode ser baixado para `0.25–0.4`.
 - **Métricas reportadas** (todos os modelos, mesmo conjunto de teste): Accuracy, Precision, Recall, F1, ROC AUC.
 
-### Tabela comparativa
-
-> Cole aqui a tabela do ficheiro `fe_export_<obj>_<ts>/model_comparison_full.md` gerado no fim do run FE. Já vem em formato Markdown pronto e está incluída no ZIP do pipeline.
-
-```text
-(substituir pela tabela após o run)
-```
-
-> **Nota:** os modelos sklearn “pré-tuning” usam o mesmo split de teste; o sklearn “(tuned)” é o que foi promovido como `best_pipeline`; o **PyTorch MLP** corre em paralelo no mesmo run e não substitui esse `best_pipeline` no `joblib`, mas é o que serve `/predict` quando `inference_backend='mlp'`.
+> **Nota:** os modelos sklearn “pré-tuning” usam o mesmo split de teste; quando `USE_MLP_FOR_PREDICTION=false`, o sklearn “(tuned)” é o joblib servido. O **PyTorch MLP** corre em paralelo no mesmo run e é o que serve `/predict` quando `inference_backend='mlp'`.
 
 ---
 
@@ -96,8 +87,7 @@ Bundle servido em produção (em `PATH_MODEL`):
 - **FN (Falso Negativo)**: cliente que vai cancelar mas não foi sinalizado. Custo = perda de receita recorrente + custo de aquisição de substituto.
 - **Hipótese assumida**: custo de FN >> custo de FP (relação típica em telecom 5–10×).
 - **Implicação**: optimizamos **recall**; o `decision_threshold` pode ser **reduzido** a um valor mais baixo (ex.: `0.30`) para apanhar mais positivos, ao custo de mais FP — preserva-se compatibilidade com `0.5` como default.
-- O switch é feito sem retreinar: muda-se `CLASSIFICATION_DECISION_THRESHOLD` (env) ou `decision_threshold` no JSON do trigger.
-
+- O threshold efetivo fica gravado no run/bundle no momento do treino. Para mudar o comportamento em produção, treine e promova novo run com `decision_threshold` ajustado.
 ---
 
 ## 7. Limitações e cenários de falha
@@ -131,7 +121,7 @@ USE_MLP_FOR_PREDICTION=true   # MLP como backend de predict
 RANDOM_STATE=42
 
 # 2. subir
-docker compose up --build
+docker compose up -d
 
 # 3. correr o DAG no Airflow (UI :8080) ou /v1/processor/admin/train/...
 # 4. promover
@@ -143,7 +133,7 @@ curl -X POST http://localhost:8000/v1/processor/predict \
      -d @example_payload.json
 ```
 
-Os artefactos do run ficam em `ml_data/<volume>/.../models/`, MLflow disponível pelo SQLite local (`mlflow.db`) ou via tracking server externo (`MLFLOW_TRACKING_URI`).
+Os artefatos do run ficam em `ml_data/<volume>/.../models/`, MLflow disponível pelo SQLite local (`mlflow.db`) ou via tracking server externo (`MLFLOW_TRACKING_URI`).
 
 ---
 
@@ -165,13 +155,13 @@ Periodicidade recomendada: após cada deploy + semanalmente com volume real.
 
 ## 11. Critério de promoção
 
-Resumido (detalhe na secção 10 do README):
+Resumido (detalhe na seção “Regras de Decisão” do README):
 
-1. Métrica principal nova run **>** activa actual (margem mínima ≥ +2%).
-2. PSI médio entre treino e produção **< 0.10**.
-3. Run com `status='completed'`, `inference_backend` coerente com a env e `model_path` existente.
-4. Promote via `/v1/processor/admin/promote` (admin) → atualiza `DeployedModels`.
-5. Em caso de problema: `/v1/processor/admin/rollback`.
+1. O comparador de FE mantém `active=true` para o candidato vencedor por `cv_<optimization_metric>` quando a linhagem é comparável.
+2. O promote exige exatamente um run FE `active=true`, `status='completed'`, `inference_backend` coerente com `USE_MLP_FOR_PREDICTION`, `objective=OBJECTIVE` e artefato existente.
+3. Em produção, o run precisa ter `is_airflow_run=true`.
+4. Gates de negócio como PSI < 0.10, margem mínima de métrica e aprovação humana ainda são controles externos ao endpoint.
+5. Promote via `/v1/processor/admin/promote` (admin) → atualiza `DeployedModels`; em caso de problema, usar `/v1/processor/admin/rollback`.
 
 ---
 
@@ -179,15 +169,14 @@ Resumido (detalhe na secção 10 do README):
 
 | `pipeline_run_id` | `inference_backend` | best_model | Recall | F1 | ROC AUC | Notas |
 |-------------------|---------------------|------------|--------|----|---------|-------|
-| _ex.: 12_ | mlp | PyTorch MLP | _0.xx_ | _0.xx_ | _0.xx_ | _entrega Tech Challenge_ |
+| v1_teste | mlp | PyTorch MLP | 0.56 | 0.59 | 0.85 | _entrega Tech Challenge_ |
 
 ---
 
-## 13. Contactos / responsáveis
+## 13. Contatos / Responsáveis
 
-- Equipa: _preencher (nomes do grupo)_
-- Repo: `<url>`
-- Issue tracker: _preencher_
+- Equipe: Alexandre Lucena; Eliane Karasawa; Gabriel Drumond; Marcus de Carvalho; Matheus Pessoa
+- Repo: `[<url>](https://github.com/Heroi211/Machine-Learning)`
 
 ---
 
