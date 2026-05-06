@@ -1,13 +1,13 @@
 # Observabilidade e manutenção
 
-Este documento complementa o [Manual do utilizador](MANUAL_DO_USUARIO.md). Explica **onde** estão os registos (logs), **como** se mede latência no projeto e **quando** entra em jogo a análise de **drift** — com base no código atual.
+Explica **onde** estão os registos (logs), **como** se mede latência no projeto e **quando** entra em jogo a análise de **drift** — com base no código atual.
 
 ---
 
 ## 1. O que **não** existe na aplicação (importante)
 
-- **Não há** ecrã nem rota de API exclusiva para “o administrador abrir os logs” no browser. Quem opera o sistema precisa de **acesso ao servidor** (ou a cópias dos ficheiros) ou de ferramentas externas (SIEM, agregador de logs) configuradas pela equipa de infraestrutura.
-- **Drift** e **relatórios de latência agregada** **não** correm sozinhos dentro do serviço HTTP em cada predição como alertas automáticos. São processos **offline** (scripts) que a equipa pode **agendar** (por exemplo `cron` ou pipeline de CI), conforme descrito em `scripts/maintenance/README.md`.
+- **Não há** tela nem rota de API exclusiva para “o administrador abrir os logs” no browser. Quem opera o sistema precisa de **acesso ao servidor** (ou a cópias dos arquivos) ou de ferramentas externas (SIEM, agregador de logs) configuradas pela equipe de infraestrutura.
+- **Drift** e **relatórios de latência agregada** **não** correm sozinhos dentro do serviço HTTP em cada predição como alertas automáticos. São processos **offline** (scripts) que a equipe pode **agendar** (por exemplo `cron` ou pipeline de CI), conforme descrito em `README.md`.
 
 ---
 
@@ -18,9 +18,9 @@ Este documento complementa o [Manual do utilizador](MANUAL_DO_USUARIO.md). Expli
 | Item | Detalhe |
 |------|---------|
 | **Logger** | `api.request` |
-| **Ficheiro** | `{PATH_API_REQUEST_LOGS}/access.jsonl` (padrão: `logs/api_requests/access.jsonl`) |
+| **Arquivos** | `{PATH_API_REQUEST_LOGS}/access.jsonl` (padrão: `logs/api_requests/access.jsonl`) |
 | **Formato** | Uma linha **JSON** por pedido, com `method`, `path`, `status`, `duration_ms` (latência), `client`, `request_id`, `ts`, `error`. |
-| **Rotação** | Ficheiros `access.jsonl`, `access.jsonl.1`, … quando o tamanho máximo é atingido (variáveis `LOG_HTTP_REQUESTS_MAX_BYTES`, `LOG_HTTP_REQUESTS_BACK_COUNT`). |
+| **Rotação** | Arquivos `access.jsonl` … quando o tamanho máximo é atingido (variáveis `LOG_HTTP_REQUESTS_MAX_BYTES`, `LOG_HTTP_REQUESTS_BACK_COUNT`). |
 | **Ativar / desativar** | `LOG_HTTP_REQUESTS` (registar no middleware), `LOG_HTTP_REQUESTS_FILE` (escrever em disco). |
 
 O middleware em `core/middleware/request_record.py` mede o tempo **de cada** pedido e grava `duration_ms`. O cabeçalho de resposta `X-Request-ID` correlaciona com o campo `request_id` no JSONL; pode enviar-se `X-Request-ID` no pedido para alinhar com outros sistemas.
@@ -31,7 +31,7 @@ O middleware em `core/middleware/request_record.py` mede o tempo **de cada** ped
 |------|---------|
 | **Logger** | `ml.pipeline` |
 | **Pasta** | `{PATH_DATA}/{PATH_LOGS}/<data_hora_do_run>/` (ex.: `data/logs/20250331_143022/`) |
-| **Ficheiro** | `pipeline_<data_hora>.txt` — texto com contexto `run_id`, `objective`, `pipeline_type`. |
+| **Arquivo** | `pipeline_<data_hora>.txt` — texto com contexto `run_id`, `objective`, `pipeline_type`. |
 
 Isto é configurado em `setup_pipeline_run_logging` (`core/custom_logger.py`) quando o administrador dispara treinos pelo processador.
 
