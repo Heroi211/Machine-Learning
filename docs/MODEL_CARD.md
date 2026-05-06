@@ -10,7 +10,7 @@
 |-------|-------|
 | Nome do modelo | `churn_classifier` |
 | Domínio (objective) | `churn` |
-| Versão (`pipeline_run_id`) | _preencher após promote (ex.: 12)_ |
+| Versão (`pipeline_run_id`) | v1_teste |
 | Backend de inferência | `mlp` (PyTorch) — fallback `sklearn` se `USE_MLP_FOR_PREDICTION=false` |
 | Modelos comparados | DummyClassifier, Logistic Regression (Baseline), Decision Tree, Random Forest, SVM, Gradient Boosting, MLP PyTorch |
 | Modelo servido em produção | MLP PyTorch (`Linear→ReLU→Dropout→Linear(1)`) com pré-processamento via `ColumnTransformer` |
