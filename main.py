@@ -11,11 +11,11 @@ if str(_SRC) not in sys.path:
 import dill  # noqa: F401
 
 from fastapi import FastAPI
-from core.configs import settings
-from core.logging_setup import setup_root_logging
-from core.logging_api_request import setup_api_request_logging
-from api.v1 import api
-from core.middleware.request_record import request_record
+from src.core.configs import settings
+from src.core.logging_setup import setup_root_logging
+from src.core.logging_api_request import setup_api_request_logging
+from src.api.v1 import api
+from src.core.middleware.request_record import request_record
 
 setup_root_logging()
 setup_api_request_logging()

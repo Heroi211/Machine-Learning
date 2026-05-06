@@ -93,6 +93,7 @@ opentelemetry-sdk==1.40.0
 opentelemetry-semantic-conventions==0.61b0
 packaging==26.0
 pandas==2.3.3
+pandera==0.13.1
 parso==0.8.6
 passlib==1.7.4
 pexpect==4.9.0

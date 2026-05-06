@@ -52,7 +52,7 @@ run:
 	$(PYTHON) -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 docker-up:
-	docker compose up --build
+	docker compose up -d
 
 docker-down:
 	docker compose down

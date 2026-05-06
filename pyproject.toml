@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["api", "core", "models", "schemas", "services", "airflow"]
+packages = ["src", "tests", "notebooks", "docker", "airflow"]
 
 [project]
 name = "machine-learning"
@@ -37,6 +37,7 @@ dependencies = [
   "databricks-sdk==0.99.0",
   "debugpy==1.8.20",
   "decorator==5.2.1",
+  "dill==0.4.1",
   "dnspython==2.8.0",
   "docker==7.1.0",
   "ecdsa==0.19.1",
@@ -84,6 +85,7 @@ dependencies = [
   "opentelemetry-semantic-conventions==0.61b0",
   "packaging==26.0",
   "pandas==2.3.3",
+  "pandera==0.20.1",
   "parso==0.8.6",
   "passlib==1.7.4",
   "pexpect==4.9.0",

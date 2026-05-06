@@ -670,7 +670,7 @@ Machine-Learning/
 ├── docs/                        # MODEL_CARD.md, MLP_PYTORCH.md, etc.
 ├── init_db/database.sql         # Schema + seed (users, roles)
 ├── ml_data/uploads/             # CSVs (bind mount)
-├── tests/                       # api/, models/, schemas/, smoke/, services/
+├── tests/                       # src/api/, src/models/, src/schemas/, smoke/, src/services/
 ├── reference/TC_01.pdf
 ├── pyproject.toml               # single source of truth
 ├── Makefile                     # install-dev, lint, test, run, docker-*
