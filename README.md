@@ -1,5 +1,7 @@
 # Tech Challenge — Previsão de Churn com Rede Neural (MLP / PyTorch)
 
+Easy-run : [https://www.youtube.com/watch?v=_9VqWvDYOuk](https://youtu.be/_9VqWvDYOuk?si=Yzz67Hp_QF9zgQog)
+
 Pipeline End-to-End de classificação binária para **churn** em telecomunicações: ingestão → baseline → feature engineering → MLP PyTorch → API de inferência (FastAPI) → orquestração (Airflow) → tracking (MLflow) → monitoramento (drift / latência).
 
 ---
