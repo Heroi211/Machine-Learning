@@ -459,11 +459,10 @@ Eco do payload original (auditoria + drift). Útil para reconstruir o caso e cor
 git clone <url-do-repositorio>
 cd Machine-Learning
 
-cp .env_example .env
-echo "AIRFLOW_UID=$(id -u)" >> .env
+Copiar todo conteudo do env_example para .env
 ```
 
-Editar `.env` e preencher **obrigatoriamente**:
+Editar `.env` e preencher **obrigatoriamente** se não houver no env_example, se existir o conjunto pode passar para o próximo passo:
 
 | Variável | Exemplo | Descrição |
 |----------|---------|-----------|
@@ -494,9 +493,8 @@ Esta pasta é **bind-mountada** simultaneamente em:
 ### 9.4 Subir o stack (Docker)
 
 ```bash
-docker compose up --build
-# ou em background:
-docker compose up --build -d
+
+docker compose up -d
 ```
 
 Ou via Makefile:
@@ -543,60 +541,138 @@ docker exec database_processing psql -U "$DATABASE_USER" -d "$DATABASE_NAME" \
   -c "SELECT id, name, email, role_id, active FROM users;"
 ```
 
-### 9.6 Usuários semeados (`init_db/database.sql`)
+### 9.6 Acessos e credenciais (todas as interfaces web)
 
-A inicialização do banco cria **dois usuários administradores** (`role_id=2`):
+A inicialização do banco (`init_db/database.sql`) já deixa o ambiente pronto para uso **sem precisar criar usuário**. Use as credenciais abaixo para entrar em cada serviço pelo navegador:
 
-| `id` | `name` | `email` | Role |
-|------|--------|---------|------|
-| 1 | Gabriel Drumond | `gabriel.drumond@cod3bit.com.br` | Administrator |
-| 2 | airflow | `airflow@airflow.com.br` | Administrator |
+| Serviço | URL | Usuário / Login | Senha | Observação |
+|---------|-----|-----------------|-------|------------|
+| **API — Swagger UI** | http://localhost:8000/docs | `gabriel.drumond@cod3bit.com.br` | `280387` | Administrator (role_id=2) — pode treinar, promover e predizer. |
+| **Airflow Web UI** | http://localhost:8080 | `airflow` | `airflow` | Acompanhar/disparar a DAG `ml_training_pipeline`. |
+| **pgAdmin** | http://localhost:5050 | `gabriel.drumond@cod3bit.com.br` | `280387` | Login do `.env` (`PGADMIN_EMAIL` / `PGADMIN_PASSWORD`). |
+| **PostgreSQL** (dentro do pgAdmin) | host: `database_processing`, porta `5432` | `gabriel_drumond` | `280387` | Credenciais do `.env` (`DATABASE_USER` / `DATABASE_PASS`). |
+| **Dozzle (logs)** | http://localhost:8888 | — | — | Sem autenticação. |
 
-> As senhas estão em **bcrypt** no SQL (não em texto plano no repositório). Use uma das opções abaixo conforme o seu cenário:
+> Usuários administradores semeados no banco (`users.role_id=2`):
+> - `id=1` — Gabriel Drumond — `gabriel.drumond@cod3bit.com.br` / **`280387`**
+> - `id=2` — airflow — `airflow@airflow.com.br` (usuário técnico do DAG; trocar a senha em produção)
+>
+> As senhas são armazenadas em **bcrypt**. Para criar um usuário próprio: use `POST /v1/auth/signup` no Swagger (cria com `role_id=1 = User`) e, em seguida, edite o registro em `public.users` pelo pgAdmin trocando `role_id` para `2` (Administrator).
 
-**Opção A — criar seu próprio admin (recomendado em ambiente novo)**:
+> Roles: `1=User` (rotas básicas) · `2=Administrator` (rotas `/admin/*` de treino/promote/rollback).
 
-```bash
-# 1. Signup (cria com role_id=1 = User)
-curl -X POST http://localhost:8000/v1/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Seu Nome","email":"voce@exemplo.com","password":"sua_senha"}'
+### 9.7 Primeiro treino + predição usando apenas as interfaces web
 
-# 2. Promover para Administrator via SQL
-docker exec database_processing psql -U "$DATABASE_USER" -d "$DATABASE_NAME" \
-  -c "UPDATE users SET role_id = 2 WHERE email = 'voce@exemplo.com';"
+Fluxo guiado **100% pelo navegador** — sem `curl` e sem terminal. Pré-requisito: o stack já subiu com `docker compose up -d` e o CSV `WA_Fn-UseC_-Telco-Customer-Churn.csv` está em `ml_data/uploads/` (ver §9.3).
+
+#### Passo 1 — Autenticar no Swagger UI da API
+
+1. Abrir http://localhost:8000/docs.
+2. Clicar no botão **`Authorize`** (cadeado, canto superior direito).
+3. No formulário OAuth2:
+   - **username**: `gabriel.drumond@cod3bit.com.br`
+   - **password**: `280387`
+4. Clicar em **Authorize** → **Close**. O cadeado fica fechado: todas as rotas protegidas passam a aceitar suas chamadas.
+
+#### Passo 2 — Disparar o pipeline de treino (Airflow via API)
+
+Ainda no Swagger, expandir a seção **`processor`**:
+
+1. Localizar **`POST /v1/processor/admin/train/trigger-dag`** → **Try it out**.
+2. Preencher o formulário:
+   - **file**: clicar em *Choose File* e selecionar `WA_Fn-UseC_-Telco-Customer-Churn.csv` (o mesmo que está em `ml_data/uploads/`).
+   - **optimization_metric**: `recall` (recomendado para churn).
+   - **time_limit_minutes**: `10`.
+   - Demais campos opcionais podem ficar em branco.
+3. **Execute** → resposta `202 Accepted` com o `dag_run_id`.
+
+#### Passo 3 — Acompanhar a execução no Airflow
+
+1. Abrir http://localhost:8080 e logar com **`airflow` / `airflow`**.
+2. Clicar na DAG **`ml_training_pipeline`** → aba **Grid**.
+3. Acompanhar as tasks em ordem: `validate_input → deactivate_manual_runs → run_baseline → run_fe → promote_fe_optional → notify_complete`.
+4. Aguardar até a coluna mais recente ficar toda **verde** (success). O tempo varia com `time_limit_minutes` (≈ 5–15 min).
+
+> Se `auto_promote=true` no JSON da Variable `ml_training_pipeline_conf`, a task `promote_fe_optional` já promove o run vencedor — pode pular o Passo 4.
+
+#### Passo 4 — (Opcional) Promover o run vencedor manualmente
+
+Voltar ao Swagger (http://localhost:8000/docs):
+
+1. Expandir **`POST /v1/processor/admin/promote`** → **Try it out** → **Execute**.
+2. Resposta `201` com o `pipeline_run_id` recém-promovido. A partir daqui, `/predict` passa a servir esse modelo.
+
+#### Passo 5 — Conferir o run no banco (opcional, via pgAdmin)
+
+1. Abrir http://localhost:5050 e logar com **`gabriel.drumond@cod3bit.com.br` / `280387`**.
+2. **Add New Server**:
+   - Aba *General* → **Name**: `processing`.
+   - Aba *Connection* → **Host**: `database_processing` · **Port**: `5432` · **Username**: `gabriel_drumond` · **Password**: `280387` (marcar *Save password*).
+3. Navegar em `processing → Schemas → public → Tables`. Clicar com botão direito em `pipeline_runs` → **View/Edit Data → All Rows**. O run mais recente deve estar com `status=completed` e `active=true`.
+4. Mesma checagem em `deployed_models` (após promote): o registro com `status=active` é o que serve `/predict`.
+
+#### Passo 6 — Fazer uma predição pelo Swagger
+
+No Swagger, expandir **`POST /v1/processor/predict`** → **Try it out** e colar este corpo de exemplo:
+
+```json
+{
+  "domain": "churn",
+  "features": {
+    "gender": "Female",
+    "seniorcitizen": 0,
+    "partner": 1,
+    "dependents": 0,
+    "tenure": 12,
+    "phoneservice": 1,
+    "multiplelines": 0,
+    "internetservice": "Fiber optic",
+    "onlinesecurity": 0,
+    "onlinebackup": 0,
+    "deviceprotection": 0,
+    "techsupport": 0,
+    "streamingtv": 1,
+    "streamingmovies": 1,
+    "contract": "Month-to-month",
+    "paperlessbilling": 1,
+    "paymentmethod": "Electronic check",
+    "monthlycharges": 95.5,
+    "totalcharges": 1146.0
+  }
+}
 ```
 
-**Opção B — gerar novo hash bcrypt e atualizar a seed antes do primeiro `up`**:
+**Execute** → resposta `200` com o JSON descrito em [§8 — Saída do `/predict`](#saída-do-predict). Os campos chave para ler rápido:
+
+- `prediction` (`0` ou `1`) — decisão após threshold.
+- `probability` (0–100) — score em **percentual** de risco de churn.
+- `inference_report` — auditoria completa (backend, métricas do modelo, comparativo, etc.).
+
+#### Passo 7 — Inspecionar logs em tempo real (opcional, Dozzle)
+
+Abrir http://localhost:8888 — sem login. Filtrar pelo container desejado (ex.: `api`, `airflow_scheduler`, `database_processing`) para ver `stdout`/`stderr` ao vivo enquanto roda os passos anteriores.
+
+---
+
+> **Atalho via terminal (alternativa ao fluxo web)**: o mesmo caminho com `curl` está em [§9.8](#98-alternativa-via-cli-curl).
+
+### 9.8 Alternativa via CLI (cURL)
+
+Para automação ou pipelines de CI, o mesmo fluxo do §9.7 em linha de comando:
 
 ```bash
-python -c "from passlib.hash import bcrypt; print(bcrypt.hash('nova_senha'))"
-# Substituir o hash em init_db/database.sql ANTES do primeiro `docker compose up`
-```
-
-> Roles disponíveis: `1=User` (rotas básicas) e `2=Administrator` (rotas `/admin/*` e `/processor/*` de treino/promote).
-
-### 9.7 Caminho rápido — primeiro run + predição
-
-```bash
-# 1. Login (capturar token)
 TOKEN=$(curl -s -X POST http://localhost:8000/v1/auth/authenticate \
-  -F "username=voce@exemplo.com" -F "password=sua_senha" | jq -r .access_token)
+  -F "username=gabriel.drumond@cod3bit.com.br" -F "password=280387" | jq -r .access_token)
 
-# 2. Disparar DAG via API (Airflow executa Baseline + FE)
 curl -X POST http://localhost:8000/v1/processor/admin/train/trigger-dag \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@./ml_data/uploads/WA_Fn-UseC_-Telco-Customer-Churn.csv" \
   -F "optimization_metric=recall" \
   -F "time_limit_minutes=10"
 
-# 3. Acompanhar em http://localhost:8080/dags/ml_training_pipeline/grid
-
-# 4. Promover (após o DAG concluir; pular se auto_promote=true no JSON)
 curl -X POST http://localhost:8000/v1/processor/admin/promote \
   -H "Authorization: Bearer $TOKEN"
 
-# 5. Inferência
 curl -X POST http://localhost:8000/v1/processor/predict \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -610,7 +686,7 @@ curl -X POST http://localhost:8000/v1/processor/predict \
   }}'
 ```
 
-### 9.8 Execução local (sem Docker, para dev)
+### 9.9 Execução local (sem Docker, para dev)
 
 `pyproject.toml` é a single source of truth de dependências. Comandos via Makefile:
 
@@ -629,7 +705,7 @@ Pré-condições para rodar local:
 - `.env` com `DATABASE_SERVER=localhost` (em vez de `db_processing`).
 - `PATH_DATA`, `PATH_MODEL`, etc. apontando para diretórios locais (defaults do `.env_example` já funcionam: `src/data/`, `src/artifacts/models/`).
 
-### 9.9 Monitoramento offline
+### 9.10 Monitoramento offline
 
 ```bash
 # Latência (SLO p95 /predict < 300ms)
@@ -643,7 +719,7 @@ python src/scripts/maintenance/drift_report.py \
 
 Saídas em `src/artifacts/reports/` (configurável via `PATH_MAINTENANCE_REPORTS`).
 
-### 9.10 Estrutura de pastas
+### 9.11 Estrutura de pastas
 
 ```text
 Machine-Learning/
