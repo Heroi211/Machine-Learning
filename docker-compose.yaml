@@ -64,8 +64,10 @@ x-airflow-common: &airflow-common
     PATH_GRAPHS: /opt/airflow/ml_project/src/graphs
     PATH_LOGS: old
     PATH_MAINTENANCE_REPORTS: /opt/airflow/ml_project/src/artifacts/reports
-    MLFLOW_TRACKING_URI: sqlite:////opt/airflow/ml_project/src/artifacts/mlruns/mlflow.db
-    MLFLOW_ARTIFACT_ROOT: /opt/airflow/ml_project/src/artifacts/mlruns
+    # MLflow separado do host (.env): mesmo bind ./src/artifacts/mlruns mas BD e pasta de artefactos
+    # próprios → convive com treinos manuais sem partilhar mlflow.db nem artifact_location absoluto do host.
+    MLFLOW_TRACKING_URI: sqlite:////opt/airflow/ml_project/src/artifacts/mlruns/airflow_mlflow.db
+    MLFLOW_ARTIFACT_ROOT: /opt/airflow/ml_project/src/artifacts/mlruns/airflow_store
     DATABASE_USER: ${DATABASE_USER}
     DATABASE_PASS: ${DATABASE_PASS}
     DATABASE_SERVER: db_processing

@@ -11,7 +11,17 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from schemas.processor_schemas import InferenceReport, MetricSnapshot
+from core.configs import settings
+from schemas.processor_schemas import (
+    BaselinePredictBlock,
+    ComparisonPredict,
+    ExperimentationPredict,
+    InferenceReport,
+    MetricSnapshot,
+    PyTorchMLPExperiment,
+    ServedModelPredict,
+    TrainingSelectionSummaryPredict,
+)
 
 
 def attach_mlp_metrics_snapshot(merged_metrics: dict, pipeline: Any) -> None:
@@ -47,7 +57,7 @@ def attach_mlp_metrics_snapshot(merged_metrics: dict, pipeline: Any) -> None:
 
 
 def attach_fe_model_comparison_table(merged_metrics: dict, pipeline: Any) -> None:
-    """Serializa a tabela sklearn pré/pós-tuning + MLP (teste) tal como no ``fe_export``."""
+    """Serializa a tabela sklearn pré/pós-tuning + MLP (treinamento / hold-out) tal como no ``fe_export``."""
     builder = getattr(pipeline, "_build_model_comparison_table", None)
     if not callable(builder):
         return
@@ -147,7 +157,7 @@ def build_inference_report(metrics: dict | None, inference_backend: str) -> Infe
     if backend not in ("sklearn", "mlp"):
         backend = "sklearn"
 
-    predict_model = str(m.get("predict_model") or ("pytorch_mlp" if backend == "mlp" else "sklearn_pipeline"))
+    predict_model_key = str(m.get("predict_model") or ("pytorch_mlp" if backend == "mlp" else "sklearn_pipeline"))
     sk_benchmark = m.get("sklearn_benchmark_classifier") or m.get("best_model_name")
 
     best_cv = m.get("best_cv_score")
@@ -166,21 +176,109 @@ def build_inference_report(metrics: dict | None, inference_backend: str) -> Infe
     mlp_holdout = _snapshot_from_mlp_test(m.get("mlp_metrics_test"))
     baseline_ref_raw = m.get("baseline_reference_metrics")
     baseline_ref = dict(baseline_ref_raw) if isinstance(baseline_ref_raw, dict) else None
-    baseline_holdout = _snapshot_from_baseline_run_metrics(baseline_ref) if baseline_ref else None
+    baseline_snap = _snapshot_from_baseline_run_metrics(baseline_ref) if baseline_ref else None
 
     comp_raw = m.get("fe_model_comparison_table")
-    fe_comparison: list[dict[str, Any]] = []
+    fe_rows: list[dict[str, Any]] = []
     if isinstance(comp_raw, list):
-        fe_comparison = [dict(r) for r in comp_raw if isinstance(r, dict)]
+        fe_rows = [dict(r) for r in comp_raw if isinstance(r, dict)]
 
     served = mlp_holdout if backend == "mlp" else sk_holdout
-    notes: list[str] = []
+    mlp_training = m.get("mlp_training") if isinstance(m.get("mlp_training"), dict) else None
 
-    notes.append(
-        "**Comparativo TC:** o **Baseline** usa sklearn (pipeline `Baseline`, p.ex. regressão logística). "
-        "O **FE** acrescenta feature engineering, modelos sklearn avançados **e** a MLP PyTorch no mesmo run; "
-        "o que é servido em `/predict` segue `inference_backend` (sklearn joblib ou MLP)."
+    def _origem(row: dict[str, Any]) -> str:
+        return str(row.get("Origem") or "")
+
+    def _is_promoted_row(row: dict[str, Any]) -> bool:
+        return "promovido" in _origem(row).lower()
+
+    def _is_pre_tuning_row(row: dict[str, Any]) -> bool:
+        return "pré-tuning" in _origem(row).lower()
+
+    def _is_mlp_row(row: dict[str, Any]) -> bool:
+        name = str(row.get("Modelo") or "").lower()
+        return "pytorch" in name or name.endswith(" mlp")
+
+    promoted_row = next((r for r in fe_rows if _is_promoted_row(r)), None)
+    pre_tuning_rows = [r for r in fe_rows if _is_pre_tuning_row(r)]
+    mlp_row = next((r for r in fe_rows if _is_mlp_row(r)), None)
+
+    best_name = (m.get("best_model_name") or "").strip()
+    if promoted_row is None and backend == "sklearn" and sk_holdout is not None and best_name:
+        promoted_row = {
+            "Modelo": f"{best_name} (tuned)",
+            "Origem": "sklearn (pós-tuning, promovido)",
+            "Accuracy": sk_holdout.accuracy,
+            "Precision": sk_holdout.precision,
+            "Recall": sk_holdout.recall,
+            "F1": sk_holdout.f1,
+            "ROC AUC": sk_holdout.roc_auc,
+        }
+
+    if backend == "mlp":
+        model_used = dict(mlp_row) if mlp_row else (dict(promoted_row) if promoted_row else {})
+        served_name = str(model_used.get("Modelo") or "PyTorch MLP")
+        served_origin = str(
+            model_used.get("Origem")
+            or (
+                "rede neural (treinamento; backend previsto para /predict após promote é MLP)"
+                if settings.use_mlp_for_prediction
+                else "rede neural (treinamento; não utilizada em inferência — promovido é o sklearn)"
+            )
+        )
+    else:
+        model_used = dict(promoted_row) if promoted_row else {}
+        served_name = str(model_used.get("Modelo") or (f"{best_name} (tuned)" if best_name else predict_model_key))
+        served_origin = str(
+            model_used.get("Origem") or "sklearn (pós-tuning, promovido)"
+        )
+
+    exp_mlp: PyTorchMLPExperiment | None = None
+    if mlp_row or mlp_training:
+        exp_mlp = PyTorchMLPExperiment(
+            holdout_row=dict(mlp_row) if mlp_row else {},
+            training_summary=dict(mlp_training) if mlp_training else None,
+        )
+
+    comparison = ComparisonPredict(
+        model_used_for_this_predict=model_used,
+        pre_tuning_sklearn=pre_tuning_rows,
+        experimentation=ExperimentationPredict(pytorch_mlp=exp_mlp),
     )
+
+    baseline_block: BaselinePredictBlock | None = None
+    if baseline_ref:
+        cdf_bt = baseline_ref.get("classification_decision_threshold")
+        try:
+            cdf_bf = float(cdf_bt) if cdf_bt is not None and math.isfinite(float(cdf_bt)) else None
+        except (TypeError, ValueError):
+            cdf_bf = None
+
+        baseline_block = BaselinePredictBlock(
+            baseline_pipeline_run_id=baseline_ref.get("baseline_pipeline_run_id"),
+            model_selection="Regressão Logística",
+            role=baseline_ref.get("role"),
+            classification_decision_threshold=cdf_bf,
+            description=(
+                "Métricas de **teste** do pipeline Baseline (sklearn, regressão logística + "
+                "pré-processamento do contrato). Referência **antes** do feature engineering; "
+                "não é o modelo servido em /predict."
+            ),
+            holdout_metrics={
+                "accuracy": baseline_ref.get("test_accuracy"),
+                "precision": baseline_ref.get("test_precision"),
+                "recall": baseline_ref.get("test_recall"),
+                "f1": baseline_ref.get("test_f1"),
+                "pr_auc": baseline_ref.get("test_pr_auc"),
+                "roc_auc": baseline_ref.get("test_roc_auc"),
+            },
+        )
+
+    notes = [
+        "O **Baseline** é sklearn simples (contrato + regressão logística). O **FE** acrescenta "
+        "features, comparativo sklearn e MLP no mesmo run; o servido em `/predict` segue "
+        "`inference_backend`.",
+    ]
 
     if backend == "mlp":
         notes.append(
@@ -189,81 +287,81 @@ def build_inference_report(metrics: dict | None, inference_backend: str) -> Infe
         )
         if sk_holdout is None:
             notes.append(
-                "Não há métricas de holdout do sklearn neste run (ex.: tuning sklearn desligado com "
-                "`USE_MLP_FOR_PREDICTION=true`). O vencedor de CV (`sklearn_benchmark_classifier`) "
-                "serve só como referência de estudo, não como modelo servido."
+                "Não há métricas de holdout do sklearn neste run para comparar lado-a-lado com a "
+                "MLP no relatório; o classificador em `sklearn_classifier_from_cv_study` é "
+                "referência do estudo de seleção."
             )
         else:
             notes.append(
-                "Bloco `sklearn_holdout_test` mostra métricas de **teste** do pipeline sklearn "
-                "(após tuning quando existiu), para comparar com `served_holdout_metrics` da MLP."
-            )
-        if baseline_holdout:
-            notes.append(
-                "`baseline_holdout_metrics` veio do **PipelineRun de baseline activo** no momento do treino FE — "
-                "mesma ideia de referência simples **antes** do FE (não é a linha de predição actual)."
+                "Métricas sklearn no mesmo run (holdout) continuam disponíveis nas linhas do "
+                "`comparison.pre_tuning_sklearn` e na linha promovida quando existir na tabela "
+                "persistida."
             )
     else:
         notes.append(
-            "Inferência servida pelo **pipeline sklearn** serializado em joblib (`model_path`). "
-            "A probabilidade vem de `predict_proba` quando o estimador suporta."
+            "Inferência sklearn: probabilidade via `predict_proba` quando disponível."
         )
-        if baseline_holdout:
-            notes.append(
-                "Compare `baseline_holdout_metrics` (sklearn simples no Baseline) com `served_holdout_metrics` "
-                "(FE promovido) para ver o ganho do feature engineering."
-            )
 
     notes.append(
-        "Valores de `served_holdout_metrics` referem-se ao **conjunto de teste do treino** "
-        "daquele pipeline run (FE), não ao indivíduo deste pedido."
+        "Compare `baseline.holdout_metrics` com `holdout_metrics_served_model` para ver evolução "
+        "pós-FE (atenção: thresholds de decisão podem diferir entre baseline 0,5 e FE 0,3)."
     )
 
+    om = m.get("optimization_metric") or "métrica configurada"
     summary_lines = [
-        f"Backend: **{backend}** · modelo declarado: `{predict_model}`.",
+        f"Backend: **{backend}** · modelo servido: **{served_name}**.",
+        (
+            f"CV ({om}): **{best_cv_f:.4f}** · threshold métricas FE: **{thr_f:g}**."
+            if best_cv_f is not None and thr_f is not None
+            else (
+                f"CV ({om}): **{best_cv_f:.4f}**."
+                if best_cv_f is not None
+                else (
+                    f"Threshold métricas FE: **{thr_f:g}**."
+                    if thr_f is not None
+                    else ""
+                )
+            )
+        ),
     ]
-    if sk_benchmark:
-        summary_lines.append(f"Classificador de referência (CV / estudo no FE): **{sk_benchmark}**.")
-    if best_cv_f is not None:
-        om = m.get("optimization_metric")
-        summary_lines.append(
-            f"Melhor score de CV ({om or 'métrica configurada'}): **{best_cv_f:.4f}**."
-        )
-    if backend == "mlp" and isinstance(m.get("mlp_training"), dict):
-        tr = m["mlp_training"]
-        be = tr.get("best_epoch")
-        if be is not None:
-            summary_lines.append(f"MLP: melhor época (early stopping): **{be}**.")
+    summary_lines = [s for s in summary_lines if s]
 
-    if baseline_holdout and served:
-        for label, getter in (
-            ("Recall", lambda b, s: (b.recall, s.recall)),
-            ("F1", lambda b, s: (b.f1, s.f1)),
-            ("ROC-AUC", lambda b, s: (b.roc_auc, s.roc_auc)),
+    if baseline_snap and served:
+        for label, bv_attr, sv_attr in (
+            ("Recall", "recall", "recall"),
+            ("F1", "f1", "f1"),
+            ("ROC-AUC", "roc_auc", "roc_auc"),
         ):
-            bv, sv = getter(baseline_holdout, served)
+            bv = getattr(baseline_snap, bv_attr)
+            sv = getattr(served, sv_attr)
             if bv is not None and sv is not None:
+                tag = "MLP" if backend == "mlp" else "FE sklearn"
                 summary_lines.append(
-                    f"Teste holdout — Baseline vs servido ({'MLP' if backend == 'mlp' else 'FE sklearn'}) — **{label}**: "
-                    f"{bv:.4f} → {sv:.4f}."
+                    f"Baseline vs servido ({tag}) — **{label}** (holdout): **{bv:.4f}** → **{sv:.4f}**."
                 )
                 break
 
-    mlp_training = m.get("mlp_training") if isinstance(m.get("mlp_training"), dict) else None
-
-    return InferenceReport(
+    served_model = ServedModelPredict(
         inference_backend=backend,
-        predict_model=predict_model,
-        sklearn_benchmark_classifier=sk_benchmark,
+        predict_model_key=predict_model_key,
+        name=served_name,
+        origin=served_origin,
+    )
+
+    training_summary = TrainingSelectionSummaryPredict(
         optimization_metric=m.get("optimization_metric"),
         best_cv_score=best_cv_f,
-        classification_decision_threshold=thr_f,
-        served_holdout_metrics=served,
-        sklearn_holdout_test=sk_holdout if backend == "mlp" else None,
-        baseline_reference=baseline_ref,
-        baseline_holdout_metrics=baseline_holdout,
-        fe_model_comparison=fe_comparison,
-        mlp_training_summary=mlp_training,
+        classification_decision_threshold_for_holdout_metrics=thr_f,
+        sklearn_classifier_from_cv_study=sk_benchmark,
+    )
+
+    return InferenceReport(
+        served_model=served_model,
+        training_selection_summary=training_summary,
+        holdout_metrics_served_model=served,
+        comparison=comparison,
+        baseline=baseline_block,
         notes=notes,
         summary_lines=summary_lines,
     )
+

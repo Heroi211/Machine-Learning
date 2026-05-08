@@ -143,7 +143,7 @@ async def reserve_airflow_fe_pipeline_run(
 ) -> int:
     """
     Cria um ``PipelineRuns`` FE em ``processing`` antes do treino — necessário para a pasta de
-    logs ``src/data/old/<ts>_fe<id>``, igual à rota manual.
+    logs ``src/data/old/<ts>_fe<id>/pipeline_<ts>.txt`` (só texto; artefactos pesados vêm ZIP MLflow).
     """
     resolved_manifest_path = os.path.abspath(manifest_path)
     with open(resolved_manifest_path, encoding="utf-8") as f:
@@ -191,6 +191,7 @@ async def persist_airflow_feature_engineering_run(
     effective_tuning_minutes: int,
     airflow_dag_run_id: str | None = None,
     existing_run_id: int | None = None,
+    bundle_run_root: str | None = None,
 ) -> tuple[int, bool]:
     from services.pipelines.fe_model_selection import normalize_optimization_metric
 
@@ -275,6 +276,45 @@ async def persist_airflow_feature_engineering_run(
         merged_metrics["sklearn_benchmark_classifier"] = pipeline.best_model_name
         if backend == "mlp" and mlp_prefix:
             merged_metrics["mlp_artifact_prefix"] = mlp_prefix
+
+        if bundle_run_root and existing_run_id is not None:
+            import tempfile
+
+            from services.processor.artifact_bundle import safe_unlink
+            from services.processor.fe_bundle_export import (
+                finalize_fe_bundle_pipeline_outputs,
+                log_fe_bundle_zip_to_mlflow_run,
+                write_fe_manifest_zip_from_run_root,
+            )
+
+            zip_bn = f"fe_artifacts_{existing_run_id}_{run_ts}.zip"
+            merged_metrics["fe_snapshot_dirname"] = f"{run_ts}_fe{existing_run_id}"
+            merged_metrics["fe_bundle_zip_filename"] = zip_bn
+
+            finalize_fe_bundle_pipeline_outputs(bundle_run_root, pipeline)
+            zip_path = os.path.join(tempfile.gettempdir(), zip_bn)
+            safe_unlink(zip_path)
+            write_fe_manifest_zip_from_run_root(
+                bundle_run_root,
+                pipeline_run_id=existing_run_id,
+                objective=objective,
+                run_timestamp=run_ts,
+                csv_baseline=csv_baseline,
+                original_filename=original_filename,
+                merged_metrics=merged_metrics,
+                mlflow_fe_run_id=getattr(pipeline, "mlflow_run_id", None),
+                best_model_name=pipeline.best_model_name,
+                active_deployment_id=active_dep,
+                zip_path=zip_path,
+            )
+            rel = log_fe_bundle_zip_to_mlflow_run(
+                mlflow_run_id=getattr(pipeline, "mlflow_run_id", None),
+                objective=objective,
+                zip_path=zip_path,
+            )
+            if rel:
+                merged_metrics["fe_bundle_zip_mlflow_relative"] = rel
+            safe_unlink(zip_path)
 
         if existing_run_id is not None:
             run = await session.get(PipelineRuns, existing_run_id)

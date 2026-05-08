@@ -77,6 +77,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 
 from pathlib import Path
 
@@ -424,6 +425,8 @@ def task_run_fe(**context) -> None:
             reserve_airflow_fe_pipeline_run,
             run_async,
         )
+        from services.processor.artifact_bundle import safe_rmtree
+        from services.processor.fe_bundle_export import prepare_fe_bundle_baseline_tree
 
         fe_run_id = run_async(
             reserve_airflow_fe_pipeline_run(
@@ -443,44 +446,61 @@ def task_run_fe(**context) -> None:
             objective=objective,
             pipeline_type="feature_engineering",
         )
-        fe_plots = os.path.join(fe_snapshot, "plots")
-        os.makedirs(fe_plots, exist_ok=True)
 
-        strategy = STRATEGY_REGISTRY[objective]()
-        pipeline = FeatureEngineering(
-            objective=objective,
-            strategy=strategy,
-            run_timestamp=now,
-            csv_path=None,
-            manifest_path=manifest_path,
-            optimization_metric=optimization_metric,
-            min_precision=min_precision,
-            min_roc_auc=min_roc_auc,
-            tuning_n_iter=tuning_n_iter,
-            export_figures_dir=fe_plots,
-            decision_threshold=decision_threshold,
-            artifact_name_suffix="_automatic",
-        )
-        # Airflow: sem teto SYNC_FE — usa o valor integral do conf/Variable
-        pipeline.run(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
+        run_root: str | None = None
+        try:
+            with open(manifest_path, encoding="utf-8") as _mf:
+                baseline_manifest_fe = json.load(_mf)
+            run_root = tempfile.mkdtemp(prefix=f"fe_airflow_bundle_{fe_run_id}_")
+            prepare_fe_bundle_baseline_tree(
+                run_root,
+                resolved_manifest_path=os.path.abspath(manifest_path),
+                baseline_manifest=baseline_manifest_fe,
+            )
+            fe_d = os.path.join(run_root, "20_feature_engineering")
+            fe_plots = os.path.join(fe_d, "plots")
+            os.makedirs(fe_plots, exist_ok=True)
 
-        fe_id, champion = run_async(
-            persist_airflow_feature_engineering_run(
+            strategy = STRATEGY_REGISTRY[objective]()
+            pipeline = FeatureEngineering(
                 objective=objective,
-                user_id=int(user_id),
-                run_ts=now,
+                strategy=strategy,
+                run_timestamp=now,
+                csv_path=None,
                 manifest_path=manifest_path,
-                pipeline=pipeline,
                 optimization_metric=optimization_metric,
                 min_precision=min_precision,
                 min_roc_auc=min_roc_auc,
                 tuning_n_iter=tuning_n_iter,
-                time_limit_minutes=time_limit_minutes,
-                effective_tuning_minutes=time_limit_minutes,
-                airflow_dag_run_id=context["dag_run"].run_id,
-                existing_run_id=fe_run_id,
+                export_figures_dir=fe_plots,
+                decision_threshold=decision_threshold,
+                artifact_name_suffix="_automatic",
+                is_airflow_run=True,
             )
-        )
+            # Airflow: sem teto SYNC_FE — usa o valor integral do conf/Variable
+            pipeline.run(time_limit_minutes=time_limit_minutes, acc_target=acc_target)
+
+            fe_id, champion = run_async(
+                persist_airflow_feature_engineering_run(
+                    objective=objective,
+                    user_id=int(user_id),
+                    run_ts=now,
+                    manifest_path=manifest_path,
+                    pipeline=pipeline,
+                    optimization_metric=optimization_metric,
+                    min_precision=min_precision,
+                    min_roc_auc=min_roc_auc,
+                    tuning_n_iter=tuning_n_iter,
+                    time_limit_minutes=time_limit_minutes,
+                    effective_tuning_minutes=time_limit_minutes,
+                    airflow_dag_run_id=context["dag_run"].run_id,
+                    existing_run_id=fe_run_id,
+                    bundle_run_root=run_root,
+                )
+            )
+        finally:
+            if run_root:
+                safe_rmtree(run_root)
 
         ti.xcom_push(key="fe_run_ts", value=now)
         ti.xcom_push(key="fe_best_model", value=pipeline.best_model_name)

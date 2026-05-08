@@ -1,7 +1,10 @@
 import json
+import logging
+import math
 import os
 import uuid
-from typing import Literal
+from datetime import date, datetime
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -26,14 +29,68 @@ from services.processor.deployment_service import (
     promote_active_feature_engineering_for_objective,
     rollback_deployment,
 )
+from services.processor.pipeline_run_view import build_pipeline_run_view
 from services.processor.pipeline_runs_service import list_pipeline_runs
 
 router = APIRouter()
+_logger_processor_ep = logging.getLogger(__name__)
+
+
+def _metrics_json_for_response_header(metrics: dict | None) -> str:
+    """Serializa métricas para o cabeçalho ``X-Pipeline-Metrics``.
+
+    O Starlette codifica valores de cabeçalho em **latin-1**. JSON com ``ensure_ascii=False``
+    pode incluir caracteres > U+00FF; ao fazer ``encode('latin-1')`` levanta-se
+    ``UnicodeEncodeError``, que em Python é **subclasse de ValueError** — o endpoint
+    capturava isso e devolvia HTTP 400 sem relação com validação de formulário.
+    Por isso usamos ``ensure_ascii=True`` (sequências ``\\uXXXX`` só com ASCII).
+    """
+
+    def norm(o: Any) -> Any:
+        if o is None:
+            return None
+        if isinstance(o, dict):
+            return {str(k): norm(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [norm(v) for v in o]
+        if isinstance(o, bool):
+            return o
+        if isinstance(o, float):
+            return None if not math.isfinite(o) else o
+        if isinstance(o, int):
+            return o
+        if isinstance(o, str):
+            return o
+        if isinstance(o, datetime):
+            return o.isoformat()
+        if isinstance(o, date):
+            return o.isoformat()
+        if hasattr(o, "tolist") and callable(o.tolist):
+            try:
+                return norm(o.tolist())
+            except Exception:
+                pass
+        if hasattr(o, "item") and callable(o.item):
+            try:
+                return norm(o.item())
+            except Exception:
+                pass
+        return str(o)
+
+    if not metrics:
+        return ""
+    try:
+        payload = norm(metrics)
+        return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as e:
+        _logger_processor_ep.warning("X-Pipeline-Metrics: fallback após falha de serialização: %s", e)
+        return "{}"
+
 
 AIRFLOW_BASE_URL = settings.airflow_base_url
 AIRFLOW_USER = settings.airflow_user
 AIRFLOW_PASSWORD = settings.airflow_password
-ML_SHARED_PATH = settings.ml_shared_path
+ML_SHARED_PATH = settings.ml_shared_path 
 
 
 @router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
@@ -46,12 +103,14 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
         prob_pct = None
         if pred.probability is not None:
             prob_pct = round(float(pred.probability) * 100, 2)
+        prob_display = f"{prob_pct}%" if prob_pct is not None else None
         return processor_schemas.PredictResponse(
             id=pred.id,
             domain=payload.domain,
             pipeline_run_id=pred.pipeline_run_id,
             prediction=pred.prediction,
             probability=prob_pct,
+            probability_display=prob_display,
             input_data=pred.input_data if isinstance(pred.input_data, dict) else dict(pred.input_data),
             inference_report=inference_report,
         )
@@ -143,7 +202,17 @@ async def admin_trigger_dag(
     )
 
 
-@router.get("/admin/runs", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.PipelineRunResponse])
+@router.get(
+    "/admin/runs",
+    status_code=status.HTTP_200_OK,
+    summary="Listar runs (formato estruturado)",
+    description=(
+        "Devolve runs reorganizados em secções nomeadas: `run`, `training_context`, "
+        "`inference`, `experiments`, `comparison`, `baseline_reference_snapshot` e "
+        "`_legacy_flat_metrics` (cópia integral do antigo blob `metrics` para "
+        "compatibilidade com clientes antigos)."
+    ),
+)
 async def admin_list_pipeline_runs(
     pipeline_type: Literal["baseline", "feature_engineering"] | None = Query(None, description="Tipo de pipeline."),
     run_status: Literal["processing", "completed", "failed"] | None = Query(
@@ -155,13 +224,14 @@ async def admin_list_pipeline_runs(
 ):
     """Lista runs de pipeline para **OBJECTIVE** (env); `pipeline_type` e `status` continuam opcionais na query."""
     objective = settings.objective.strip().lower()
-    return await list_pipeline_runs(
+    runs = await list_pipeline_runs(
         db,
         objective=objective,
         pipeline_type=pipeline_type,
         status=run_status,
         limit=limit,
     )
+    return [build_pipeline_run_view(r) for r in runs]
 
 
 @router.get("/admin/deployments/history", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.DeployedModelResponse])
@@ -210,7 +280,7 @@ def _file_response_for_run(run, pipeline_type: str) -> FileResponse:
             "X-Pipeline-Run-Id": str(run.id),
             "X-Pipeline-Type": pipeline_type,
             "X-Pipeline-Objective": run.objective,
-            "X-Pipeline-Metrics": json.dumps(run.metrics, ensure_ascii=False) if run.metrics else "",
+            "X-Pipeline-Metrics": _metrics_json_for_response_header(run.metrics),
         },
     )
 
@@ -257,15 +327,15 @@ def _schedule_remove(path: str) -> None:
 )
 async def admin_train_feature_engineering(
     background_tasks: BackgroundTasks,
-    optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("accuracy"),
+    optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("recall"),
     min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
     min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
     tuning_n_iter: int | None = Form(None, description="Número máximo de amostras no tuning (opcional)."),
     time_limit_minutes: int = Form(2),
     acc_target: float | None = Form(None),
-    decision_threshold: float | None = Form(
-        None,
-        description="P(classe positiva) mínima para métricas de teste; omite = env CLASSIFICATION_DECISION_THRESHOLD.",
+    decision_threshold: float = Form(
+        0.3,
+        description="P(classe positiva) mínima para métricas de teste; padrão 0,3.",
     ),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_sync_training_routes_enabled),
@@ -306,7 +376,7 @@ async def admin_train_feature_engineering(
                 "X-Pipeline-Run-Id": str(run.id),
                 "X-Pipeline-Type": "feature_engineering",
                 "X-Pipeline-Objective": run.objective,
-                "X-Pipeline-Metrics": json.dumps(run.metrics, ensure_ascii=False) if run.metrics else "",
+                "X-Pipeline-Metrics": _metrics_json_for_response_header(run.metrics),
             },
         )
     except HTTPException:

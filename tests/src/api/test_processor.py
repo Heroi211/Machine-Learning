@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 
 from main import app
 from src.api.v1.endpoints import processor
-from src.services.processor.inference_report import build_inference_report
 
 
 class DummyUser:
@@ -46,7 +45,11 @@ def test_predict_endpoint_returns_success(client):
     assert response.status_code == 200
     assert response.json()["prediction"] == 1
     assert response.json()["probability"] == 80.0
-    assert response.json()["inference_report"]["predict_model"] == "sklearn_pipeline"
+    assert response.json()["probability_display"] == "80.0%"
+    assert (
+        response.json()["inference_report"]["served_model"]["predict_model_key"]
+        == "sklearn_pipeline"
+    )
 
 
 def test_predict_endpoint_invalid_payload_returns_422(client):

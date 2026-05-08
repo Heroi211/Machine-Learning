@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     )
 
     classification_decision_threshold: float = Field(
-        default=0.5,
+        default=0.3,
         ge=0.0,
         le=1.0,
         validation_alias="CLASSIFICATION_DECISION_THRESHOLD",

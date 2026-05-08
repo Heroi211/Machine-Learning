@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from main import app
 from src.api.v1.endpoints import processor, authorize
 from src.services.auth import auth_service
-from src.services.processor.inference_report import build_inference_report
 
 
 class DummyUser:
@@ -106,4 +105,4 @@ class TestSmokePredictorFlow:
         assert response.json()["probability"] == 80.0
         body = response.json()
         assert "inference_report" in body
-        assert body["inference_report"]["inference_backend"] == "sklearn"
+        assert body["inference_report"]["served_model"]["inference_backend"] == "sklearn"

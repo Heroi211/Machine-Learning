@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import logging
 import os
 import sys
@@ -81,6 +82,7 @@ class FeatureEngineering:
         mlp_early_stopping_patience: int = 20,
         *,
         artifact_name_suffix: str | None = None,
+        is_airflow_run: bool = False,
         decision_threshold: float | None = None,
     ):
         self.objective = objective
@@ -99,6 +101,7 @@ class FeatureEngineering:
         self.test_size = settings.test_size
         self.random_state = settings.random_state
         self._artifact_suffix = (artifact_name_suffix or "").strip()
+        self.is_airflow_run = bool(is_airflow_run)
 
         if run_timestamp is not None:
             self.now = run_timestamp
@@ -866,6 +869,64 @@ class FeatureEngineering:
                 feat_names = feat_names[selector.get_support()]
         return feat_names
 
+    def _model_comparison_intro_bullets(self) -> list[str]:
+        """
+        Resumo explícito para o utilizador (CSV + MD), sem ambiguidade.
+
+        Com ``USE_MLP_FOR_PREDICTION=true``: sklearn no FE é benchmark (RandomSearch omitido);
+        inferência após promote é PyTorch MLP. Com ``false``: inferência é o pipeline sklearn (com tuning).
+        """
+        sk = self.best_model_name or "-"
+        if settings.use_mlp_for_prediction:
+            return [
+                f"Campeão no comparativo SKLEARN (benchmark · pré-tuning): {sk}",
+                "Modelo usado na inferência: PyTorch MLP (USE_MLP_FOR_PREDICTION=true).",
+            ]
+        sk_display = f"{sk} (tuned)" if self.tuned_metrics else sk
+        return [
+            f"Campeão no comparativo SKLEARN: {sk_display}",
+            "Modelo usado na inferência: pipeline sklearn (USE_MLP_FOR_PREDICTION=false).",
+        ]
+
+    def _model_comparison_evidence_lines(self) -> list[str]:
+        """Contexto operacional (depois do resumo): modo de execução, treino PyTorch, tuning sklearn."""
+        lines: list[str] = []
+        lines.extend(self._model_comparison_intro_bullets())
+
+        modo = "Airflow" if self.is_airflow_run else "manual"
+        lines.append(f"Execução em modo {modo}.")
+
+        if not self.enable_mlp_torch:
+            lines.append(
+                "Treino PyTorch MLP neste FE: desactivado (enable_mlp_torch=False no construtor)."
+            )
+        elif self.mlp_torch_result is not None:
+            lines.append(
+                "Treino PyTorch MLP neste FE: executado (linha «PyTorch MLP» na tabela abaixo)."
+            )
+        else:
+            lines.append(
+                "Treino PyTorch MLP neste FE: previsto mas sem resultado (torch/import ausente, erro ou dados)."
+            )
+
+        if settings.use_mlp_for_prediction:
+            lines.append(
+                "Neste modo, RandomSearch do sklearn não corre; o joblib sklearn mantém-se no vencedor "
+                "da etapa pré-tuning (apenas referência / artefacto auxiliar)."
+            )
+        else:
+            lines.append(
+                "Neste modo, RandomSearch do sklearn corre quando aplicável; a linha «(tuned)» resume o candidato promovível."
+            )
+
+        return lines
+
+    def _pytorch_comparison_origem(self) -> str:
+        """Texto da coluna Origem para a linha PyTorch — alinhado a USE_MLP_FOR_PREDICTION."""
+        if settings.use_mlp_for_prediction:
+            return "PyTorch MLP (treino no FE; modelo de inferência após promote)"
+        return "PyTorch MLP (treino no FE; inferência via sklearn promovido)"
+
     def _build_model_comparison_table(self) -> pd.DataFrame | None:
         """
         Consolida métricas de teste de todos os modelos do run num DataFrame único:
@@ -875,12 +936,17 @@ class FeatureEngineering:
         """
         rows: list[dict[str, Any]] = []
 
+        sk_pre = (
+            "sklearn (pré-tuning; benchmark)"
+            if settings.use_mlp_for_prediction
+            else "sklearn (pré-tuning)"
+        )
         if self.results_df is not None and not self.results_df.empty:
             for _, r in self.results_df.iterrows():
                 rows.append(
                     {
                         "Modelo": str(r.get("Modelo", "")),
-                        "Origem": "sklearn (pré-tuning)",
+                        "Origem": sk_pre,
                         "Accuracy": float(r.get("Acurácia", float("nan"))),
                         "Precision": float(r.get("Precisão", float("nan"))),
                         "Recall": float(r.get("Recall", float("nan"))),
@@ -893,7 +959,7 @@ class FeatureEngineering:
             rows.append(
                 {
                     "Modelo": f"{self.best_model_name or 'best'} (tuned)",
-                    "Origem": "sklearn (pós-tuning, promovido)",
+                    "Origem": "sklearn (pós-tuning; promovido em /predict)",
                     "Accuracy": float(self.tuned_metrics.get("Acurácia", float("nan"))),
                     "Precision": float(self.tuned_metrics.get("Precisão", float("nan"))),
                     "Recall": float(self.tuned_metrics.get("Recall", float("nan"))),
@@ -907,7 +973,7 @@ class FeatureEngineering:
             rows.append(
                 {
                     "Modelo": "PyTorch MLP",
-                    "Origem": "rede neural (teste)",
+                    "Origem": self._pytorch_comparison_origem(),
                     "Accuracy": float(mt.get("accuracy", float("nan"))),
                     "Precision": float(mt.get("precision", float("nan"))),
                     "Recall": float(mt.get("recall", float("nan"))),
@@ -934,7 +1000,16 @@ class FeatureEngineering:
         if comparison_df is not None:
             comparison_csv = os.path.join(bundle, _f("model_comparison_full.csv"))
             comparison_md = os.path.join(bundle, _f("model_comparison_full.md"))
-            comparison_df.to_csv(comparison_csv, index=False)
+            evidence_lines = self._model_comparison_evidence_lines()
+            # CSV só com a grelha tabular (RFC 4180 + BOM UTF-8 para Excel). Narrativa fica no .md —
+            # linhas de comentário livres no topo partiam colunas no Excel quando havia vírgulas nos textos.
+            comparison_df.to_csv(
+                comparison_csv,
+                index=False,
+                encoding="utf-8-sig",
+                quoting=csv.QUOTE_NONNUMERIC,
+                lineterminator="\n",
+            )
             try:
                 md_table = comparison_df.to_markdown(index=False, floatfmt=".4f")
             except ImportError:
@@ -948,11 +1023,12 @@ class FeatureEngineering:
                     for row in comparison_df.itertuples(index=False, name=None)
                 ]
                 md_table = "\n".join([hdr, sep, *lines])
+            ev_md = "".join(f"- {line}\n" for line in evidence_lines)
             header = (
                 f"# Comparação de modelos — {self.objective} ({self.now})\n\n"
+                f"{ev_md}"
                 f"- Threshold de decisão: `{float(self.decision_threshold)}`\n"
-                f"- Métrica de optimização: `{self.optimization_metric}`\n"
-                f"- Best model (sklearn promovido): `{self.best_model_name or '-'}`\n\n"
+                f"- Métrica de optimização: `{self.optimization_metric}`\n\n"
             )
             with open(comparison_md, "w", encoding="utf-8") as f:
                 f.write(header + md_table + "\n")
@@ -1243,6 +1319,11 @@ class FeatureEngineering:
         """
         start_time = datetime.now()
         logger.info(f"Pipeline de Feature Engineering iniciado: {start_time}")
+        logger.info(
+            "FE config | USE_MLP_FOR_PREDICTION=%s | enable_mlp_torch=%s",
+            settings.use_mlp_for_prediction,
+            self.enable_mlp_torch,
+        )
         logger.info("classification_decision_threshold: %s (métricas de teste; CV usa predict interno do sklearn)", self.decision_threshold)
 
         self._run_data_contract_and_fe_build(start_time)

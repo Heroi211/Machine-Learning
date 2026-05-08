@@ -19,6 +19,11 @@ from core.custom_logger import setup_pipeline_run_logging
 from models.pipeline_runs import PipelineRuns
 from models.predictions import Predictions
 from schemas.processor_schemas import InferenceReport
+from services.processor.fe_bundle_export import (
+    finalize_fe_bundle_pipeline_outputs,
+    prepare_fe_bundle_baseline_tree,
+    write_fe_manifest_zip_from_run_root,
+)
 from services.processor.inference_report import (
     attach_fe_model_comparison_table,
     attach_mlp_metrics_snapshot,
@@ -639,20 +644,12 @@ async def run_feature_engineering(
     Executa apenas o pipeline de Feature Engineering usando o contrato
     produzido pelo baseline (manifest + sample), sem rerun do baseline.
     """
-    import shutil
     import tempfile
 
     from services.pipelines.feature_engineering import FeatureEngineering
     from services.pipelines.feature_strategies import STRATEGY_REGISTRY
     from services.pipelines.fe_model_selection import normalize_optimization_metric
-    from services.processor.artifact_bundle import (
-        build_manifest,
-        copy_if_exists,
-        safe_rmtree,
-        safe_unlink,
-        write_manifest,
-        zip_tree,
-    )
+    from services.processor.artifact_bundle import safe_rmtree, safe_unlink
     from services.processor.deployment_service import get_active_deployment
 
     metric = normalize_optimization_metric(optimization_metric)
@@ -713,25 +710,14 @@ async def run_feature_engineering(
         )
 
         run_root = tempfile.mkdtemp(prefix=f"fe_bundle_{run.id}_")
-        b_in = os.path.join(run_root, "00_input_baseline")
-        b_out = os.path.join(run_root, "10_baseline")
-        fe_d = os.path.join(run_root, "20_feature_engineering")
-        os.makedirs(b_in, exist_ok=True)
-        os.makedirs(fe_d, exist_ok=True)
-
-        if baseline_input_path and os.path.isfile(baseline_input_path):
-            shutil.copy2(baseline_input_path, os.path.join(b_in, os.path.basename(baseline_input_path)))
-        copy_if_exists(csv_baseline, b_out)
-        copy_if_exists(resolved_manifest_path, b_out)
-        model_baseline = baseline_manifest.get("model_path")
-        if model_baseline:
-            copy_if_exists(os.path.abspath(model_baseline), b_out)
-        graphs_dir = baseline_manifest.get("graphs_dir")
-        if graphs_dir and os.path.isdir(os.path.abspath(graphs_dir)):
-            for name in os.listdir(os.path.abspath(graphs_dir)):
-                copy_if_exists(os.path.join(os.path.abspath(graphs_dir), name), os.path.join(b_out, "graphs"))
+        prepare_fe_bundle_baseline_tree(
+            run_root,
+            resolved_manifest_path=resolved_manifest_path,
+            baseline_manifest=baseline_manifest,
+        )
 
         strategy = STRATEGY_REGISTRY[objective]()
+        fe_d = os.path.join(run_root, "20_feature_engineering")
         fe_plots = os.path.join(fe_d, "plots")
         pipeline = FeatureEngineering(
             objective=objective,
@@ -745,18 +731,12 @@ async def run_feature_engineering(
             tuning_n_iter=tuning_n_iter,
             export_figures_dir=fe_plots,
             decision_threshold=decision_threshold,
+            is_airflow_run=False,
         )
         pipeline.run(time_limit_minutes=effective_tuning_minutes, acc_target=acc_target)
 
+        finalize_fe_bundle_pipeline_outputs(run_root, pipeline)
         fe_joblib = pipeline.fe_sklearn_joblib_path()
-        copy_if_exists(fe_joblib, fe_d)
-        # Conteúdo de _export_fe_bundle (CSVs + resumo PyTorch) — entra no ZIP em 20_feature_engineering/fe_export/
-        fe_export_src = pipeline.fe_export_bundle_dir(fe_joblib)
-        if os.path.isdir(fe_export_src):
-            fe_export_dst = os.path.join(fe_d, "fe_export")
-            shutil.copytree(fe_export_src, fe_export_dst, dirs_exist_ok=True)
-        with open(os.path.join(fe_d, "best_model_name.txt"), "w", encoding="utf-8") as tf:
-            tf.write(pipeline.best_model_name or "")
 
         active_dep = None
         baseline_ref = None
@@ -804,49 +784,24 @@ async def run_feature_engineering(
         if pipeline.best_model_name:
             merged_metrics["best_model_name"] = pipeline.best_model_name
 
-        all_files: list[str] = []
-        for root, _dirs, files in os.walk(run_root):
-            for name in files:
-                all_files.append(os.path.join(root, name))
-
-        bundle_manifest_path = os.path.join(run_root, "manifest.json")
-        man = build_manifest(
-            pipeline_run_id=run.id,
-            objective=objective,
-            run_timestamp=run_ts,
-            status="completed",
-            input_filename=original_filename,
-            input_path=csv_baseline,
-            paths_in_bundle=all_files,
-            metrics=merged_metrics,
-            mlflow_baseline_run_id=None,
-            mlflow_fe_run_id=pipeline.mlflow_run_id,
-            best_model_name=pipeline.best_model_name,
-            original_filename=original_filename,
-            active_deployment_id=active_dep,
-        )
-        write_manifest(man, bundle_manifest_path)
-        man = build_manifest(
-            pipeline_run_id=run.id,
-            objective=objective,
-            run_timestamp=run_ts,
-            status="completed",
-            input_filename=original_filename,
-            input_path=csv_baseline,
-            paths_in_bundle=all_files + [bundle_manifest_path],
-            metrics=merged_metrics,
-            mlflow_baseline_run_id=None,
-            mlflow_fe_run_id=pipeline.mlflow_run_id,
-            best_model_name=pipeline.best_model_name,
-            original_filename=original_filename,
-            active_deployment_id=active_dep,
-        )
-        write_manifest(man, bundle_manifest_path)
-
         zip_path = os.path.join(tempfile.gettempdir(), f"fe_artifacts_{run.id}_{run_ts}.zip")
+        merged_metrics["fe_snapshot_dirname"] = f"{run_ts}_fe{run.id}"
+        merged_metrics["fe_bundle_zip_filename"] = os.path.basename(zip_path)
         if os.path.isfile(zip_path):
             safe_unlink(zip_path)
-        zip_tree(run_root, zip_path)
+        write_fe_manifest_zip_from_run_root(
+            run_root,
+            pipeline_run_id=run.id,
+            objective=objective,
+            run_timestamp=run_ts,
+            csv_baseline=csv_baseline,
+            original_filename=original_filename,
+            merged_metrics=merged_metrics,
+            mlflow_fe_run_id=pipeline.mlflow_run_id,
+            best_model_name=pipeline.best_model_name,
+            active_deployment_id=active_dep,
+            zip_path=zip_path,
+        )
 
         backend = "mlp" if settings.use_mlp_for_prediction else "sklearn"
         merged_metrics["inference_backend"] = backend

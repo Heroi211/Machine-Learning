@@ -28,9 +28,9 @@ INSERT INTO public.users (id, "password", "name", email, created_at, role_id, ac
 VALUES
 (
     1,
-    '$2b$12$.DEdGnH7ht7FavrdBTsmsuP5KQUc7Wez3V.vG7HcTP965efchwuuu',
-    'Gabriel Drumond',
-    'gabriel.drumond@cod3bit.com.br',
+    '$2b$12$w.lJ7I6XU04QUT4nQXgv3ulIwq5dYNYdfRBA8DwX7Yf0TA2wVMGAC',
+    'admin',
+    'admin@admin.com',
     '2026-05-03 10:55:06.069028',
     2,
     true
