@@ -21,8 +21,16 @@ async def signup(user: users_schemas.users_create,db:AsyncSession = Depends(get_
     try:
         new_user:users_models = await auth_service.register_user(user,db)
         return new_user
-    except IntegrityError:
-        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="Usuário já cadastrado na base de dados")
+    except IntegrityError as exc:
+        detail_log = str(exc.orig) if exc.orig else str(exc)
+        logger.warning("IntegrityError no signup: %s", detail_log, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            detail=(
+                "Ocorreu um erro ao processar esta solicitação. "
+                "Os detalhes foram registrados no log do servidor."
+            ),
+        )
 
 #POST Login
 @router.post('/authenticate',status_code=status.HTTP_200_OK)
