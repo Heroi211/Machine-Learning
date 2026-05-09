@@ -34,6 +34,10 @@ python scripts/maintenance/drift_report.py --train-csv data/heart.csv --predicti
 
 O script tenta expandir `input_data` se existir; compara colunas numéricas comuns com o treino e calcula PSI.
 
+## DAG Airflow (`ml_drift_monitoring`)
+
+DAG **`ml_drift_monitoring`** (`airflow/dags/ml_drift_monitoring.py`): exporta predições activas (PostgreSQL, filtro por `objective`) e corre este script. Defaults na Variable **`drift_monitoring_conf`** (bootstrap: `airflow/bootstrap/drift_monitoring_conf.json`). Por omissão **sem schedule** — disparar na UI ou CLI.
+
 ## Ciclo futuro
 
-Agendar com `cron`/CI após deploy ou semanalmente; opcionalmente anexar pasta `artifacts/reports/` ao artefato da entrega.
+Agendar com `cron`/CI após deploy ou semanalmente; opcionalmente anexar pasta `artifacts/reports/` ao artefato da entrega. Na DAG, alterar `schedule_interval` (ex. cron semanal) se quiseres corrida automática.

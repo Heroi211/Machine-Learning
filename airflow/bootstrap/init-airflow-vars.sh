@@ -8,3 +8,11 @@ if [[ -f "$CONF" ]]; then
 else
   echo "Ficheiro $CONF ausente — Variable ml_training_pipeline_conf não alterada (configura na UI se precisares)."
 fi
+
+DRIFT=/opt/airflow/bootstrap/drift_monitoring_conf.json
+if [[ -f "$DRIFT" ]]; then
+  airflow variables set drift_monitoring_conf "$(cat "$DRIFT")"
+  echo "Variable drift_monitoring_conf definida a partir de $DRIFT"
+else
+  echo "Ficheiro $DRIFT ausente — Variable drift_monitoring_conf não alterada."
+fi

@@ -1,0 +1,6 @@
+{
+  "objective": "churn",
+  "train_csv_path": "/opt/airflow/ml_project/src/data/pre_processed/baseline_sample_automatic.csv",
+  "predictions_row_limit": 100000,
+  "target_col": "target"
+}

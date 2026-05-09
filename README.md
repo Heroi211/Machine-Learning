@@ -11,7 +11,7 @@ Pipeline End-to-End de classificação binária para **churn** em telecomunicaç
 1. [Visão Geral](#1-visão-geral)
 2. [Escopo e Limitações](#2-escopo-e-limitações)
 3. [Arquitetura do Sistema](#3-arquitetura-do-sistema)
-4. [Fluxos de Execução](#4-fluxos-de-execução)
+4. [Fluxos de Execução](#4-fluxos-de-execução) (incl. drift §4.3)
 5. [Engenharia de Features](#5-engenharia-de-features)
 6. [Modelo de Machine Learning](#6-modelo-de-machine-learning)
 7. [Regras de Decisão](#7-regras-de-decisão)
@@ -36,7 +36,7 @@ Pipeline End-to-End de classificação binária para **churn** em telecomunicaç
 - Pipeline Baseline (`LogisticRegression` + `class_weight='balanced'`, pré-processamento pós-split sem leakage).
 - Pipeline Feature Engineering com strategy de domínio (`ChurnFeatures`), comparação de 4 modelos sklearn, tuning com `ParameterSampler` + time-budget + guardrails (`min_precision`, `min_roc_auc`).
 - Treino paralelo da **MLP PyTorch** (early stopping, `BCEWithLogitsLoss`, `AdamW`).
-- Persistência: joblib sklearn + bundle MLP (`.pt` + `_preprocess.joblib` + `_meta.json`) + `manifest.json` + ZIP do run + MLflow.
+- Persistência: joblib sklearn + bundle MLP (`.pt` + `_preprocess.joblib` + `_meta.json`) + `manifest.json` + ZIP do run (pastas `00_input_baseline`, `10_baseline`, `20_feature_engineering`; montagem partilhada em `src/services/processor/fe_bundle_export.py`) + MLflow.
 - API FastAPI com JWT, `/predict`, rotas admin (treino, runs, promote, rollback, history) e `/health`.
 - DAG Airflow `ml_training_pipeline` (Baseline → FE → promote opcional).
 - Scripts offline de **drift PSI** e **latência** (SLO p95 < 300ms).
@@ -74,7 +74,7 @@ Pipeline End-to-End de classificação binária para **churn** em telecomunicaç
 | Feature Strategies | Lógica por domínio (`ChurnFeatures`) | `src/services/pipelines/feature_strategies/` |
 | Processor / Deployment | Persistência de runs, eleição de campeão, promote, rollback | `src/services/processor/` |
 | PostgreSQL | `users`, `roles`, `pipeline_runs`, `deployed_models`, `predictions` | `init_db/database.sql` |
-| MLflow | Tracking SQLite no volume `ml_shared` | `src/artifacts/mlruns/` |
+| MLflow | Tracking SQLite + artefactos por run | `src/artifacts/mlruns/` — ver §8 (API/manual vs Airflow/`airflow_store`) |
 | Airflow | DAG `ml_training_pipeline` (LocalExecutor) | `airflow/dags/` |
 | Scripts manutenção | Drift PSI + latência | `src/scripts/maintenance/` |
 
@@ -92,7 +92,7 @@ CSV bruto ──> ml_data/uploads/  ──>  /var/www/ml_shared/uploads (API)
               → seleção (cv_<metric> + guardrails) → tuning ParameterSampler
               → MLP PyTorch (mesmo ColumnTransformer, sem SelectKBest)
               └─> best_<obj>_<ts>.joblib + bundle MLP (.pt + preprocess + meta)
-              └─> MLflow: <obj>_feature_engineering
+              └─> MLflow: <obj>_feature_engineering (+ ZIP bundle em `artifacts/fe_bundle/` quando aplicável)
 
 [Promote]     pipeline_runs.active=true → DeployedModels.status=active
               (UNIQUE constraint: 1 ativo por domínio)
@@ -130,6 +130,24 @@ DAG **`ml_training_pipeline`** (LocalExecutor, `schedule_interval=None`):
 - **Gatilho via API**: `POST /v1/processor/admin/train/trigger-dag` (form com CSV) — grava no volume e dispara o DAG.
 - **Gatilho via UI**: `http://localhost:8080/dags/ml_training_pipeline/grid → Trigger DAG`.
 - **`auto_promote`**: se `true` no JSON e o run vencer o comparador `cv_<metric>`, promove automaticamente.
+
+#### Artefactos no disco (Airflow vs manual)
+
+- **Baseline (Airflow)**: snapshot em `src/data/old/<ts>/` (CSV contrato, `graphs/`, `manifest*.json`, `pipeline_<ts>.txt`), alinhado à API com sufixo `_automatic` nos nomes quando aplicável.
+- **FE via Airflow**
+  - **Só log em `data/old`**: `src/data/old/<ts>_fe<pipeline_run_id>/pipeline_<ts>.txt` — sem cópia dos plots nem do bundle completo nessa pasta (plots e cópias baseline para o ZIP são montados em diretório temporário no worker e apagados depois).
+  - **ZIP idêntico ao da rota manual**: `fe_artifacts_<pipeline_run_id>_<ts>.zip` é criado em `/tmp`, compacta `manifest.json` + árvore `00_*` / `10_*` / `20_*`, e é enviado ao MLflow na **mesma run FE**, subpasta **`fe_bundle/`**. O ficheiro temporário é removido após o upload.
+  - **Onde ver no host com Docker Compose**: o contentor Airflow define `MLFLOW_ARTIFACT_ROOT=/opt/airflow/ml_project/src/artifacts/mlruns/airflow_store`. No repositório isso corresponde a **`src/artifacts/mlruns/airflow_store/<mlflow_run_id>/artifacts/fe_bundle/<nome>.zip`**. Corridas **manuais pela API** continuam a usar outra BD (`mlflow.db`) e outro layout sob **`src/artifacts/mlruns/<run_id>/`** — não confundir as duas árvores.
+  - **Metadados na BD**: em `pipeline_runs.metrics` ficam, entre outros, `fe_snapshot_dirname`, `fe_bundle_zip_filename`, `fe_bundle_zip_mlflow_relative` e `mlflow_fe_run_id`. Em `GET /v1/processor/admin/runs`, runs `feature_engineering` expõem o bloco **`artifacts_bundle`** na vista estruturada (para localizar log vs ZIP no MLflow).
+
+### 4.3 Drift de dados (DAG à parte)
+
+DAG **`ml_drift_monitoring`** (`airflow/dags/ml_drift_monitoring.py`): **`export_predictions` → `run_drift_report`**.
+
+- Exporta predições activas da tabela `predictions` (com join a `pipeline_runs` pelo `objective`) para CSV e invoca `src/scripts/maintenance/drift_report.py`.
+- **Variable** `drift_monitoring_conf` (bootstrap: `airflow/bootstrap/drift_monitoring_conf.json`): `objective`, `train_csv_path` (referência PSI, tipicamente `baseline_sample_automatic.csv` em `pre_processed`), `predictions_row_limit`, `target_col`.
+- **Schedule**: por omissão `None` — disparo manual na UI ou `airflow dags trigger ml_drift_monitoring`. Exige predições já gravadas na BD (uso real ou testes de `/predict`).
+- Relatórios PSI em `src/artifacts/reports/` (`drift_psi_<timestamp>.csv`).
 
 ---
 
@@ -436,8 +454,18 @@ Eco do payload original (auditoria + drift). Útil para reconstruir o caso e cor
 - **MLP** ficou com melhor `roc_auc` (0.8454 vs 0.8450) e melhor `accuracy/precision`, mas pior `recall` — não foi promovido neste run porque `USE_MLP_FOR_PREDICTION=false` no momento do treino.
 
 ### Saída do treino
-- **Baseline**: CSV `baseline_sample.csv` (raw_clean) + cabeçalhos `X-Pipeline-*` + joblib em `src/artifacts/models/`.
-- **FE**: ZIP `fe_artifacts_<run_id>_<ts>.zip` com joblib campeão, bundle MLP, `model_comparison_full.{csv,md}`, CSVs pré/pós-transform, `manifest.json`.
+- **Baseline**: CSV `baseline_sample.csv` (raw_clean) + cabeçalhos `X-Pipeline-*` + joblib em `src/artifacts/models/` + artefactos MLflow do experimento `<obj>_baseline`.
+- **FE (API manual)**: resposta pode incluir download do ZIP `fe_artifacts_<pipeline_run_id>_<ts>.zip` (mesmo conteúdo descrito abaixo); log em `src/data/old/<ts>_fe<id>/pipeline_<ts>.txt`; MLflow grava params, métricas, `fe_export/`, joblib, figuras, etc., segundo `MLFLOW_*` do `.env`.
+- **Conteúdo do ZIP FE** (manual ou Airflow): `manifest.json`; cópias do contrato baseline em `00_input_baseline` e `10_baseline`; em `20_feature_engineering/` — joblib campeão, pasta `fe_export/` (CSVs, `model_comparison_full.{csv,md}`, artefactos MLP quando existirem), `plots/`, `best_model_name.txt`.
+
+### MLflow — dois contextos (Docker Compose)
+
+| Quem grava | Tracking URI (no compose) | Pasta de artefactos no host |
+|------------|---------------------------|-----------------------------|
+| **API** (`api_processing`) | `sqlite:////var/www/ml_shared/mlflow.db` | `src/artifacts/mlruns/<run_id>/artifacts/` (raiz configurável em `.env`) |
+| **Airflow** (`airflow-scheduler` / webserver) | `sqlite:////opt/airflow/ml_project/src/artifacts/mlruns/airflow_mlflow.db` | `src/artifacts/mlruns/airflow_store/<run_id>/artifacts/` — ZIP completo do FE em **`fe_bundle/`** |
+
+Variáveis efectivas estão em `docker-compose.yaml` (`MLFLOW_TRACKING_URI`, `MLFLOW_ARTIFACT_ROOT` no bloco `x-airflow-common` e no serviço `api_processing`).
 
 ---
 
@@ -740,7 +768,7 @@ Machine-Learning/
 │   │   │   └── feature_strategies/
 │   │   └── processor/
 │   ├── data/                    # CSVs, pre_processed/, logs/<ts>/
-│   ├── artifacts/               # models/, mlruns/, reports/
+│   ├── artifacts/               # models/, mlruns/ (+ airflow_store p/ MLflow do Airflow), reports/
 │   ├── graphs/
 │   └── scripts/maintenance/
 ├── airflow/                     # dags/, bootstrap/, plugins/, logs/
