@@ -1,5 +1,7 @@
 # Tech Challenge — Previsão de Churn com Rede Neural (MLP / PyTorch)
 
+Video STAR no YouTube : <https://youtu.be/UxTcH5kxdwc>.
+
 Easy-run : [https://www.youtube.com/watch?v=_9VqWvDYOuk](https://youtu.be/_9VqWvDYOuk?si=Yzz67Hp_QF9zgQog)
 
 Pipeline End-to-End de classificação binária para **churn** em telecomunicações: ingestão → baseline → feature engineering → MLP PyTorch → API de inferência (FastAPI) → orquestração (Airflow) → tracking (MLflow) → monitoramento (drift / latência).
@@ -487,7 +489,7 @@ Variáveis efectivas estão em `docker-compose.yaml` (`MLFLOW_TRACKING_URI`, `ML
 git clone <url-do-repositorio>
 cd Machine-Learning
 
-Copiar todo conteudo do env_example para .env
+cp .env_example .env #Copia todo conteudo do env_example para .env
 ```
 
 Editar `.env` e preencher **obrigatoriamente** se não houver no env_example, se existir o conjunto pode passar para o próximo passo:
@@ -527,7 +529,7 @@ docker compose up -d
 
 Ou via Makefile:
 ```bash
-make docker-up      # docker compose up --build
+make docker-up      # docker compose up -d
 make docker-down    # docker compose down
 ```
 
