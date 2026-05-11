@@ -6,10 +6,10 @@ Imagens geradas em `docs/` (renderizadas a partir do Mermaid abaixo via `@mermai
 
 | Diagrama | PNG | SVG |
 |----------|-----|-----|
-| Arquitetura completa | [`docs/arquitetura_ml.png`](docs/arquitetura_ml.png) | [`docs/arquitetura_ml.svg`](docs/arquitetura_ml.svg) |
-| Zoom DAGs Airflow | [`docs/arquitetura_dags.png`](docs/arquitetura_dags.png) | [`docs/arquitetura_dags.svg`](docs/arquitetura_dags.svg) |
+| Arquitetura completa | [`docs/arquitetura_ml.png`](arquitetura_ml.png) | [`docs/arquitetura_ml.svg`](arquitetura_ml.svg) |
+| Zoom DAGs Airflow | [`docs/arquitetura_dags.png`](arquitetura_dags.png) | [`docs/arquitetura_dags.svg`](arquitetura_dags.svg) |
 
-![Arquitetura do sistema](docs/arquitetura_ml.png)
+![Arquitetura do sistema](arquitetura_ml.svg)
 
 ### Como regenerar
 
@@ -121,7 +121,7 @@ flowchart TB
 
 ## Zoom só nas DAGs Airflow
 
-![Zoom DAGs Airflow](docs/arquitetura_dags.png)
+![Zoom DAGs Airflow](arquitetura_dags.svg)
 
 ```mermaid
 flowchart LR
