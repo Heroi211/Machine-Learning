@@ -844,22 +844,7 @@ async def run_feature_engineering(
 # Airflow (worker) e API (FastAPI) montam o **mesmo volume** ``ml_shared`` em mount points
 # diferentes (``/opt/airflow/ml_project`` vs ``/var/www/ml_shared``). Caminhos gravados pelo
 # Airflow precisam ser remapeados em runtime para ler do volume dentro da API.
-_SHARED_PATH_REMAP: tuple[tuple[str, str], ...] = (
-    ("/opt/airflow/ml_project/", "/var/www/ml_shared/"),
-)
-
-
-def _resolve_shared_artifact_path(p: str | None) -> str | None:
-    """Traduz prefixos cross-container do volume partilhado ml_shared.
-
-    Mantém ``None`` e caminhos já no formato local inalterados.
-    """
-    if not p:
-        return p
-    for src, dst in _SHARED_PATH_REMAP:
-        if p.startswith(src):
-            return dst + p[len(src):]
-    return p
+from core.ml.paths import resolve_shared_artifact_path as _resolve_shared_artifact_path
 
 
 async def predict_for_domain(
@@ -886,32 +871,15 @@ async def predict_for_domain(
 
         df_input = _prepare_prediction_features(run, domain, features)
 
-        if backend == "mlp":
-            from services.pipelines.mlp_inference import load_mlp_bundle, predict_with_mlp
+        from core.ml import engines  # noqa: F401 — registra ENGINE_REGISTRY
+        from core.ml.artifact_manifest import ArtifactManifest
+        from core.ml.inference_engine import get_engine
 
-            prefix = _resolve_shared_artifact_path((run.metrics or {}).get("mlp_artifact_prefix"))
-            if not prefix:
-                raise ValueError(
-                    f"Run {run.id} promovido com inference_backend='mlp' mas sem 'mlp_artifact_prefix' "
-                    "nas métricas. Treine o FE de novo com USE_MLP_FOR_PREDICTION=true."
-                )
-            bundle = load_mlp_bundle(prefix)
-            label, prob = predict_with_mlp(bundle, df_input)
-            prediction_value = int(label)
-            probability = float(prob)
-        else:
-            local_model_path = _resolve_shared_artifact_path(run.model_path)
-            if not local_model_path or not os.path.exists(local_model_path):
-                raise ValueError(f"Modelo não encontrado em: {run.model_path}")
-
-            model = joblib.load(local_model_path)
-            df_input = _align_dataframe_to_model(model, df_input)
-            prediction_value = int(model.predict(df_input)[0])
-
-            probability = None
-            if hasattr(model, "predict_proba"):
-                proba = model.predict_proba(df_input)[0]
-                probability = float(proba[1])
+        manifest = ArtifactManifest.from_pipeline_run(run)
+        engine = get_engine(manifest)
+        result = engine.predict(df_input)
+        prediction_value = int(result.label if result.label is not None else 0)
+        probability = result.probability
 
         pred = Predictions(
             user_id=user_id,
