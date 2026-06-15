@@ -25,10 +25,25 @@
 #     (caminhos na BD começam por /opt/airflow/ml_project/ e são remapados em código).
 #   - MLflow (API no compose): continua em ``/var/www/ml_shared``; Airflow usa ``src/artifacts/mlruns``.
 #     sqlite:////var/www/ml_shared/mlflow.db e /var/www/ml_shared/mlruns (mesmo volume).
-#   - LocalExecutor: scheduler e webserver usam o mesmo bloco x-airflow-common → mesmo mount.
+#   - Recomendação (TC02): data/models/reports na raiz do repo montados em ML_PROJECT_ROOT
+#     (ver x-reco-volumes). Worker HTTP integrado: worker_recommendation:8010.
+#   - MLflow server integrado (recomendação + rubrica TC02): http://localhost:5000
+#   - LocalExecutor: scheduler delega reco ao worker (WORKER_RECOMMENDATION_URL).
 #   - Build da imagem Airflow inclui deps do projeto (ver docker/airflow.dockerfile); após
 #     mudar docker/requirements-api.txt ou o Dockerfile: ``docker compose build airflow-scheduler``
 # ---------------------------------------------------------------------------
+
+x-reco-volumes: &reco-volumes
+  - ./data/recommendation:/opt/airflow/ml_project/data/recommendation
+  - ./models/recommendation:/opt/airflow/ml_project/models/recommendation
+  - ./reports/recommendation:/opt/airflow/ml_project/reports/recommendation
+  - ./params.yaml:/opt/airflow/ml_project/params.yaml:ro
+
+x-reco-volumes-api: &reco-volumes-api
+  - ./data/recommendation:/var/www/ml_shared/data/recommendation
+  - ./models/recommendation:/var/www/ml_shared/models/recommendation
+  - ./reports/recommendation:/var/www/ml_shared/reports/recommendation
+  - ./params.yaml:/var/www/ml_shared/params.yaml:ro
 
 x-airflow-common: &airflow-common
   build:
@@ -78,6 +93,7 @@ x-airflow-common: &airflow-common
     MPLCONFIGDIR: /opt/airflow/ml_project/.matplotlib
     # users.id na app quando Variable/conf omitam ``user_id`` (DAG: DEFAULT_PIPELINE_USER_ID).
     ML_PIPELINE_DEFAULT_USER_ID: "2"
+    WORKER_RECOMMENDATION_URL: http://worker_recommendation:8010
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     # Volume nomeado evita Permission denied (UID airflow vs pasta no host)
@@ -97,8 +113,11 @@ x-airflow-common: &airflow-common
     - ./src:/opt/airflow/ml_code:ro
     # Defaults da Variable ml_training_pipeline_conf (airflow-init importa para a BD do Airflow)
     - ./airflow/bootstrap:/opt/airflow/bootstrap:ro
+    - *reco-volumes
   depends_on:
     db_processing:
+      condition: service_healthy
+    worker_recommendation:
       condition: service_healthy
   networks:
     - nwprocessing
@@ -143,6 +162,7 @@ services:
       - .env
     environment:
       DATABASE_SERVER: db_processing
+      ML_PROJECT_ROOT: /var/www/ml_shared
       # MLflow partilhado com Airflow (volume ml_shared: /opt/airflow/ml_project ≡ /var/www/ml_shared).
       MLFLOW_TRACKING_URI: sqlite:////var/www/ml_shared/mlflow.db
       MLFLOW_ARTIFACT_ROOT: /var/www/ml_shared/mlruns
@@ -168,6 +188,66 @@ services:
       - ./src/graphs:/var/www/ml_shared/src/graphs
       - ./src/artifacts/mlruns:/var/www/ml_shared/src/artifacts/mlruns
       - ./src/artifacts/reports:/var/www/ml_shared/src/artifacts/reports
+      - *reco-volumes-api
+
+  # ---------- MLflow (recomendação / TC02 integrado) ------------------------
+  mlflow_server:
+    image: ghcr.io/mlflow/mlflow:v2.22.0
+    container_name: mlflow_server
+    restart: unless-stopped
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./src/artifacts/mlruns:/mlflow/artifacts
+      - mlflow_platform_db:/mlflow
+    networks:
+      - nwprocessing
+
+  # ---------- Worker recomendação (treino HTTP + persist BD) ---------------
+  worker_recommendation:
+    build:
+      context: .
+      dockerfile: docker/worker-recommendation.dockerfile
+    image: processing_worker_reco:v1
+    container_name: worker_recommendation
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_SERVER: db_processing
+      ML_PROJECT_ROOT: /var/www/ml_shared
+      MLFLOW_TRACKING_URI: http://mlflow_server:5000
+      MLFLOW_ARTIFACT_ROOT: /var/www/ml_shared/src/artifacts/mlruns
+    depends_on:
+      db_processing:
+        condition: service_healthy
+      mlflow_server:
+        condition: service_started
+    ports:
+      - "8010:8010"
+    networks:
+      - nwprocessing
+    volumes:
+      - ml_shared:/var/www/ml_shared
+      - ./ml_data/uploads:/var/www/ml_shared/uploads
+      - ./src/data:/var/www/ml_shared/src/data
+      - ./src/artifacts/models:/var/www/ml_shared/src/artifacts/models
+      - ./src/graphs:/var/www/ml_shared/src/graphs
+      - ./src/artifacts/mlruns:/var/www/ml_shared/src/artifacts/mlruns
+      - ./src/artifacts/reports:/var/www/ml_shared/src/artifacts/reports
+      - *reco-volumes-api
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8010/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # ---------- pgAdmin (interface web para o banco) -------------------------
   pgadmin:
@@ -272,3 +352,4 @@ volumes:
   api_graphs:
   ml_shared:
   airflow_logs:
+  mlflow_platform_db:

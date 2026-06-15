@@ -68,7 +68,7 @@ tc02-promote:
 	PYTHONPATH=src python3 scripts/ml/promote_registry.py
 
 tc02-up:
-	docker compose -f docker-compose.tc02.yml up --build
+	docker compose up -d --build mlflow_server worker_recommendation
 
 check: lint test-fast
 

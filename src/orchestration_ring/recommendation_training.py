@@ -1,71 +1,84 @@
-"""Tasks Airflow — treino de recomendação via registry + persist_run."""
+"""Treino de recomendação via worker HTTP ou in-process (fallback local)."""
 
 from __future__ import annotations
 
 import logging
+import os
+from typing import Any
 
 import domains  # noqa: F401
 import executors_ring  # noqa: F401
-from ml_core_ring.orchestration_hooks import run_training_for_domain
 
 from orchestration_ring.airflow_env import DEFAULT_PIPELINE_USER_ID
 from orchestration_ring.conf import merge_run_conf
 from orchestration_ring.dispatch import resolve_domain
 from orchestration_ring.persist_run import persist_recommendation_run, run_async
+from orchestration_ring.recommendation_client import run_recommendation_via_worker
 
 logger = logging.getLogger(__name__)
 
 
-def task_validate_recommendation_input(**context) -> None:
-    """Valida conf mínima para recomendação (sem CSV tabular)."""
-    conf = merge_run_conf(context, variable_key="ml_training_dispatch_conf")
-    domain = resolve_domain(conf)
-    ti = context["task_instance"]
-    ti.xcom_push(key="domain", value=domain)
-    ti.xcom_push(key="user_id", value=int(conf.get("user_id", DEFAULT_PIPELINE_USER_ID)))
-    for key in ("top_k", "train_models", "mlflow_experiment", "n_epochs"):
-        if conf.get(key) is not None:
-            ti.xcom_push(key=key, value=conf.get(key))
-    logger.info("Conf recomendação validada | domain=%s", domain)
-
-
-def task_run_recommendation(**context) -> None:
-    """Executa pipeline DVC/recomendação e persiste ``pipeline_runs``."""
-    ti = context["task_instance"]
-    domain = ti.xcom_pull(key="domain", task_ids="validate_dispatch")
-    user_id = int(ti.xcom_pull(key="user_id", task_ids="validate_dispatch") or DEFAULT_PIPELINE_USER_ID)
-
-    conf = merge_run_conf(context, variable_key="ml_training_dispatch_conf")
-    train_params = {
+def _train_params_from_conf(conf: dict[str, Any]) -> dict[str, Any]:
+    return {
         k: v
         for k, v in conf.items()
         if k not in ("domain", "objective", "user_id", "csv_path")
     }
 
-    logger.info("Treino recomendação | domain=%s | params=%s", domain, list(train_params.keys()))
-    result = run_training_for_domain(domain, train_params)
 
-    if result.status != "completed":
-        raise RuntimeError(
-            f"Treino recomendação não concluído (status={result.status!r}): {result.detail}"
-        )
+def task_run_recommendation(**context) -> None:
+    """Executa treino no worker integrado (Docker) ou in-process (dev sem worker)."""
+    ti = context["task_instance"]
+    domain = ti.xcom_pull(key="domain", task_ids="validate_dispatch")
+    user_id = int(ti.xcom_pull(key="user_id", task_ids="validate_dispatch") or DEFAULT_PIPELINE_USER_ID)
 
-    run_id = run_async(
-        persist_recommendation_run(
+    conf = merge_run_conf(context, variable_key="ml_training_dispatch_conf")
+    train_params = _train_params_from_conf(conf)
+    dag_run_id = context["dag_run"].run_id
+
+    worker_url = os.environ.get("WORKER_RECOMMENDATION_URL", "").strip()
+
+    if worker_url:
+        payload = run_recommendation_via_worker(
+            worker_url=worker_url,
+            domain=domain,
             user_id=user_id,
-            result=result,
-            airflow_dag_run_id=context["dag_run"].run_id,
+            params=train_params,
+            airflow_dag_run_id=dag_run_id,
         )
-    )
+        run_id = payload.get("pipeline_run_id")
+        metrics = payload.get("metrics") or {}
+        champion = payload.get("champion_name")
+        mlflow_run_id = payload.get("mlflow_run_id")
+    else:
+        from ml_core_ring.orchestration_hooks import run_training_for_domain
+
+        logger.info("WORKER_RECOMMENDATION_URL vazio — treino in-process | domain=%s", domain)
+        result = run_training_for_domain(domain, train_params)
+        if result.status != "completed":
+            raise RuntimeError(
+                f"Treino recomendação não concluído (status={result.status!r}): {result.detail}"
+            )
+        run_id = run_async(
+            persist_recommendation_run(
+                user_id=user_id,
+                result=result,
+                airflow_dag_run_id=dag_run_id,
+            )
+        )
+        metrics = result.metrics
+        champion = result.run_result.champion_name if result.run_result else None
+        mlflow_run_id = result.mlflow_run_id
 
     ti.xcom_push(key="recommendation_pipeline_run_id", value=run_id)
-    ti.xcom_push(key="recommendation_metrics", value=result.metrics)
-    ti.xcom_push(key="recommendation_champion", value=result.run_result.champion_name if result.run_result else None)
-    ti.xcom_push(key="mlflow_run_id", value=result.mlflow_run_id)
+    ti.xcom_push(key="recommendation_metrics", value=metrics)
+    ti.xcom_push(key="recommendation_champion", value=champion)
+    ti.xcom_push(key="mlflow_run_id", value=mlflow_run_id)
     logger.info(
-        "Recomendação concluída | pipeline_run_id=%s | champion=%s",
+        "Recomendação concluída | pipeline_run_id=%s | champion=%s | worker=%s",
         run_id,
-        result.run_result.champion_name if result.run_result else None,
+        champion,
+        worker_url or "in-process",
     )
 
 

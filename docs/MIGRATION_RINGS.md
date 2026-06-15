@@ -51,10 +51,13 @@ Checklist por fase. Estado inicial: **Fase 0 concluída** (documentação + past
 
 ---
 
-## Fase 5 — Worker recommendation
+## Fase 5 — Worker recommendation ✅
 
-- [ ] Container `worker-recommendation`
-- [ ] Compose integrado
+- [x] Container `worker-recommendation` (`POST /train`, `GET /health`)
+- [x] Compose integrado (`nwprocessing`: MLflow + worker + volumes reco)
+- [x] Airflow delega via `WORKER_RECOMMENDATION_URL`
+- [x] `ML_PROJECT_ROOT` unifica paths reco (host ↔ contentor)
+- [x] `docker-compose.tc02.yml` deprecado — stack principal
 
 ---
 

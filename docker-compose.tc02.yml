@@ -1,45 +1,11 @@
-# Tech Challenge Fase 02 — overlay (não substitui docker-compose.yaml da Fase 01)
-services:
-  mlflow_server:
-    image: ghcr.io/mlflow/mlflow:v2.22.0
-    container_name: mlflow_tc02
-    command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./src/artifacts/mlruns:/mlflow/artifacts
-      - mlflow_tc02_db:/mlflow
-    networks:
-      - tc02
+# Tech Challenge Fase 02 — use a stack integrada (Fase 5)
+#
+# Subir tudo na plataforma (API + Airflow + worker + MLflow):
+#   docker compose up -d --build
+#
+# Treino recomendação: ml_training_dispatch ou POST worker:8010/train
+# MLflow UI: http://localhost:5000
+#
+# Este ficheiro mantém-se só como atalho de documentação — não define rede isolada.
 
-  tc02_train:
-    build:
-      context: .
-      dockerfile: docker/api.dockerfile
-    container_name: tc02_train
-    working_dir: /var/www
-    environment:
-      MLFLOW_TRACKING_URI: http://mlflow_server:5000
-      MLFLOW_ARTIFACT_ROOT: /var/www/src/artifacts/mlruns
-      PYTHONPATH: /var/www/src
-    volumes:
-      - .:/var/www
-    command: >
-      bash -c "pip install -q dvc pyyaml &&
-      dvc repro evaluate --force"
-    depends_on:
-      - mlflow_server
-    networks:
-      - tc02
-
-volumes:
-  mlflow_tc02_db:
-
-networks:
-  tc02:
-    driver: bridge
+services: {}

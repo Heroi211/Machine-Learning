@@ -20,11 +20,9 @@ from domains.recommendation.models.factory import create_model
 
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-
 
 def _repo_path(*parts: str) -> Path:
-    return _REPO_ROOT.joinpath(*parts)
+    return Path(settings.ml_project_root).joinpath(*parts)
 
 
 def _load_params(ctx: RunContext) -> dict[str, Any]:

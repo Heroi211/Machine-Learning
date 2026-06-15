@@ -92,6 +92,18 @@ class Settings(BaseSettings):
     airflow_password: str = Field(default="airflow", validation_alias="AIRFLOW_PASSWORD", description="Senha do Airflow")
     ml_shared_path: str = Field(default="ml_shared/uploads", validation_alias="ML_SHARED_PATH", description="Caminho compartilhado para upload de arquivos")
 
+    ml_project_root: str = Field(
+        default="",
+        validation_alias="ML_PROJECT_ROOT",
+        description="Raiz do projecto ML no contentor (artefactos reco, params.yaml, data/recommendation).",
+    )
+
+    worker_recommendation_url: str = Field(
+        default="",
+        validation_alias="WORKER_RECOMMENDATION_URL",
+        description="URL base do worker HTTP de recomendação (ex.: http://worker_recommendation:8010).",
+    )
+
     environment: str = Field(default="development", validation_alias="ENVIRONMENT", description="Ambiente de execução")
 
     sync_fe_tune_max_minutes: int = Field(
@@ -164,6 +176,8 @@ class Settings(BaseSettings):
             f"{self.database_pass}@{self.database_server}:"
             f"{self.database_port}/{self.database_name}"
         )
+        if not (self.ml_project_root or "").strip():
+            self.ml_project_root = str(_REPO_ROOT)
         return self
     
 
