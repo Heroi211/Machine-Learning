@@ -4,7 +4,7 @@ PIP ?= $(PYTHON) -m pip
 # Pacotes em ``src/``; testes importam ``main`` na raiz.
 export PYTHONPATH := $(abspath $(CURDIR)/src):$(abspath $(CURDIR))
 
-.PHONY: help install install-dev requirements lint lint-fix format test test-fast coverage run docker-up docker-down clean check
+.PHONY: help install install-dev requirements lint lint-fix format test test-fast coverage run docker-up docker-down clean check check-rings check-rings-strict
 
 help:
 	@echo "Alvos principais:"
@@ -16,6 +16,7 @@ help:
 	@echo "  make test-fast     pytest sem cobertura (mais rápido)"
 	@echo "  make coverage      mesmo fluxo de teste com relatórios de cobertura"
 	@echo "  make check         lint + test-fast"
+	@echo "  make check-rings   docs Fase 0 + avisos de import entre anéis"
 	@echo "  make run           uvicorn local (porta 8000)"
 	@echo "  make docker-up     docker compose up --build"
 	@echo "  make docker-down   docker compose down"
@@ -70,6 +71,12 @@ tc02-up:
 	docker compose -f docker-compose.tc02.yml up --build
 
 check: lint test-fast
+
+check-rings:
+	python3 scripts/check_ring_imports.py
+
+check-rings-strict:
+	python3 scripts/check_ring_imports.py --strict
 
 clean:
 	rm -rf build dist *.egg-info htmlcov .pytest_cache .ruff_cache .coverage coverage.xml

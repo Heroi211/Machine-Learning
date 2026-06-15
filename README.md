@@ -854,7 +854,11 @@ UI MLflow (overlay Docker): `docker compose -f docker-compose.tc02.yml up` → h
 
 ## Anexos
 
+- [`docs/ARCHITECTURE_RINGS.md`](docs/ARCHITECTURE_RINGS.md) — arquitectura por anéis (`_ring`), Airflow central, plug-in de domínios.
+- [`docs/PLATFORM_CONTRACT.md`](docs/PLATFORM_CONTRACT.md) — fluxo imutável train → promote → predict.
+- [`docs/MIGRATION_RINGS.md`](docs/MIGRATION_RINGS.md) — fases de migração.
 - [`docs/MLP_PYTORCH.md`](docs/MLP_PYTORCH.md) — implementação detalhada da rede neural.
+- [`docs/PLANO_A_CORE_ML.md`](docs/PLANO_A_CORE_ML.md) — core ML modular (Plano A).
 - [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) — Model Card completa (limitações, vieses, cenários de falha).
 - [`docs/OBSERVABILIDADE_E_MANUTENCAO.md`](docs/OBSERVABILIDADE_E_MANUTENCAO.md) — plano de monitoramento.
 - [`docs/DOCUMENTACAO_SOLUCAO.md`](docs/DOCUMENTACAO_SOLUCAO.md) — documentação consolidada da solução.

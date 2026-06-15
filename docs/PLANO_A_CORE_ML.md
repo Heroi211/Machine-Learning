@@ -1,6 +1,8 @@
 # Plano A — Core ML modular
 
-Camada compartilhada em `src/core/ml/` para novos domínios e motores sem reescrever Fase 01.
+> **Arquitectura alvo:** ver [ARCHITECTURE_RINGS.md](./ARCHITECTURE_RINGS.md) e [PLATFORM_CONTRACT.md](./PLATFORM_CONTRACT.md).
+
+Camada compartilhada em `src/core/ml/` (migrará para `src/ml_core_ring/`) para novos domínios e motores sem reescrever Fase 01.
 
 ## Componentes
 
