@@ -1,16 +1,16 @@
-"""Backend de treino recomendação — pipeline DVC / PipelineRunner."""
+"""Backend de treino recomendação — pipeline DVC / embedding PyTorch."""
 
 from __future__ import annotations
 
 from ml_core_ring.train_backend import TrainBackendResult, TrainRequestContext, register_train_backend
+
+from executors_ring.recommendation.pipeline_runner import RecommendationPipelineRunner, build_run_context
 
 
 class RecommendationDvcTrainBackend:
     backend_id = "recommendation_dvc"
 
     def run_train(self, ctx: TrainRequestContext) -> TrainBackendResult:
-        from domains.recommendation.pipeline_runner import RecommendationPipelineRunner, build_run_context
-
         run_ctx = build_run_context({**ctx.params, "domain": ctx.domain})
         result = RecommendationPipelineRunner().run(run_ctx)
         return TrainBackendResult(

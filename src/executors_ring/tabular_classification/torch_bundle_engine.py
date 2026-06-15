@@ -1,4 +1,4 @@
-"""Adapter bundle PyTorch (MLP tabular) para o registry de inferência."""
+"""Adapter bundle PyTorch (MLP tabular) — registado via ``executors_ring``."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from ml_core_ring.inference_engine import register_engine
 from ml_core_ring.paths import resolve_shared_artifact_path
 from ml_core_ring.prediction_result import PredictionResult
 
+from executors_ring.tabular_classification.mlp_inference import load_mlp_bundle, predict_with_mlp
+
 
 @register_engine
 class TorchBundleEngine:
@@ -18,8 +20,6 @@ class TorchBundleEngine:
         self._bundle = None
 
     def load(self, manifest: ArtifactManifest) -> None:
-        from services.pipelines.mlp_inference import load_mlp_bundle
-
         prefix = manifest.artifacts.get("prefix")
         if not prefix:
             raise ValueError("Manifest torch_bundle sem artifacts['prefix'].")
@@ -31,8 +31,6 @@ class TorchBundleEngine:
     def predict(self, df_input: pd.DataFrame) -> PredictionResult:
         if self._bundle is None:
             raise RuntimeError("Engine torch_bundle não carregado.")
-        from services.pipelines.mlp_inference import predict_with_mlp
-
         label, prob = predict_with_mlp(self._bundle, df_input)
         return PredictionResult(
             problem_type="binary_classification",

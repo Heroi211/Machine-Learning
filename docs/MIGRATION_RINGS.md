@@ -24,11 +24,12 @@ Checklist por fase. Estado inicial: **Fase 0 concluída** (documentação + past
 
 ---
 
-## Fase 2 — `executors_ring`
+## Fase 2 — `executors_ring` ✅
 
-- [ ] `executors_ring/tabular_classification/` wrap Baseline + FE
-- [ ] `executors_ring/recommendation/` wrap runner + worker
-- [ ] Registar backends no registry
+- [x] `executors_ring/tabular_classification/` wrap Baseline + FE + strategies + MLP inference
+- [x] `executors_ring/recommendation/` wrap runner + worker stub
+- [x] Backends registados no `TRAIN_BACKEND_REGISTRY` (via `import executors_ring`)
+- [x] `TorchBundleEngine` movido para executors (ml_core deixa de importar pipelines)
 
 ---
 

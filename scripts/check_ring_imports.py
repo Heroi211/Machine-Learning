@@ -28,11 +28,6 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     "orchestration_ring": frozenset({"platform_ring"}),
 }
 
-# Excepções temporárias (path relativo a src/) — remover quando migrar executors
-TRANSITION_ALLOWLIST: frozenset[tuple[str, str]] = frozenset({
-    ("ml_core_ring/engines/torch_bundle.py", "services.pipelines.mlp_inference"),
-})
-
 # código legado → anel pretendido (avisos até migrar)
 LEGACY_MAP: dict[str, str] = {
     "api": "platform_ring",
@@ -118,9 +113,6 @@ def _check_file(path: Path, *, strict_legacy: bool) -> list[str]:
     for mod in _module_imports(tree):
         target = _imported_ring(mod)
         if target and target in forbidden:
-            rel_src = path.relative_to(SRC).as_posix()
-            if (rel_src, mod) in TRANSITION_ALLOWLIST:
-                continue
             level = "ERROR" if ring else ("ERROR" if strict_legacy else "WARN")
             errors.append(f"{level} {rel}: {owner} importa {mod!r} ({target} proibido)")
 

@@ -1,8 +1,9 @@
-"""Testes do registry TrainBackend."""
+"""Testes dos registries TrainBackend após bootstrap executors_ring."""
 
 from __future__ import annotations
 
-import domains  # noqa: F401 — registra domínios e backends
+import domains  # noqa: F401
+import executors_ring  # noqa: F401
 from ml_core_ring.train_backend import TRAIN_BACKEND_REGISTRY, get_train_backend
 
 
