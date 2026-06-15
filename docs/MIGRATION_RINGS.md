@@ -33,11 +33,12 @@ Checklist por fase. Estado inicial: **Fase 0 concluída** (documentação + past
 
 ---
 
-## Fase 3 — `orchestration_ring` (Airflow central)
+## Fase 3 — `orchestration_ring` (Airflow central) ✅
 
-- [ ] DAG `ml_training_dispatch` com `domain` no conf
-- [ ] Tasks tabular + recommendation (DVC/worker)
-- [ ] `persist_run` partilhada → `pipeline_runs`
+- [x] DAG `ml_training_dispatch` com `domain` no conf
+- [x] Tasks tabular + recommendation (registry → executors)
+- [x] `persist_run` partilhada → `pipeline_runs` (+ recomendação)
+- [x] `ml_training_pipeline` delega a `orchestration_ring.tabular_training`
 
 ---
 

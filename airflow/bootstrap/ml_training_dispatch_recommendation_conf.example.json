@@ -1,0 +1,6 @@
+{
+  "domain": "recommendation",
+  "top_k": 10,
+  "user_id": 2,
+  "mlflow_experiment": "tc02_recommendation"
+}
