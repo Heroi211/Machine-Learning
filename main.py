@@ -10,6 +10,8 @@ if str(_SRC) not in sys.path:
 # Deve constar de docker/requirements-api.txt; sem isto, /predict falha com "No module named 'dill'".
 import dill  # noqa: F401
 
+import domains  # noqa: F401 — registra DomainPlugin e PipelineRunner TC02
+
 from fastapi import FastAPI
 from src.core.configs import settings
 from src.core.logging_setup import setup_root_logging
