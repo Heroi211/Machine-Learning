@@ -1,0 +1,13 @@
+random_state: 42
+top_k: 10
+min_interactions: 10000
+train_models:
+  - popularity
+  - nmf
+  - torch_embedding
+nmf_components: 32
+embedding_dim: 32
+n_epochs: 10
+batch_size: 512
+lr: 0.01
+mlflow_experiment: tc02_recommendation
