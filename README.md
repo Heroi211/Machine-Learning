@@ -816,6 +816,42 @@ Machine-Learning/
 
 ---
 
+## Tech Challenge Fase 02 (recomendação — trilha paralela)
+
+A **Fase 01 (churn)** permanece intacta. O TC02 vive em trilha modular (`src/core/ml/`, `src/domains/recommendation/`) com pipeline **DVC** e **MLflow Registry**.
+
+### Pré-requisitos TC02
+
+```bash
+pip install -e ".[dev,tc02]"
+python scripts/validate_env.py
+```
+
+### Pipeline reprodutível
+
+```bash
+make tc02-repro
+# equivalente: PYTHONPATH=src dvc repro
+```
+
+Stages: `preprocess → feature_eng → train → evaluate` (MovieLens ml-latest-small, embedding PyTorch + baselines sklearn).
+
+### MLflow Model Registry
+
+```bash
+make tc02-promote
+# promove tc02_recommender → Staging → Production
+```
+
+UI MLflow (overlay Docker): `docker compose -f docker-compose.tc02.yml up` → http://localhost:5000
+
+### Documentação TC02
+
+- [`docs/PLANO_A_CORE_ML.md`](docs/PLANO_A_CORE_ML.md) — arquitetura modular (Plano A)
+- [`docs/MODEL_CARD_TC02.md`](docs/MODEL_CARD_TC02.md) — Model Card recomendação
+
+---
+
 ## Anexos
 
 - [`docs/MLP_PYTORCH.md`](docs/MLP_PYTORCH.md) — implementação detalhada da rede neural.

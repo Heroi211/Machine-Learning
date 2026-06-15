@@ -57,6 +57,18 @@ docker-up:
 docker-down:
 	docker compose down
 
+tc02-repro:
+	PYTHONPATH=src dvc repro
+
+tc02-validate:
+	PYTHONPATH=src python3 scripts/validate_env.py
+
+tc02-promote:
+	PYTHONPATH=src python3 scripts/ml/promote_registry.py
+
+tc02-up:
+	docker compose -f docker-compose.tc02.yml up --build
+
 check: lint test-fast
 
 clean:
