@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,8 +99,12 @@ async def promote_pipeline_run(
     """
     d = _normalize_domain(domain)
     pt = pipeline_type.strip().lower()
-    if pt != "feature_engineering":
-        raise ValueError("Apenas pipeline_type='feature_engineering' pode ser promovido.")
+    allowed = frozenset({"feature_engineering", "recommendation"})
+    if pt not in allowed:
+        raise ValueError(
+            f"pipeline_type inválido para promote: {pipeline_type!r}. "
+            f"Permitidos: {sorted(allowed)}."
+        )
 
     stmt_run = select(PipelineRuns).where(
         PipelineRuns.id == pipeline_run_id,
@@ -122,23 +127,38 @@ async def promote_pipeline_run(
         )
     from services.processor.processor_service import _resolve_shared_artifact_path
 
-    local_model_path = _resolve_shared_artifact_path(run.model_path)
-    if not local_model_path or not os.path.exists(local_model_path):
-        raise ValueError(
-            "Artefato do modelo não encontrado. "
-            f"caminho_na_BD={run.model_path!r} "
-            f"caminho_resolvido_na_API={local_model_path!r} "
-            "(esperado existir se o treino foi no Airflow e o volume ml_shared está montado em "
-            "/var/www/ml_shared no contentor api_processing). "
-            "Se acabou de alterar o código Python, faça rebuild: "
-            "`docker compose build api_processing && docker compose up -d api_processing`."
-        )
+    if pt == "feature_engineering":
+        local_model_path = _resolve_shared_artifact_path(run.model_path)
+        if not local_model_path or not os.path.exists(local_model_path):
+            raise ValueError(
+                "Artefato do modelo não encontrado. "
+                f"caminho_na_BD={run.model_path!r} "
+                f"caminho_resolvido_na_API={local_model_path!r} "
+                "(esperado existir se o treino foi no Airflow e o volume ml_shared está montado em "
+                "/var/www/ml_shared no contentor api_processing). "
+                "Se acabou de alterar o código Python, faça rebuild: "
+                "`docker compose build api_processing && docker compose up -d api_processing`."
+            )
+    elif pt == "recommendation":
+        prefix = run.model_path or (run.metrics or {}).get("artifact_paths", {}).get("prefix")
+        if not prefix:
+            raise ValueError("Run de recomendação sem prefix de artefacto (model_path ou metrics.artifact_paths).")
+        resolved = _resolve_shared_artifact_path(str(prefix))
+        if not resolved:
+            raise ValueError(f"Prefix de recomendação inválido: {prefix!r}")
+        base = Path(resolved)
+        pt_file = base.with_suffix(".pt")
+        meta_file = base.with_suffix(".meta.json")
+        if not pt_file.is_file() and not base.is_file():
+            raise ValueError(f"Modelo torch de recomendação não encontrado: {pt_file}")
+        if not meta_file.is_file():
+            raise ValueError(f"Meta do modelo de recomendação em falta: {meta_file}")
 
     await db.execute(
         update(PipelineRuns)
         .where(
             PipelineRuns.id != pipeline_run_id,
-            PipelineRuns.pipeline_type == "feature_engineering",
+            PipelineRuns.pipeline_type == pt,
             func.lower(PipelineRuns.objective) == d,
         )
         .values(active=False),
@@ -167,6 +187,53 @@ async def promote_pipeline_run(
     await db.refresh(row)
     await db.refresh(row, attribute_names=["pipeline_run"])
     return row
+
+
+async def promote_recommendation_for_domain(
+    domain: str,
+    promoted_by_user_id: int,
+    db: AsyncSession,
+    *,
+    pipeline_run_id: int | None = None,
+) -> DeployedModels:
+    """Promove run de recomendação activo (ou id explícito) para ``/predict``."""
+    d = _normalize_domain(domain)
+    if pipeline_run_id is not None:
+        return await promote_pipeline_run(
+            domain=domain,
+            pipeline_run_id=pipeline_run_id,
+            promoted_by_user_id=promoted_by_user_id,
+            pipeline_type="recommendation",
+            db=db,
+        )
+
+    predicates = [
+        PipelineRuns.pipeline_type == "recommendation",
+        PipelineRuns.status == "completed",
+        PipelineRuns.active.is_(True),
+        func.lower(PipelineRuns.objective) == d,
+    ]
+    if settings.is_production:
+        predicates.append(PipelineRuns.is_airflow_run.is_(True))
+
+    res = await db.execute(select(PipelineRuns).where(and_(*predicates)))
+    runs = list(res.scalars().all())
+    if len(runs) == 0:
+        raise ValueError(
+            f"Nenhum run recommendation activo e concluído para domain={domain!r}. "
+            "Treine via ml_training_dispatch e confirme pipeline_runs."
+        )
+    if len(runs) > 1:
+        raise ValueError(
+            f"Ambiguidade: {len(runs)} runs recommendation activos para domain={domain!r}."
+        )
+    return await promote_pipeline_run(
+        domain=domain,
+        pipeline_run_id=runs[0].id,
+        promoted_by_user_id=promoted_by_user_id,
+        pipeline_type="recommendation",
+        db=db,
+    )
 
 
 async def get_deployment_history(domain: str, db: AsyncSession, limit: int = 10) -> list[DeployedModels]:

@@ -21,16 +21,17 @@ from core.deps import (
 )
 from models.users import Users as users_models
 from schemas import processor_schemas
+from platform_ring.promote_service import promote_for_domain
+from platform_ring.runs_service import list_runs_for_domain
+from platform_ring.training_trigger import trigger_training_dag
 from services.processor import processor_service
 from services.processor.deployment_service import (
     NoActiveDeploymentError,
     RollbackError,
     get_deployment_history,
-    promote_active_feature_engineering_for_objective,
     rollback_deployment,
 )
 from services.processor.pipeline_run_view import build_pipeline_run_view
-from services.processor.pipeline_runs_service import list_pipeline_runs
 
 router = APIRouter()
 _logger_processor_ep = logging.getLogger(__name__)
@@ -87,23 +88,21 @@ def _metrics_json_for_response_header(metrics: dict | None) -> str:
         return "{}"
 
 
-AIRFLOW_BASE_URL = settings.airflow_base_url
-AIRFLOW_USER = settings.airflow_user
-AIRFLOW_PASSWORD = settings.airflow_password
-ML_SHARED_PATH = settings.ml_shared_path 
+ML_SHARED_PATH = settings.ml_shared_path
 
 
 @router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
 async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = Depends(get_session), user_logged: users_models = Depends(get_current_user)):
     try:
         features_dict = payload.features.model_dump(mode="json", by_alias=True)
-        pred, inference_report = await processor_service.predict_for_domain(
+        pred, inference_report, reco_extra = await processor_service.predict_for_domain(
             domain=payload.domain, features=features_dict, user_id=user_logged.id, db=db
         )
         prob_pct = None
         if pred.probability is not None:
             prob_pct = round(float(pred.probability) * 100, 2)
         prob_display = f"{prob_pct}%" if prob_pct is not None else None
+        recommended = reco_extra.get("recommended_items") if reco_extra else None
         return processor_schemas.PredictResponse(
             id=pred.id,
             domain=payload.domain,
@@ -111,6 +110,7 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
             prediction=pred.prediction,
             probability=prob_pct,
             probability_display=prob_display,
+            recommended_items=recommended,
             input_data=pred.input_data if isinstance(pred.input_data, dict) else dict(pred.input_data),
             inference_report=inference_report,
         )
@@ -127,17 +127,18 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
 
 @router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=processor_schemas.DeployedModelResponse)
 async def admin_promote(
+    domain: str | None = Query(
+        None,
+        description="Domínio a promover (default: OBJECTIVE na env). Ex.: churn, recommendation.",
+    ),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
-    """
-    Promove para inferência em ``/predict`` o **único** run de feature engineering activo e concluído,
-    com ``objective`` igual a **OBJECTIVE** (env), à imagem das rotas síncronas de baseline/FE.
-    """
+    """Promove o run activo do domínio para servir em ``/predict`` (tabular FE ou recomendação)."""
     try:
-        objective = settings.objective.strip().lower()
-        dep = await promote_active_feature_engineering_for_objective(
-            objective=objective,
+        objective = (domain or settings.objective).strip().lower()
+        dep = await promote_for_domain(
+            domain=objective,
             promoted_by_user_id=admin.id,
             db=db,
         )
@@ -148,57 +149,67 @@ async def admin_promote(
 
 @router.post("/admin/train/trigger-dag", status_code=status.HTTP_202_ACCEPTED, response_model=processor_schemas.TriggerDagResponse)
 async def admin_trigger_dag(
-    file: UploadFile = File(...),
+    domain: str | None = Form(
+        None,
+        description="Domínio ML (churn, recommendation, …). Default: OBJECTIVE na env.",
+    ),
+    file: UploadFile | None = File(
+        None,
+        description="CSV obrigatório para domínios tabulares; omitir para recommendation.",
+    ),
     optimization_metric: Literal["accuracy", "precision", "recall", "f1", "roc_auc"] = Form("accuracy"),
     min_precision: float | None = Form(None, description="Guardrail opcional: precisão mínima [0,1]."),
     min_roc_auc: float | None = Form(None, description="Guardrail opcional: ROC-AUC mínimo [0,1]."),
     tuning_n_iter: int | None = Form(None, description="Número máximo de amostras no tuning (opcional)."),
     time_limit_minutes: int = Form(2),
     acc_target: float | None = Form(None),
+    top_k: int | None = Form(None, description="Top-K para domínio recommendation."),
     admin: users_models = Depends(require_airflow_api_trigger_enabled),
 ):
-    """Grava o CSV em volume partilhado e dispara o DAG; **objective** vem de OBJECTIVE na env."""
-    obj = settings.objective.strip().lower()
-    upload_dir = os.path.join(ML_SHARED_PATH)
-    os.makedirs(upload_dir, exist_ok=True)
-    filename = f"{obj}_{uuid.uuid4().hex[:8]}_{file.filename}"
-    csv_path = os.path.join(upload_dir, filename)
-    content = await file.read()
-    with open(csv_path, "wb") as f:
-        f.write(content)
+    """Dispara ``ml_training_dispatch`` no Airflow (treino por ``domain``)."""
+    obj = (domain or settings.objective).strip().lower()
+    csv_path: str | None = None
 
-    dag_run_id = f"manual__{obj}_{uuid.uuid4().hex[:8]}"
-    dag_conf = {
-        "objective": obj,
-        "csv_path": csv_path,
-        "optimization_metric": optimization_metric,
-        "min_precision": min_precision,
-        "min_roc_auc": min_roc_auc,
-        "tuning_n_iter": tuning_n_iter,
-        "time_limit_minutes": time_limit_minutes,
-        "acc_target": acc_target,
-        "user_id": admin.id,
-    }
+    if file is not None:
+        upload_dir = os.path.join(ML_SHARED_PATH)
+        os.makedirs(upload_dir, exist_ok=True)
+        filename = f"{obj}_{uuid.uuid4().hex[:8]}_{file.filename}"
+        csv_path = os.path.join(upload_dir, filename)
+        content = await file.read()
+        with open(csv_path, "wb") as f:
+            f.write(content)
+
+    extra: dict[str, Any] = {}
+    if top_k is not None:
+        extra["top_k"] = top_k
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{AIRFLOW_BASE_URL}/api/v1/dags/ml_training_pipeline/dagRuns",
-                json={"dag_run_id": dag_run_id, "conf": dag_conf},
-                auth=(AIRFLOW_USER, AIRFLOW_PASSWORD),
-            )
-            resp.raise_for_status()
+        result = await trigger_training_dag(
+            domain=obj,
+            user_id=admin.id,
+            csv_path=csv_path,
+            optimization_metric=optimization_metric,
+            min_precision=min_precision,
+            min_roc_auc=min_roc_auc,
+            tuning_n_iter=tuning_n_iter,
+            time_limit_minutes=time_limit_minutes,
+            acc_target=acc_target,
+            extra=extra or None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Airflow recusou o trigger: {e.response.text}")
     except httpx.RequestError as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Airflow indisponível: {str(e)}")
 
     return processor_schemas.TriggerDagResponse(
-        dag_run_id=dag_run_id,
-        dag_id="ml_training_pipeline",
-        objective=obj,
-        csv_path=csv_path,
-        message=f"DAG disparado. Acompanhe em {AIRFLOW_BASE_URL}/dags/ml_training_pipeline/grid",
+        dag_run_id=result.dag_run_id,
+        dag_id=result.dag_id,
+        domain=result.domain,
+        objective=result.domain,
+        csv_path=result.csv_path,
+        message=result.message,
     )
 
 
@@ -214,7 +225,10 @@ async def admin_trigger_dag(
     ),
 )
 async def admin_list_pipeline_runs(
-    pipeline_type: Literal["baseline", "feature_engineering"] | None = Query(None, description="Tipo de pipeline."),
+    domain: str | None = Query(None, description="Domínio (default: OBJECTIVE na env)."),
+    pipeline_type: Literal["baseline", "feature_engineering", "recommendation"] | None = Query(
+        None, description="Tipo de pipeline."
+    ),
     run_status: Literal["processing", "completed", "failed"] | None = Query(
         None, alias="status", description="Estado da execução."
     ),
@@ -222,11 +236,11 @@ async def admin_list_pipeline_runs(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
-    """Lista runs de pipeline para **OBJECTIVE** (env); `pipeline_type` e `status` continuam opcionais na query."""
-    objective = settings.objective.strip().lower()
-    runs = await list_pipeline_runs(
+    """Lista runs de pipeline por domínio."""
+    objective = (domain or settings.objective).strip().lower()
+    runs = await list_runs_for_domain(
         db,
-        objective=objective,
+        domain=objective,
         pipeline_type=pipeline_type,
         status=run_status,
         limit=limit,
@@ -236,28 +250,31 @@ async def admin_list_pipeline_runs(
 
 @router.get("/admin/deployments/history", status_code=status.HTTP_200_OK, response_model=list[processor_schemas.DeployedModelResponse])
 async def admin_deployment_history(
-    db: AsyncSession = Depends(get_session), admin: users_models = Depends(require_admin)
+    domain: str | None = Query(None, description="Domínio (default: OBJECTIVE na env)."),
+    db: AsyncSession = Depends(get_session),
+    admin: users_models = Depends(require_admin),
 ):
-    """Lista os últimos deployments (**OBJECTIVE** na env), do mais recente ao mais antigo."""
-    domain = settings.objective.strip().lower()
-    records = await get_deployment_history(domain=domain, db=db)
+    """Lista os últimos deployments do domínio, do mais recente ao mais antigo."""
+    resolved = (domain or settings.objective).strip().lower()
+    records = await get_deployment_history(domain=resolved, db=db)
     if not records:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Nenhum deployment encontrado para o objective '{domain}' (OBJECTIVE na env).",
+            detail=f"Nenhum deployment encontrado para o domínio '{resolved}' (OBJECTIVE na env).",
         )
     return records
 
 
 @router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
 async def admin_rollback(
+    domain: str | None = Query(None, description="Domínio (default: OBJECTIVE na env)."),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
 ):
-    """Reverte para o deployment archived mais recente (**OBJECTIVE** na env), arquivando o active actual."""
+    """Reverte para o deployment archived mais recente do domínio."""
     try:
-        domain = settings.objective.strip().lower()
-        dep = await rollback_deployment(domain=domain, db=db)
+        resolved = (domain or settings.objective).strip().lower()
+        dep = await rollback_deployment(domain=resolved, db=db)
         return dep
     except RollbackError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

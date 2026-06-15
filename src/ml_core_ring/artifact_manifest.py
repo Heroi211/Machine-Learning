@@ -15,6 +15,7 @@ class PipelineRunLike(Protocol):
     inference_backend: str | None
     model_path: str | None
     metrics: dict | None
+    pipeline_type: str | None
 
 
 @dataclass(frozen=True)
@@ -53,9 +54,26 @@ class ArtifactManifest:
     @classmethod
     def from_pipeline_run(cls, run: PipelineRunLike) -> ArtifactManifest:
         """Converte o formato legado Fase 01 (Postgres + metrics JSON) em manifest."""
-        backend = (run.inference_backend or "sklearn").strip().lower()
         metrics = dict(run.metrics or {})
         domain = str(run.objective).strip().lower()
+        pipeline_type = str(getattr(run, "pipeline_type", "") or "").strip().lower()
+
+        if pipeline_type == "recommendation" or metrics.get("problem_type") == "recommendation":
+            prefix = run.model_path or (metrics.get("artifact_paths") or {}).get("prefix", "")
+            if not prefix:
+                raise ValueError("Run de recomendação sem prefix de artefacto.")
+            engine_name = str(metrics.get("manifest_engine", "torch_embedding"))
+            engine = "recommendation_torch" if "torch" in engine_name.lower() else "sklearn_joblib"
+            top_k = int(metrics.get("top_k", 10))
+            return cls(
+                domain=domain,
+                problem_type="recommendation",
+                engine=engine,
+                artifacts={"prefix": str(prefix)},
+                metadata={"top_k": top_k, "champion_name": metrics.get("champion_name")},
+            )
+
+        backend = (run.inference_backend or "sklearn").strip().lower()
 
         if backend == "mlp":
             prefix = metrics.get("mlp_artifact_prefix") or ""

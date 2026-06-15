@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.pipeline_runs import PipelineRuns
 
-PipelineTypeLiteral = Literal["baseline", "feature_engineering"]
+PipelineTypeLiteral = Literal["baseline", "feature_engineering", "recommendation"]
 StatusLiteral = Literal["processing", "completed", "failed"]
 
 
@@ -34,7 +34,7 @@ async def list_pipeline_runs(
     objective:
         Igual ao ``objective`` / ``domain`` gravado nos runs (normalizado case-insensitive).
     pipeline_type:
-        ``baseline`` ou ``feature_engineering``.
+        ``baseline``, ``feature_engineering`` ou ``recommendation``.
     status:
         ``processing``, ``completed`` ou ``failed``.
     limit:

@@ -365,3 +365,29 @@ def build_inference_report(metrics: dict | None, inference_backend: str) -> Infe
         summary_lines=summary_lines,
     )
 
+
+def build_recommendation_inference_report(metrics: dict | None) -> InferenceReport:
+    """Relatório simplificado para ``/predict`` de recomendação."""
+    m = dict(metrics or {})
+    champion = str(m.get("champion_name") or "recommendation")
+    served_model = ServedModelPredict(
+        inference_backend="mlp",
+        predict_model_key="recommendation_torch",
+        name=champion,
+        origin="run_promovido",
+        label="Modelo de recomendação servido neste pedido",
+    )
+    notes = [
+        "Saída: lista de item_id recomendados para o user_id pedido.",
+        "Métricas abaixo referem-se ao holdout do treino (ndcg@k, etc.), não a este pedido.",
+    ]
+    if m.get("ndcg_at_k") is not None:
+        notes.append(f"ndcg@k (treino): {m.get('ndcg_at_k')}")
+    return InferenceReport(
+        served_model=served_model,
+        training_selection_summary=TrainingSelectionSummaryPredict(),
+        comparison=ComparisonPredict(intro="Recomendação user-item (sem comparativo tabular)."),
+        notes=notes,
+        summary_lines=[f"Campeão treino: {champion}"],
+    )
+

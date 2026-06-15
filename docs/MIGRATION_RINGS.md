@@ -42,11 +42,12 @@ Checklist por fase. Estado inicial: **Fase 0 concluída** (documentação + past
 
 ---
 
-## Fase 4 — `platform_ring`
+## Fase 4 — `platform_ring` ✅
 
-- [ ] Mover API, deployments, runs, schemas
-- [ ] `trigger-dag` genérico por `domain`
-- [ ] Promote generalizado + `/predict` recommendation
+- [x] Serviços `platform_ring/` (trigger, promote, runs) — API delega
+- [x] `trigger-dag` genérico por `domain` → `ml_training_dispatch`
+- [x] Promote generalizado (tabular FE + recommendation)
+- [x] `/predict` recommendation (`recommended_items` + engine `recommendation_torch`)
 
 ---
 

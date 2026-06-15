@@ -43,6 +43,7 @@ class MLDomain(str, Enum):
 
     heart_disease = "heart_disease"
     churn = "churn"
+    recommendation = "recommendation"
 
 
 # Nome legado usado em discussões / checklist — mesmo tipo.
@@ -145,8 +146,26 @@ class PredictRequestHeartDisease(BaseModel):
     features: HeartDiseaseFeaturesInput = Field(..., description="Atributos (formato one-hot do treino)")
 
 
+class RecommendationFeaturesInput(BaseModel):
+    """Entrada mínima para recomendação user-item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: int = Field(..., ge=1, description="Identificador do utilizador")
+    top_k: int = Field(default=10, ge=1, le=100, description="Número de itens a recomendar")
+
+
+class PredictRequestRecommendation(BaseModel):
+    """Pedido de predição — domínio recomendação (TC02)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: Literal["recommendation"] = Field(..., description="Domínio recomendação e-commerce")
+    features: RecommendationFeaturesInput = Field(..., description="user_id + top_k")
+
+
 PredictRequest = Annotated[
-    Union[PredictRequestChurn, PredictRequestHeartDisease],
+    Union[PredictRequestChurn, PredictRequestHeartDisease, PredictRequestRecommendation],
     Field(discriminator="domain"),
 ]
 
@@ -261,7 +280,10 @@ class PredictResponse(BaseModel):
     id: int
     domain: str
     pipeline_run_id: int
-    prediction: int
+    prediction: int = Field(
+        default=0,
+        description="Classe prevista (tabular) ou primeiro item_id (recomendação, referência).",
+    )
     probability: Optional[float] = Field(
         default=None,
         description="Probabilidade estimada da classe positiva em percentual (0–100), quando disponível.",
@@ -269,6 +291,10 @@ class PredictResponse(BaseModel):
     probability_display: Optional[str] = Field(
         default=None,
         description="Representação legível da probabilidade (ex.: '78.29%').",
+    )
+    recommended_items: Optional[list[int]] = Field(
+        default=None,
+        description="Lista de item_id recomendados (domínio recommendation).",
     )
     input_data: dict
     inference_report: InferenceReport = Field(
@@ -309,6 +335,7 @@ class TriggerDagRequest(BaseModel):
 class TriggerDagResponse(BaseModel):
     dag_run_id: str
     dag_id: str
-    objective: str
-    csv_path: str
+    domain: str
+    objective: str = Field(description="Alias legado de domain (tabular).")
+    csv_path: Optional[str] = None
     message: str

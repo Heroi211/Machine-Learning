@@ -28,6 +28,7 @@ from services.processor.inference_report import (
     attach_fe_model_comparison_table,
     attach_mlp_metrics_snapshot,
     build_inference_report,
+    build_recommendation_inference_report,
 )
 from services.utils import utcnow
 
@@ -849,15 +850,18 @@ from core.ml.paths import resolve_shared_artifact_path as _resolve_shared_artifa
 
 async def predict_for_domain(
     domain: str, features: dict, user_id: int, db: AsyncSession
-) -> tuple[Predictions, InferenceReport]:
-    """Resolve o modelo ativo do domínio e prediz para um indivíduo.
+) -> tuple[Predictions, InferenceReport, dict | None]:
+    """Resolve deployment activo, infere e devolve predição + relatório.
 
-    O ramo de inferência (sklearn vs MLP PyTorch) vem do campo ``inference_backend`` do
-    ``PipelineRuns`` promovido — não da env. Assim, alternar ``USE_MLP_FOR_PREDICTION``
-    afeta apenas **novos treinos/promotes**, não muda silenciosamente o que já está em
-    produção.
+    Retorno extra (3º elemento): ``recommended_items`` quando ``problem_type=recommendation``.
     """
+    import domains  # noqa: F401
+    import executors_ring  # noqa: F401 — engines tabular + recommendation
+
+    from ml_core_ring.domain_plugin import get_domain
     from services.processor.deployment_service import NoActiveDeploymentError, get_active_deployment
+
+    plugin = get_domain(domain)
 
     async with db as session:
         deployment = await get_active_deployment(domain, session)
@@ -867,13 +871,36 @@ async def predict_for_domain(
             )
 
         run = deployment.pipeline_run
-        backend = (run.inference_backend or "sklearn").strip().lower()
 
+        if plugin.problem_type == "recommendation":
+            from ml_core_ring.artifact_manifest import ArtifactManifest
+            from ml_core_ring.inference_engine import get_engine
+
+            manifest = ArtifactManifest.from_pipeline_run(run)
+            engine = get_engine(manifest)
+            df_input = pd.DataFrame([features])
+            result = engine.predict(df_input)
+            item_ids = list(result.item_ids or [])
+
+            pred = Predictions(
+                user_id=user_id,
+                pipeline_run_id=run.id,
+                input_data=features,
+                prediction=int(item_ids[0]) if item_ids else 0,
+                probability=None,
+            )
+            session.add(pred)
+            await session.commit()
+            await session.refresh(pred)
+            report = build_recommendation_inference_report(dict(run.metrics or {}))
+            return pred, report, {"recommended_items": item_ids}
+
+        backend = (run.inference_backend or "sklearn").strip().lower()
         df_input = _prepare_prediction_features(run, domain, features)
 
-        from core.ml import engines  # noqa: F401 — registra ENGINE_REGISTRY
-        from core.ml.artifact_manifest import ArtifactManifest
-        from core.ml.inference_engine import get_engine
+        from ml_core_ring import engines  # noqa: F401
+        from ml_core_ring.artifact_manifest import ArtifactManifest
+        from ml_core_ring.inference_engine import get_engine
 
         manifest = ArtifactManifest.from_pipeline_run(run)
         engine = get_engine(manifest)
@@ -894,4 +921,4 @@ async def predict_for_domain(
         await session.refresh(pred)
         report = build_inference_report(dict(run.metrics or {}), backend)
 
-    return pred, report
+    return pred, report, None
