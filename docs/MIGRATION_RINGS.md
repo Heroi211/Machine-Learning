@@ -15,12 +15,12 @@ Checklist por fase. Estado inicial: **Fase 0 concluída** (documentação + past
 
 ---
 
-## Fase 1 — `ml_core_ring` + registries
+## Fase 1 — `ml_core_ring` + registries ✅
 
-- [ ] Mover `src/core/ml/` → `src/ml_core_ring/` (aliases temporários)
-- [ ] `train_backend.py` + `TRAIN_BACKEND_REGISTRY`
-- [ ] `orchestration_hooks.py` (Airflow → backend)
-- [ ] Testes unitários registries
+- [x] Mover `src/core/ml/` → `src/ml_core_ring/` (aliases temporários em `core/ml`)
+- [x] `train_backend.py` + `TRAIN_BACKEND_REGISTRY`
+- [x] `orchestration_hooks.py` (Airflow → backend)
+- [x] Testes unitários registries (`tests/ml_core_ring/`)
 
 ---
 

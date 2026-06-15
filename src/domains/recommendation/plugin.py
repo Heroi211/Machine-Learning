@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.ml.domain_plugin import DomainPlugin, register_domain
+from ml_core_ring.domain_plugin import DomainPlugin, register_domain
 
 
 class RecommendationInput(BaseModel):

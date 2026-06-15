@@ -1,5 +1,3 @@
-"""Motores de inferência registrados (import side-effect)."""
+"""Shim — use ``ml_core_ring.engines``."""
 
-from core.ml.engines import sklearn_joblib, torch_bundle
-
-__all__ = ["sklearn_joblib", "torch_bundle"]
+from ml_core_ring.engines import *  # noqa: F403, F401

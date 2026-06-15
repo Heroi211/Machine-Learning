@@ -1,15 +1,12 @@
-"""Contratos compartilhados de ML (inferência, manifest, domínios)."""
+"""Shim de compatibilidade — preferir ``ml_core_ring``."""
 
-from core.ml import engines  # noqa: F401 — registra ENGINE_REGISTRY
-from core.ml.artifact_manifest import ArtifactManifest
-from core.ml.inference_engine import ENGINE_REGISTRY, InferenceEngine, get_engine
-from core.ml.prediction_result import PredictionResult
+import warnings
 
-__all__ = [
-    "ArtifactManifest",
-    "InferenceEngine",
-    "PredictionResult",
-    "ENGINE_REGISTRY",
-    "get_engine",
-    "engines",
-]
+warnings.warn(
+    "core.ml está obsoleto; importe de ml_core_ring.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+from ml_core_ring import *  # noqa: F403, F401
+from ml_core_ring import __all__  # noqa: F401

@@ -12,9 +12,9 @@ import mlflow
 import pandas as pd
 
 from core.configs import settings
-from core.ml.artifact_manifest import ArtifactManifest
-from core.ml.pipeline_runner import PipelineRunner, register_runner
-from core.ml.run_context import ModelCandidate, RunContext
+from ml_core_ring.artifact_manifest import ArtifactManifest
+from ml_core_ring.pipeline_runner import PipelineRunner, register_runner
+from ml_core_ring.run_context import ModelCandidate, RunContext
 from domains.recommendation.metrics.ranking import aggregate_ranking_metrics
 from domains.recommendation.models.factory import create_model
 

@@ -23,6 +23,6 @@ Contratos ML reutilizáveis — **registries, sem algoritmos pesados**.
 
 | Origem | Nota |
 |--------|------|
-| `src/core/ml/` | Migrar para aqui na Fase 1 |
-
-Ver também [PLANO_A_CORE_ML.md](../../docs/PLANO_A_CORE_ML.md).
+| `src/core/ml/` | Shim de compatibilidade — importar de `ml_core_ring` |
+| `train_backend.py` | Registry + backends registados em `domains/*/train_backend.py` |
+| `orchestration_hooks.py` | `run_training_for_domain(domain, conf)` |
