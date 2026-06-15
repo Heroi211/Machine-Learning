@@ -1,0 +1,9 @@
+# DVC — dados TC02 (raw MovieLens baixado localmente; processed/features via pipeline)
+data/recommendation/raw/*.csv
+data/recommendation/raw/*.zip
+data/recommendation/processed/
+data/recommendation/features/
+
+# Artefactos gerados pelo pipeline TC02 (reproduzíveis via dvc repro)
+models/recommendation/
+reports/recommendation/

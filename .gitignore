@@ -169,3 +169,11 @@ artifacts/
 src/data/old/
 data/old/*
 data/pre_processed/*
+
+# TC02 — saídas reproduzíveis via dvc repro (não versionar artefactos gerados)
+data/recommendation/processed/
+data/recommendation/features/
+data/recommendation/raw/*.csv
+data/recommendation/raw/*.zip
+models/recommendation/
+reports/recommendation/
