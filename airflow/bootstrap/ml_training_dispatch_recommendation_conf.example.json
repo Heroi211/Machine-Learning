@@ -1,6 +1,8 @@
 {
   "domain": "recommendation",
-  "top_k": 10,
   "user_id": 2,
+  "top_k": 5,
+  "train_models": ["torch_embedding"],
+  "n_epochs": 1,
   "mlflow_experiment": "tc02_recommendation"
 }

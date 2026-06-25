@@ -22,7 +22,17 @@ Recomendação::
 """
 from __future__ import annotations
 
+import os
+import sys
 from datetime import datetime, timedelta
+
+# Bootstrap antes de importar orchestration_ring (Airflow parseia o módulo top-level).
+_ML_CODE = os.environ.get("ML_CODE_ROOT", "/opt/airflow/ml_code")
+_ML_ROOT = os.environ.get("ML_PROJECT_ROOT", "/opt/airflow/ml_project")
+_ML_LIBS = os.environ.get("ML_AIRFLOW_SITE_PACKAGES", "/opt/airflow/ml_libs")
+for _p in (_ML_LIBS, _ML_CODE, _ML_ROOT):
+    if _p and os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, os.path.abspath(_p))
 
 from airflow import DAG
 from airflow.operators.empty import EmptyOperator
@@ -70,7 +80,11 @@ with DAG(
         task_run_fe,
     )
 
-    _dispatch_ctx = {"validate_task_id": "validate_dispatch"}
+    _dispatch_ctx = {
+        "validate_task_id": "validate_dispatch",
+        "baseline_task_id": "run_tabular_baseline",
+        "fe_task_id": "run_tabular_fe",
+    }
 
     validate_dispatch = BranchPythonOperator(
         task_id="validate_dispatch",

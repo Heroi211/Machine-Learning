@@ -8,7 +8,16 @@ Tasks delegadas a ``orchestration_ring.tabular_training`` (Fase 3).
 """
 from __future__ import annotations
 
+import os
+import sys
 from datetime import datetime, timedelta
+
+_ML_CODE = os.environ.get("ML_CODE_ROOT", "/opt/airflow/ml_code")
+_ML_ROOT = os.environ.get("ML_PROJECT_ROOT", "/opt/airflow/ml_project")
+_ML_LIBS = os.environ.get("ML_AIRFLOW_SITE_PACKAGES", "/opt/airflow/ml_libs")
+for _p in (_ML_LIBS, _ML_CODE, _ML_ROOT):
+    if _p and os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, os.path.abspath(_p))
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator

@@ -1,0 +1,42 @@
+{
+  "objective": "churn",
+  "run_timestamp": "20260624_191520",
+  "input_csv_source": "/opt/airflow/ml_project/uploads/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+  "input_csv_snapshot": "/opt/airflow/ml_project/src/data/old/20260624_191520/input_automatic.csv",
+  "output_sample_csv_stable": "/opt/airflow/ml_project/src/data/pre_processed/baseline_sample.csv",
+  "output_sample_csv_snapshot": "/opt/airflow/ml_project/src/data/old/20260624_191520/baseline_sample_automatic.csv",
+  "manifest_snapshot": "/opt/airflow/ml_project/src/data/old/20260624_191520/manifest_automatic.json",
+  "model_path": "/opt/airflow/ml_project/src/artifacts/models/baseline_model_churn_20260624_191520_automatic.joblib",
+  "input_row_count": 7043,
+  "sample_row_count": 7043,
+  "sample_column_count": 20,
+  "sample_schema": "raw_clean",
+  "feature_groups": {
+    "binary": [
+      "SeniorCitizen",
+      "Partner",
+      "Dependents",
+      "PhoneService",
+      "MultipleLines",
+      "OnlineSecurity",
+      "OnlineBackup",
+      "DeviceProtection",
+      "TechSupport",
+      "StreamingTV",
+      "StreamingMovies",
+      "PaperlessBilling"
+    ],
+    "continuous": [
+      "tenure",
+      "MonthlyCharges",
+      "TotalCharges"
+    ],
+    "categorical": [
+      "gender",
+      "InternetService",
+      "Contract",
+      "PaymentMethod"
+    ]
+  },
+  "graphs_dir": "/opt/airflow/ml_project/src/data/old/20260624_191520/graphs"
+}

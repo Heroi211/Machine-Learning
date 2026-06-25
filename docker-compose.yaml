@@ -26,24 +26,18 @@
 #   - MLflow (API no compose): continua em ``/var/www/ml_shared``; Airflow usa ``src/artifacts/mlruns``.
 #     sqlite:////var/www/ml_shared/mlflow.db e /var/www/ml_shared/mlruns (mesmo volume).
 #   - Recomendação (TC02): data/models/reports na raiz do repo montados em ML_PROJECT_ROOT
-#     (ver x-reco-volumes). Worker HTTP integrado: worker_recommendation:8010.
+#     (blocos reco-volumes abaixo). Worker HTTP integrado: worker_recommendation:8010.
 #   - MLflow server integrado (recomendação + rubrica TC02): http://localhost:5000
 #   - LocalExecutor: scheduler delega reco ao worker (WORKER_RECOMMENDATION_URL).
 #   - Build da imagem Airflow inclui deps do projeto (ver docker/airflow.dockerfile); após
 #     mudar docker/requirements-api.txt ou o Dockerfile: ``docker compose build airflow-scheduler``
 # ---------------------------------------------------------------------------
 
-x-reco-volumes: &reco-volumes
-  - ./data/recommendation:/opt/airflow/ml_project/data/recommendation
-  - ./models/recommendation:/opt/airflow/ml_project/models/recommendation
-  - ./reports/recommendation:/opt/airflow/ml_project/reports/recommendation
-  - ./params.yaml:/opt/airflow/ml_project/params.yaml:ro
-
-x-reco-volumes-api: &reco-volumes-api
-  - ./data/recommendation:/var/www/ml_shared/data/recommendation
-  - ./models/recommendation:/var/www/ml_shared/models/recommendation
-  - ./reports/recommendation:/var/www/ml_shared/reports/recommendation
-  - ./params.yaml:/var/www/ml_shared/params.yaml:ro
+# Volumes reco (Airflow) — listados inline; alias YAML de lista aninhada quebra o compose.
+#   ./data/recommendation → .../data/recommendation
+#   ./models/recommendation → .../models/recommendation
+#   ./reports/recommendation → .../reports/recommendation
+#   ./params.yaml → .../params.yaml:ro
 
 x-airflow-common: &airflow-common
   build:
@@ -113,7 +107,10 @@ x-airflow-common: &airflow-common
     - ./src:/opt/airflow/ml_code:ro
     # Defaults da Variable ml_training_pipeline_conf (airflow-init importa para a BD do Airflow)
     - ./airflow/bootstrap:/opt/airflow/bootstrap:ro
-    - *reco-volumes
+    - ./data/recommendation:/opt/airflow/ml_project/data/recommendation
+    - ./models/recommendation:/opt/airflow/ml_project/models/recommendation
+    - ./reports/recommendation:/opt/airflow/ml_project/reports/recommendation
+    - ./params.yaml:/opt/airflow/ml_project/params.yaml:ro
   depends_on:
     db_processing:
       condition: service_healthy
@@ -188,7 +185,10 @@ services:
       - ./src/graphs:/var/www/ml_shared/src/graphs
       - ./src/artifacts/mlruns:/var/www/ml_shared/src/artifacts/mlruns
       - ./src/artifacts/reports:/var/www/ml_shared/src/artifacts/reports
-      - *reco-volumes-api
+      - ./data/recommendation:/var/www/ml_shared/data/recommendation
+      - ./models/recommendation:/var/www/ml_shared/models/recommendation
+      - ./reports/recommendation:/var/www/ml_shared/reports/recommendation
+      - ./params.yaml:/var/www/ml_shared/params.yaml:ro
 
   # ---------- MLflow (recomendação / TC02 integrado) ------------------------
   mlflow_server:
@@ -241,7 +241,10 @@ services:
       - ./src/graphs:/var/www/ml_shared/src/graphs
       - ./src/artifacts/mlruns:/var/www/ml_shared/src/artifacts/mlruns
       - ./src/artifacts/reports:/var/www/ml_shared/src/artifacts/reports
-      - *reco-volumes-api
+      - ./data/recommendation:/var/www/ml_shared/data/recommendation
+      - ./models/recommendation:/var/www/ml_shared/models/recommendation
+      - ./reports/recommendation:/var/www/ml_shared/reports/recommendation
+      - ./params.yaml:/var/www/ml_shared/params.yaml:ro
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8010/health"]
       interval: 15s
@@ -302,7 +305,18 @@ services:
           /opt/airflow/ml_project/src/graphs \
           /opt/airflow/ml_project/.matplotlib
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
-        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/ml_project
+        # Não fazer chown recursivo em ml_project inteiro — params.yaml está montado :ro.
+        for path in \
+          /opt/airflow/ml_project/uploads \
+          /opt/airflow/ml_project/src \
+          /opt/airflow/ml_project/data \
+          /opt/airflow/ml_project/models \
+          /opt/airflow/ml_project/reports \
+          /opt/airflow/ml_project/.matplotlib; do
+          if [[ -e "$$path" ]]; then
+            chown -R "${AIRFLOW_UID:-50000}:0" "$$path"
+          fi
+        done
         exec /entrypoint bash -c '
           airflow db migrate
           airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true
