@@ -71,7 +71,16 @@ Checklist por fase. Estado inicial: **Fase 0 concluída** (documentação + past
 
 ---
 
-- [ ] Side-effect Registry no promote
+## Fase 6 — MLflow Registry no promote ✅
+
+- [x] `platform_ring/mlflow_registry.py` — side-effect Staging → Production (best-effort)
+- [x] Hook em `promote_for_domain` (reco + churn)
+- [x] `register_model` no treino reco (`tc02_recommender`)
+- [x] Campos opcionais em `DeployedModelResponse` (`mlflow_registry_*`)
+- [x] CLI `scripts/ml/promote_registry.py` delega ao módulo partilhado
+- [x] Testes `tests/platform_ring/test_mlflow_registry.py`
+
+**Contrato:** `deployed_models` continua fonte de verdade do `/predict`; Registry espelha o promote.
 
 ---
 

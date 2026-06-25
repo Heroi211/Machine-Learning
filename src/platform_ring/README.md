@@ -6,6 +6,8 @@ Contratos de produto implementados em `platform_ring/` (Fase 4).
 |--------|----------------------|
 | `training_trigger.py` | Um botão de treino para qualquer domínio → Airflow dispatch |
 | `promote_service.py` | Promote único por domínio (churn FE ou recomendação) |
+| `mlflow_registry.py` | Side-effect Registry no promote (Fase 6; best-effort) |
+| `promote_response.py` | Resposta HTTP com metadados `mlflow_registry_*` |
 | `runs_service.py` | Listagem de runs filtrada por domínio |
 
 Rotas HTTP continuam em `src/api/` (facade); lógica de produto migra gradualmente para aqui.

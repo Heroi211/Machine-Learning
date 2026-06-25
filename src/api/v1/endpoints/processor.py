@@ -22,6 +22,7 @@ from core.deps import (
 from models.users import Users as users_models
 from schemas import processor_schemas
 from ml_core_ring.paths import airflow_upload_path, resolved_ml_shared_uploads_dir
+from platform_ring.promote_response import build_deployed_model_response
 from platform_ring.promote_service import promote_for_domain
 from platform_ring.runs_service import list_runs_for_domain
 from platform_ring.training_trigger import trigger_training_dag
@@ -141,12 +142,12 @@ async def admin_promote(
     """Promove o run activo do domínio para servir em ``/predict`` (tabular FE ou recomendação)."""
     try:
         objective = (domain or settings.objective).strip().lower()
-        dep = await promote_for_domain(
+        result = await promote_for_domain(
             domain=objective,
             promoted_by_user_id=admin.id,
             db=db,
         )
-        return dep
+        return build_deployed_model_response(result.deployment, result.mlflow_registry)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

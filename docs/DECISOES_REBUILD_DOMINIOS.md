@@ -19,6 +19,18 @@ Registo fechado em **2026-06-25** antes da implementação das rotas `/v1/domain
 
 ---
 
+## MLflow vs deployed_models (Fase 6)
+
+| Camada | Responsabilidade |
+|--------|------------------|
+| **`deployed_models` (Postgres)** | Fonte de verdade do `/predict`, rollback API, 1 activo por domain |
+| **MLflow Tracking** | Runs, métricas, artefactos no treino |
+| **MLflow Registry** | Side-effect no `POST …/admin/promote` — Staging → Production |
+
+Nomes Registry: `tc02_recommender` (reco), `churn_fe_model` (churn). Falha Registry → aviso em `mlflow_registry_warning`; promote na BD **não** falha.
+
+---
+
 ## Pacote de rotas por domínio (alvo)
 
 Prefixo: `/v1/domains/{domain}/`
@@ -75,6 +87,8 @@ make run   # uvicorn :8000, PYTHONPATH=src
 ## Lembretes pós-implementação (TODO)
 
 **Fase 5.5 concluída (2026-06-25):** rotas `/v1/domains/{churn,recommendation}/…` activas; legado mantido.
+
+**Fase 6 concluída:** promote na API espelha MLflow Registry (`tc02_recommender`, `churn_fe_model`); BD `deployed_models` mantém-se como runtime de `/predict`. Side-effect **best-effort** — falha Registry não reverte promote na BD.
 
 Apagar **depois** de churn + reco passarem nas rotas novas + testes manuais sync:
 

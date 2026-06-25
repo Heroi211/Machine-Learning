@@ -462,7 +462,7 @@ domain=recommendation
 |------|--------|---------|
 | 0–4 | ✅ | Docs, rings, dispatch, platform_ring |
 | 5 | ✅ | Worker reco integrado no Docker |
-| 6 | pendente | MLflow Registry no promote |
+| 6 | ✅ | MLflow Registry side-effect no promote |
 | 7–8 | pendente | Limpeza legado, entrega final |
 
 ---

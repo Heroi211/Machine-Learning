@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.users import Users as users_models
+from platform_ring.promote_response import build_deployed_model_response
 from platform_ring.promote_service import promote_for_domain
 from platform_ring.runs_service import list_runs_for_domain
 from schemas import processor_schemas
@@ -96,13 +97,13 @@ async def promote_domain(
     pipeline_run_id: int | None = None,
 ) -> processor_schemas.DeployedModelResponse:
     try:
-        dep = await promote_for_domain(
+        result = await promote_for_domain(
             domain=domain.strip().lower(),
             promoted_by_user_id=admin.id,
             db=db,
             pipeline_run_id=pipeline_run_id,
         )
-        return dep
+        return build_deployed_model_response(result.deployment, result.mlflow_registry)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

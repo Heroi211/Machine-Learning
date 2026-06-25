@@ -314,6 +314,30 @@ class DeployedModelResponse(BaseModel):
     promoted_at: Optional[datetime] = None
     promoted_by_user_id: Optional[int] = None
     metrics_snapshot: Optional[dict] = None
+    pipeline_type: Optional[str] = Field(
+        default=None,
+        description="Tipo do pipeline promovido (feature_engineering, recommendation, …).",
+    )
+    mlflow_registry_model: Optional[str] = Field(
+        default=None,
+        description="Nome do modelo no MLflow Model Registry (side-effect Fase 6).",
+    )
+    mlflow_registry_version: Optional[str] = Field(
+        default=None,
+        description="Versão promovida a Production no Registry.",
+    )
+    mlflow_registry_stage: Optional[str] = Field(
+        default=None,
+        description="Stage final no Registry (tipicamente Production).",
+    )
+    mlflow_registry_run_id: Optional[str] = Field(
+        default=None,
+        description="MLflow run_id associado à versão Registry.",
+    )
+    mlflow_registry_warning: Optional[str] = Field(
+        default=None,
+        description="Aviso se o side-effect Registry falhou (promote na BD mantém-se).",
+    )
 
     class Config:
         from_attributes = True

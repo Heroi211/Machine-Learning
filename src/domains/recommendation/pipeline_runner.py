@@ -230,11 +230,15 @@ class RecommendationPipelineRunner(PipelineRunner):
                         pytorch_model=_load_torch_module(prefix),
                         artifact_path="pytorch_model",
                     )
+                    mlflow.register_model(
+                        f"runs:/{run.info.run_id}/pytorch_model",
+                        "tc02_recommender",
+                    )
                 except Exception as exc:
                     # Cliente MLflow 3.x vs servidor 2.x: registry/logged-models pode falhar;
                     # artefactos .pt já foram registados — treino não deve abortar.
                     logger.warning(
-                        "mlflow.pytorch.log_model ignorado (continua run): %s",
+                        "mlflow.pytorch.log_model/register_model ignorado (continua run): %s",
                         exc,
                     )
             return run.info.run_id
