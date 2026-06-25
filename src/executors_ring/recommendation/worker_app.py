@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field
 
 import domains  # noqa: F401
 import executors_ring  # noqa: F401
-from executors_ring.recommendation.worker import result_to_dict, run_training_job
 from executors_ring.recommendation.persist_run import persist_recommendation_run, run_async
+from executors_ring.recommendation.worker import result_to_dict, run_training_job
+from ml_core_ring.dispatch_params import flatten_dispatch_train_params
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,9 @@ def health() -> dict[str, str]:
 @app.post("/train")
 def train(req: TrainRequest) -> dict[str, Any]:
     """Executa treino + grava ``pipeline_runs`` (mesmo contrato que task Airflow in-process)."""
-    train_params = {**req.params, "domain": req.domain.strip().lower()}
+    train_params = flatten_dispatch_train_params(
+        {**req.params, "domain": req.domain.strip().lower()}
+    )
     result = run_training_job(train_params)
 
     if result.status != "completed":

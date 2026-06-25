@@ -177,11 +177,12 @@ def task_run_baseline(**context) -> None:
 def task_run_fe(**context) -> None:
     ti = context["task_instance"]
     validate_task = context.get("validate_task_id", "validate_input")
+    baseline_task = context.get("baseline_task_id", "run_baseline")
     objective = ti.xcom_pull(key="objective", task_ids=validate_task)
     optimization_metric = ti.xcom_pull(key="optimization_metric", task_ids=validate_task)
     time_limit_minutes = int(ti.xcom_pull(key="time_limit_minutes", task_ids=validate_task))
     acc_target = ti.xcom_pull(key="acc_target", task_ids=validate_task)
-    manifest_path = ti.xcom_pull(key="baseline_manifest_path", task_ids="run_baseline")
+    manifest_path = ti.xcom_pull(key="baseline_manifest_path", task_ids=baseline_task)
     user_id = ti.xcom_pull(key="user_id", task_ids=validate_task)
     min_precision = ti.xcom_pull(key="min_precision", task_ids=validate_task)
     min_roc_auc = ti.xcom_pull(key="min_roc_auc", task_ids=validate_task)
@@ -281,10 +282,11 @@ def task_run_fe(**context) -> None:
 def task_promote_fe_optional(**context) -> None:
     ti = context["task_instance"]
     validate_task = context.get("validate_task_id", "validate_input")
+    fe_task = context.get("fe_task_id", "run_fe")
     if not ti.xcom_pull(key="auto_promote", task_ids=validate_task):
         logger.info("auto_promote=false — promote automático ignorado.")
         return
-    if not ti.xcom_pull(key="fe_recall_champion", task_ids="run_fe"):
+    if not ti.xcom_pull(key="fe_recall_champion", task_ids=fe_task):
         logger.info("FE não venceu comparador — promote automático ignorado.")
         return
     objective = ti.xcom_pull(key="objective", task_ids=validate_task)
@@ -301,12 +303,14 @@ def task_promote_fe_optional(**context) -> None:
 def task_notify_tabular_complete(**context) -> None:
     ti = context["task_instance"]
     validate_task = context.get("validate_task_id", "validate_input")
+    baseline_task = context.get("baseline_task_id", "run_baseline")
+    fe_task = context.get("fe_task_id", "run_fe")
     objective = ti.xcom_pull(key="objective", task_ids=validate_task)
-    fe_best_model = ti.xcom_pull(key="fe_best_model", task_ids="run_fe")
-    fe_metrics = ti.xcom_pull(key="fe_metrics", task_ids="run_fe")
-    bl_id = ti.xcom_pull(key="baseline_pipeline_run_id", task_ids="run_baseline")
-    fe_id = ti.xcom_pull(key="fe_pipeline_run_id", task_ids="run_fe")
-    champion = ti.xcom_pull(key="fe_recall_champion", task_ids="run_fe")
+    fe_best_model = ti.xcom_pull(key="fe_best_model", task_ids=fe_task)
+    fe_metrics = ti.xcom_pull(key="fe_metrics", task_ids=fe_task)
+    bl_id = ti.xcom_pull(key="baseline_pipeline_run_id", task_ids=baseline_task)
+    fe_id = ti.xcom_pull(key="fe_pipeline_run_id", task_ids=fe_task)
+    champion = ti.xcom_pull(key="fe_recall_champion", task_ids=fe_task)
 
     logger.info("=" * 60)
     logger.info("PIPELINE TABULAR CONCLUÍDO | domain=%s", objective)

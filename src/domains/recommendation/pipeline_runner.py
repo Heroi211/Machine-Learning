@@ -225,11 +225,18 @@ class RecommendationPipelineRunner(PipelineRunner):
                     p = prefix.with_suffix(suffix)
                     if p.is_file():
                         mlflow.log_artifact(str(p), artifact_path="model")
-                mlflow.pytorch.log_model(
-                    pytorch_model=_load_torch_module(prefix),
-                    artifact_path="pytorch_model",
-                    registered_model_name="tc02_recommender",
-                )
+                try:
+                    mlflow.pytorch.log_model(
+                        pytorch_model=_load_torch_module(prefix),
+                        artifact_path="pytorch_model",
+                    )
+                except Exception as exc:
+                    # Cliente MLflow 3.x vs servidor 2.x: registry/logged-models pode falhar;
+                    # artefactos .pt já foram registados — treino não deve abortar.
+                    logger.warning(
+                        "mlflow.pytorch.log_model ignorado (continua run): %s",
+                        exc,
+                    )
             return run.info.run_id
         return None
 

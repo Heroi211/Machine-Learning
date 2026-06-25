@@ -61,7 +61,15 @@ Checklist por fase. Estado inicial: **Fase 0 concluída** (documentação + past
 
 ---
 
-## Fase 6 — DVC + MLflow Registry no promote
+## Fase 5.5 — Rotas por domínio + paths ✅
+
+- [x] `/v1/domains/churn/…` e `/v1/domains/recommendation/…` (predict, runs, promote, deploy, rollback, trigger, sync)
+- [x] `ml_core_ring.paths` unificado (`resolve_shared_artifact_path`, `airflow_upload_path`, uploads `ml_data/uploads`)
+- [x] `MAP.md` + `docs/DECISOES_REBUILD_DOMINIOS.md`
+- [x] Rotas `/processor` mantidas como legado (tag Swagger)
+- [ ] Apagar legado — ver checklist em `DECISOES_REBUILD_DOMINIOS.md`
+
+---
 
 - [ ] Side-effect Registry no promote
 

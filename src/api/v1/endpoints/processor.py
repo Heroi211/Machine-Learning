@@ -21,6 +21,7 @@ from core.deps import (
 )
 from models.users import Users as users_models
 from schemas import processor_schemas
+from ml_core_ring.paths import airflow_upload_path, resolved_ml_shared_uploads_dir
 from platform_ring.promote_service import promote_for_domain
 from platform_ring.runs_service import list_runs_for_domain
 from platform_ring.training_trigger import trigger_training_dag
@@ -88,7 +89,7 @@ def _metrics_json_for_response_header(metrics: dict | None) -> str:
         return "{}"
 
 
-ML_SHARED_PATH = settings.ml_shared_path
+ML_SHARED_PATH = resolved_ml_shared_uploads_dir()
 
 
 @router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
@@ -129,7 +130,10 @@ async def predict(payload: processor_schemas.PredictRequest, db: AsyncSession = 
 async def admin_promote(
     domain: str | None = Query(
         None,
-        description="Domínio a promover (default: OBJECTIVE na env). Ex.: churn, recommendation.",
+        description=(
+            "Domínio a promover. Obrigatório na prática para recommendation "
+            "(default OBJECTIVE na env é churn). Ex.: recommendation, churn."
+        ),
     ),
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
@@ -171,13 +175,14 @@ async def admin_trigger_dag(
     csv_path: str | None = None
 
     if file is not None:
-        upload_dir = os.path.join(ML_SHARED_PATH)
+        upload_dir = ML_SHARED_PATH
         os.makedirs(upload_dir, exist_ok=True)
         filename = f"{obj}_{uuid.uuid4().hex[:8]}_{file.filename}"
-        csv_path = os.path.join(upload_dir, filename)
+        host_path = os.path.join(upload_dir, filename)
         content = await file.read()
-        with open(csv_path, "wb") as f:
+        with open(host_path, "wb") as f:
             f.write(content)
+        csv_path = airflow_upload_path(filename)
 
     extra: dict[str, Any] = {}
     if top_k is not None:
@@ -225,7 +230,13 @@ async def admin_trigger_dag(
     ),
 )
 async def admin_list_pipeline_runs(
-    domain: str | None = Query(None, description="Domínio (default: OBJECTIVE na env)."),
+    domain: str | None = Query(
+        None,
+        description=(
+            "Filtrar por domínio. Para runs de recomendação use recommendation "
+            "(default OBJECTIVE na env é churn — omitir devolve runs churn/vazio)."
+        ),
+    ),
     pipeline_type: Literal["baseline", "feature_engineering", "recommendation"] | None = Query(
         None, description="Tipo de pipeline."
     ),

@@ -4,7 +4,7 @@ PIP ?= $(PYTHON) -m pip
 # Pacotes em ``src/``; testes importam ``main`` na raiz.
 export PYTHONPATH := $(abspath $(CURDIR)/src):$(abspath $(CURDIR))
 
-.PHONY: help install install-dev requirements lint lint-fix format test test-fast coverage run docker-up docker-down clean check check-rings check-rings-strict
+.PHONY: help install install-dev requirements lint lint-fix format test test-fast coverage run docker-up docker-down docker-fresh clean check check-rings check-rings-strict validate-platform validate-platform-infra
 
 help:
 	@echo "Alvos principais:"
@@ -20,6 +20,9 @@ help:
 	@echo "  make run           uvicorn local (porta 8000)"
 	@echo "  make docker-up     docker compose up --build"
 	@echo "  make docker-down   docker compose down"
+	@echo "  make docker-fresh  down -v, prune cache/imagens locais, build --no-cache, up -d"
+	@echo "  make validate-platform       validação completa Docker (plataforma, sem churn)"
+	@echo "  make validate-platform-infra só infra Docker + health (sem E2E API)"
 	@echo "  make clean         artefatos de build e caches locais"
 
 install:
@@ -44,7 +47,7 @@ test:
 	$(PYTHON) -m pytest
 
 test-fast:
-	$(PYTHON) -m pytest -q --no-cov
+	$(PYTHON) -m pytest -q -o addopts=
 
 coverage:
 	$(PYTHON) -m pytest --cov=. --cov-report=html --cov-report=term-missing
@@ -57,6 +60,15 @@ docker-up:
 
 docker-down:
 	docker compose down
+
+# Reset total: contentores, volumes nomeados, imagens locais do compose, cache de build.
+# Preserva bind mounts no host (./src, ./data/recommendation, ratings.csv, etc.).
+docker-fresh:
+	docker compose down -v --remove-orphans --rmi local
+	docker builder prune -af
+	docker compose build --no-cache --pull
+	docker compose up -d --force-recreate
+	@echo "Stack limpa e a subir. Acompanhe: docker compose ps"
 
 tc02-repro:
 	PYTHONPATH=src dvc repro
@@ -77,6 +89,13 @@ check-rings:
 
 check-rings-strict:
 	python3 scripts/check_ring_imports.py --strict
+
+validate-platform:
+	@test -n "$$VALIDATE_API_PASSWORD" || (echo "Defina VALIDATE_API_PASSWORD (senha do user seed em init_db/database.sql)"; exit 1)
+	bash scripts/validate_platform.sh
+
+validate-platform-infra:
+	bash scripts/validate_platform.sh --infra-only --skip-local
 
 clean:
 	rm -rf build dist *.egg-info htmlcov .pytest_cache .ruff_cache .coverage coverage.xml

@@ -90,7 +90,11 @@ class Settings(BaseSettings):
     airflow_base_url: str = Field(default="http://airflow-webserver:8080", validation_alias="AIRFLOW_BASE_URL", description="URL base do Airflow")
     airflow_user: str = Field(default="airflow", validation_alias="AIRFLOW_USER", description="Usuário do Airflow")
     airflow_password: str = Field(default="airflow", validation_alias="AIRFLOW_PASSWORD", description="Senha do Airflow")
-    ml_shared_path: str = Field(default="ml_shared/uploads", validation_alias="ML_SHARED_PATH", description="Caminho compartilhado para upload de arquivos")
+    ml_shared_path: str = Field(
+        default="ml_data/uploads",
+        validation_alias="ML_SHARED_PATH",
+        description="Pasta de uploads CSV (relativa a ML_PROJECT_ROOT ou absoluta). Alinhada ao bind mount compose.",
+    )
 
     ml_project_root: str = Field(
         default="",

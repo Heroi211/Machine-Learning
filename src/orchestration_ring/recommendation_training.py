@@ -13,17 +13,10 @@ from orchestration_ring.airflow_env import DEFAULT_PIPELINE_USER_ID
 from orchestration_ring.conf import merge_run_conf
 from orchestration_ring.dispatch import resolve_domain
 from orchestration_ring.persist_run import persist_recommendation_run, run_async
+from ml_core_ring.dispatch_params import flatten_dispatch_train_params
 from orchestration_ring.recommendation_client import run_recommendation_via_worker
 
 logger = logging.getLogger(__name__)
-
-
-def _train_params_from_conf(conf: dict[str, Any]) -> dict[str, Any]:
-    return {
-        k: v
-        for k, v in conf.items()
-        if k not in ("domain", "objective", "user_id", "csv_path")
-    }
 
 
 def task_run_recommendation(**context) -> None:
@@ -33,7 +26,8 @@ def task_run_recommendation(**context) -> None:
     user_id = int(ti.xcom_pull(key="user_id", task_ids="validate_dispatch") or DEFAULT_PIPELINE_USER_ID)
 
     conf = merge_run_conf(context, variable_key="ml_training_dispatch_conf")
-    train_params = _train_params_from_conf(conf)
+    train_params = flatten_dispatch_train_params(conf)
+    logger.info("Parâmetros de treino reco (flatten): %s", list(train_params.keys()))
     dag_run_id = context["dag_run"].run_id
 
     worker_url = os.environ.get("WORKER_RECOMMENDATION_URL", "").strip()

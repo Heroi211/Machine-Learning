@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from orchestration_ring.airflow_env import DEFAULT_PIPELINE_USER_ID
+from orchestration_ring.conf import merge_run_conf
 from orchestration_ring.dispatch import resolve_domain, validate_dispatch_conf
 
 logger = logging.getLogger(__name__)
