@@ -185,6 +185,31 @@ reco_train_params() {
   fi
 }
 
+# Fases 4–6 criam vários runs recommendation activos; promote exige exactamente um.
+dedupe_active_reco_runs() {
+  local db_user="${DATABASE_USER:-gabriel_drumond}"
+  local db_name="${DATABASE_NAME:-processing}"
+  local db_pass="${DATABASE_PASS:-}"
+  if ! container_running database_processing; then
+    log_info "dedupe_active_reco_runs: PostgreSQL indisponível — ignorado"
+    return 0
+  fi
+  docker exec -e PGPASSWORD="$db_pass" database_processing psql -U "$db_user" -d "$db_name" -v ON_ERROR_STOP=1 -c "
+    UPDATE pipeline_runs SET active = false
+    WHERE pipeline_type = 'recommendation'
+      AND lower(objective) = 'recommendation'
+      AND status = 'completed'
+      AND id != (
+        SELECT id FROM pipeline_runs
+        WHERE pipeline_type = 'recommendation'
+          AND lower(objective) = 'recommendation'
+          AND status = 'completed'
+        ORDER BY id DESC
+        LIMIT 1
+      );
+  " >/dev/null 2>&1 || log_info "dedupe_active_reco_runs: aviso — não foi possível desactivar runs extra"
+}
+
 # --- Fase 0: pré-requisitos locais -------------------------------------------
 phase_local() {
   [[ "$SKIP_LOCAL" -eq 1 ]] && { log_skip "Fase 0 — checks locais (--skip-local)"; return; }
@@ -298,6 +323,16 @@ phase_infra() {
     log_fail "Variable ml_training_dispatch_conf" "ausente — airflow-init correu?"
   fi
 
+  # DAG pausada → dagRuns ficam em queued para sempre
+  if docker exec airflow_scheduler airflow dags list 2>/dev/null | grep ml_training_dispatch | grep -qE '\|\s+False\s*$'; then
+    log_pass "DAG ml_training_dispatch despausada"
+  elif docker exec airflow_scheduler airflow dags unpause ml_training_dispatch >/dev/null 2>&1; then
+    log_pass "DAG ml_training_dispatch estava pausada — despausada pelo script"
+  else
+    log_fail "DAG ml_training_dispatch pausada" \
+      "airflow dags unpause ml_training_dispatch — ou UI Airflow → toggle pause"
+  fi
+
   # MLflow API
   if curl -sf "$MLFLOW_BASE/api/2.0/mlflow/experiments/search" \
       -H "Content-Type: application/json" \
@@ -388,6 +423,8 @@ phase_dag_e2e() {
   [[ "$SKIP_DAG" -eq 1 ]] && { log_skip "Fase 6 — Airflow E2E (--skip-dag)"; return; }
   log_section "Fase 6 — Orquestração Airflow (ml_training_dispatch → worker)"
 
+  docker exec airflow_scheduler airflow dags unpause ml_training_dispatch >/dev/null 2>&1 || true
+
   local params dag_run_id conf state tasks_ok=0
   params=$(reco_train_params)
   dag_run_id="validate_platform_$(date +%s)"
@@ -422,6 +459,13 @@ phase_dag_e2e() {
         log_fail "DAG $dag_run_id" "state=failed — ver Airflow UI $AIRFLOW_BASE"
         return
         ;;
+      queued)
+        if [[ $elapsed -ge 120 ]]; then
+          log_fail "DAG $dag_run_id preso em queued" \
+            "DAG pausada ou scheduler sobrecarregado — airflow dags unpause ml_training_dispatch"
+          return
+        fi
+        ;;
     esac
     sleep 10
     elapsed=$((elapsed + 10))
@@ -447,7 +491,8 @@ phase_platform_ml() {
     return
   fi
 
-  # Promote
+  # Promote (um único run activo — fases 4–6 podem ter criado vários)
+  dedupe_active_reco_runs
   local prom_code prom_body
   prom_body=$(curl -s -w "\n%{http_code}" -X POST \
     "$RECO_PREFIX/admin/promote" \
@@ -456,6 +501,18 @@ phase_platform_ml() {
   if [[ "$prom_code" == "201" ]]; then
     log_pass "POST /domains/recommendation/admin/promote (HTTP 201)"
     FIRST_DEPLOYMENT_ID=$(json_field "${prom_body%$'\n'*}" id)
+    local prom_json reg_model reg_ver reg_warn
+    prom_json="${prom_body%$'\n'*}"
+    reg_model=$(json_field "$prom_json" mlflow_registry_model)
+    reg_ver=$(json_field "$prom_json" mlflow_registry_version)
+    reg_warn=$(json_field "$prom_json" mlflow_registry_warning)
+    if [[ -n "$reg_ver" && "$reg_ver" != "null" ]]; then
+      log_pass "MLflow Registry side-effect (model=$reg_model v=$reg_ver)"
+    elif [[ -n "$reg_warn" && "$reg_warn" != "null" ]]; then
+      log_skip "MLflow Registry" "$reg_warn (promote BD OK — Fase 6 best-effort)"
+    else
+      log_skip "MLflow Registry" "sem mlflow_registry_version na resposta (MLflow offline ou run sem registo)"
+    fi
   else
     log_fail "POST /admin/promote" "HTTP $prom_code — ${prom_body%$'\n'*}"
     return
@@ -501,6 +558,7 @@ phase_platform_ml() {
     return
   fi
 
+  dedupe_active_reco_runs
   prom_body=$(curl -s -w "\n%{http_code}" -X POST \
     "$RECO_PREFIX/admin/promote" \
     -H "Authorization: Bearer $TOKEN")

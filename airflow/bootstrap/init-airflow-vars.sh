@@ -24,3 +24,13 @@ if [[ -f "$DISPATCH" ]]; then
 else
   echo "Ficheiro $DISPATCH ausente — Variable ml_training_dispatch_conf não alterada."
 fi
+
+# DAGs novos nascem pausados (AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true).
+# Despausar o dispatch canónico para triggers REST/API não ficarem eternamente em queued.
+for dag_id in ml_training_dispatch; do
+  if airflow dags unpause "$dag_id" 2>/dev/null; then
+    echo "DAG $dag_id despausada (pronta para trigger)."
+  else
+    echo "Aviso: não foi possível despausar $dag_id (pode ainda não estar parseada)."
+  fi
+done

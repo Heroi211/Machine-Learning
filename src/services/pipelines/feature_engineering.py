@@ -39,13 +39,9 @@ from services.pipelines.feature_strategies.base import FeatureStrategy
 from services.pipelines.fe_hyperparameter_tuning import param_distributions_for
 from services.pipelines.fe_model_selection import normalize_optimization_metric, result_column_for_metric, sklearn_scoring_parameter
 from services.utils import filename_with_suffix, log_training_csv_to_active_run
-from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
+from ml_core_ring.mlflow_setup import configure_mlflow_tracking, ensure_mlflow_experiment
 
-if TYPE_CHECKING:
-    from services.pipelines.mlp_torch_tabular import TorchTabularMLPResult
-
-os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
-mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+configure_mlflow_tracking()
 
 logger = logging.getLogger("ml.pipeline")
 
@@ -1175,9 +1171,7 @@ class FeatureEngineering:
 
         try:
             experiment_name = f"{self.objective}_feature_engineering"
-            if not mlflow.get_experiment_by_name(experiment_name):
-                mlflow.create_experiment(experiment_name, artifact_location=settings.mlflow_artifact_root)
-            mlflow.set_experiment(experiment_name)
+            ensure_mlflow_experiment(experiment_name)
             run_nm = f"fe_{self.objective}_{self.now}{self._artifact_suffix or ''}"
             with mlflow.start_run(run_name=run_nm) as _mfe:
                 self.mlflow_run_id = _mfe.info.run_id

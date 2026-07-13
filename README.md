@@ -76,7 +76,7 @@ Pipeline End-to-End de classificação binária para **churn** em telecomunicaç
 | Feature Strategies | Lógica por domínio (`ChurnFeatures`) | `src/services/pipelines/feature_strategies/` |
 | Processor / Deployment | Persistência de runs, eleição de campeão, promote, rollback | `src/services/processor/` |
 | PostgreSQL | `users`, `roles`, `pipeline_runs`, `deployed_models`, `predictions` | `init_db/database.sql` |
-| MLflow | Tracking SQLite + artefactos por run | `src/artifacts/mlruns/` — ver §8 (API/manual vs Airflow/`airflow_store`) |
+| MLflow | Tracking Postgres (`mlflow`) + artefactos unificados | `src/artifacts/mlruns/` → `/mlflow/artifacts` no compose |
 | Airflow | DAG `ml_training_pipeline` (LocalExecutor) | `airflow/dags/` |
 | Scripts manutenção | Drift PSI + latência | `src/scripts/maintenance/` |
 
@@ -139,7 +139,7 @@ DAG **`ml_training_pipeline`** (LocalExecutor, `schedule_interval=None`):
 - **FE via Airflow**
   - **Só log em `data/old`**: `src/data/old/<ts>_fe<pipeline_run_id>/pipeline_<ts>.txt` — sem cópia dos plots nem do bundle completo nessa pasta (plots e cópias baseline para o ZIP são montados em diretório temporário no worker e apagados depois).
   - **ZIP idêntico ao da rota manual**: `fe_artifacts_<pipeline_run_id>_<ts>.zip` é criado em `/tmp`, compacta `manifest.json` + árvore `00_*` / `10_*` / `20_*`, e é enviado ao MLflow na **mesma run FE**, subpasta **`fe_bundle/`**. O ficheiro temporário é removido após o upload.
-  - **Onde ver no host com Docker Compose**: o contentor Airflow define `MLFLOW_ARTIFACT_ROOT=/opt/airflow/ml_project/src/artifacts/mlruns/airflow_store`. No repositório isso corresponde a **`src/artifacts/mlruns/airflow_store/<mlflow_run_id>/artifacts/fe_bundle/<nome>.zip`**. Corridas **manuais pela API** continuam a usar outra BD (`mlflow.db`) e outro layout sob **`src/artifacts/mlruns/<run_id>/`** — não confundir as duas árvores.
+  - **Onde ver no host com Docker Compose**: artefactos MLflow em **`src/artifacts/mlruns/<run_id>/artifacts/`** (bind `/mlflow/artifacts`); ZIP FE em subpasta **`fe_bundle/`** na run MLflow.
   - **Metadados na BD**: em `pipeline_runs.metrics` ficam, entre outros, `fe_snapshot_dirname`, `fe_bundle_zip_filename`, `fe_bundle_zip_mlflow_relative` e `mlflow_fe_run_id`. Em `GET /v1/processor/admin/runs`, runs `feature_engineering` expõem o bloco **`artifacts_bundle`** na vista estruturada (para localizar log vs ZIP no MLflow).
 
 ### 4.3 Drift de dados (DAG à parte)
@@ -460,14 +460,16 @@ Eco do payload original (auditoria + drift). Útil para reconstruir o caso e cor
 - **FE (API manual)**: resposta pode incluir download do ZIP `fe_artifacts_<pipeline_run_id>_<ts>.zip` (mesmo conteúdo descrito abaixo); log em `src/data/old/<ts>_fe<id>/pipeline_<ts>.txt`; MLflow grava params, métricas, `fe_export/`, joblib, figuras, etc., segundo `MLFLOW_*` do `.env`.
 - **Conteúdo do ZIP FE** (manual ou Airflow): `manifest.json`; cópias do contrato baseline em `00_input_baseline` e `10_baseline`; em `20_feature_engineering/` — joblib campeão, pasta `fe_export/` (CSVs, `model_comparison_full.{csv,md}`, artefactos MLP quando existirem), `plots/`, `best_model_name.txt`.
 
-### MLflow — dois contextos (Docker Compose)
+### MLflow — stack unificado (Docker Compose)
 
-| Quem grava | Tracking URI (no compose) | Pasta de artefactos no host |
-|------------|---------------------------|-----------------------------|
-| **API** (`api_processing`) | `sqlite:////var/www/ml_shared/mlflow.db` | `src/artifacts/mlruns/<run_id>/artifacts/` (raiz configurável em `.env`) |
-| **Airflow** (`airflow-scheduler` / webserver) | `sqlite:////opt/airflow/ml_project/src/artifacts/mlruns/airflow_mlflow.db` | `src/artifacts/mlruns/airflow_store/<run_id>/artifacts/` — ZIP completo do FE em **`fe_bundle/`** |
+| Camada | Onde | Notas |
+|--------|------|--------|
+| **Metadados** | Postgres base `mlflow` | Backend do `mlflow_server :5000` |
+| **Tracking URI** | `http://mlflow_server:5000` | API, Airflow, worker (compose) |
+| **Artefactos** | `./src/artifacts/mlruns/` no host | Bind mount `/mlflow/artifacts` em todos os serviços |
+| **Runtime `/predict`** | Postgres `processing.deployed_models` | MLflow Registry = side-effect no promote |
 
-Variáveis efectivas estão em `docker-compose.yaml` (`MLFLOW_TRACKING_URI`, `MLFLOW_ARTIFACT_ROOT` no bloco `x-airflow-common` e no serviço `api_processing`).
+Variáveis: `MLFLOW_TRACKING_URI`, `MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts` (compose); host local `src/artifacts/mlruns`.
 
 ---
 
@@ -770,7 +772,7 @@ Machine-Learning/
 │   │   │   └── feature_strategies/
 │   │   └── processor/
 │   ├── data/                    # CSVs, pre_processed/, logs/<ts>/
-│   ├── artifacts/               # models/, mlruns/ (+ airflow_store p/ MLflow do Airflow), reports/
+│   ├── artifacts/               # models/, mlruns/ (MLflow → /mlflow/artifacts), reports/
 │   ├── graphs/
 │   └── scripts/maintenance/
 ├── airflow/                     # dags/, bootstrap/, plugins/, logs/

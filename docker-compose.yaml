@@ -23,8 +23,9 @@
 #     Estes caminhos são bind mounts **por cima** de ml_shared no Airflow; a API precisa dos
 #     mesmos binds em /var/www/ml_shared/... para promote/inferência verem os artefactos
 #     (caminhos na BD começam por /opt/airflow/ml_project/ e são remapados em código).
-#   - MLflow (API no compose): continua em ``/var/www/ml_shared``; Airflow usa ``src/artifacts/mlruns``.
-#     sqlite:////var/www/ml_shared/mlflow.db e /var/www/ml_shared/mlruns (mesmo volume).
+#   - Postgres (db_processing): 3 bases — ``processing``, ``airflow``, ``mlflow``.
+#   - MLflow: metadados em Postgres ``mlflow``; artefactos em ``/mlflow/artifacts`` (bind ./src/artifacts/mlruns).
+#   - API / Airflow / worker: MLFLOW_TRACKING_URI=http://mlflow_server:5000; MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts.
 #   - Recomendação (TC02): data/models/reports na raiz do repo montados em ML_PROJECT_ROOT
 #     (blocos reco-volumes abaixo). Worker HTTP integrado: worker_recommendation:8010.
 #   - MLflow server integrado (recomendação + rubrica TC02): http://localhost:5000
@@ -50,7 +51,7 @@ x-airflow-common: &airflow-common
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DATABASE_USER}:${DATABASE_PASS}@db_processing/${DATABASE_NAME}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DATABASE_USER}:${DATABASE_PASS}@db_processing/${AIRFLOW_DATABASE_NAME:-airflow}
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -73,10 +74,8 @@ x-airflow-common: &airflow-common
     PATH_GRAPHS: /opt/airflow/ml_project/src/graphs
     PATH_LOGS: old
     PATH_MAINTENANCE_REPORTS: /opt/airflow/ml_project/src/artifacts/reports
-    # MLflow separado do host (.env): mesmo bind ./src/artifacts/mlruns mas BD e pasta de artefactos
-    # próprios → convive com treinos manuais sem partilhar mlflow.db nem artifact_location absoluto do host.
-    MLFLOW_TRACKING_URI: sqlite:////opt/airflow/ml_project/src/artifacts/mlruns/airflow_mlflow.db
-    MLFLOW_ARTIFACT_ROOT: /opt/airflow/ml_project/src/artifacts/mlruns/airflow_store
+    MLFLOW_TRACKING_URI: http://mlflow_server:5000
+    MLFLOW_ARTIFACT_ROOT: /mlflow/artifacts
     DATABASE_USER: ${DATABASE_USER}
     DATABASE_PASS: ${DATABASE_PASS}
     DATABASE_SERVER: db_processing
@@ -102,6 +101,7 @@ x-airflow-common: &airflow-common
     - ./src/artifacts/models:/opt/airflow/ml_project/src/artifacts/models
     - ./src/graphs:/opt/airflow/ml_project/src/graphs
     - ./src/artifacts/mlruns:/opt/airflow/ml_project/src/artifacts/mlruns
+    - ./src/artifacts/mlruns:/mlflow/artifacts
     - ./src/artifacts/reports:/opt/airflow/ml_project/src/artifacts/reports
     # Código Python alinhado ao layout ``src/`` da API (import services, core, …)
     - ./src:/opt/airflow/ml_code:ro
@@ -160,9 +160,8 @@ services:
     environment:
       DATABASE_SERVER: db_processing
       ML_PROJECT_ROOT: /var/www/ml_shared
-      # MLflow partilhado com Airflow (volume ml_shared: /opt/airflow/ml_project ≡ /var/www/ml_shared).
-      MLFLOW_TRACKING_URI: sqlite:////var/www/ml_shared/mlflow.db
-      MLFLOW_ARTIFACT_ROOT: /var/www/ml_shared/mlruns
+      MLFLOW_TRACKING_URI: http://mlflow_server:5000
+      MLFLOW_ARTIFACT_ROOT: /mlflow/artifacts
     depends_on:
       db_processing:
         condition: service_healthy
@@ -184,6 +183,7 @@ services:
       - ./src/artifacts/models:/var/www/ml_shared/src/artifacts/models
       - ./src/graphs:/var/www/ml_shared/src/graphs
       - ./src/artifacts/mlruns:/var/www/ml_shared/src/artifacts/mlruns
+      - ./src/artifacts/mlruns:/mlflow/artifacts
       - ./src/artifacts/reports:/var/www/ml_shared/src/artifacts/reports
       - ./data/recommendation:/var/www/ml_shared/data/recommendation
       - ./models/recommendation:/var/www/ml_shared/models/recommendation
@@ -192,20 +192,25 @@ services:
 
   # ---------- MLflow (recomendação / TC02 integrado) ------------------------
   mlflow_server:
-    image: ghcr.io/mlflow/mlflow:v2.22.0
+    build:
+      context: .
+      dockerfile: docker/mlflow.dockerfile
+    image: processing_mlflow:v1
     container_name: mlflow_server
     restart: unless-stopped
+    depends_on:
+      db_processing:
+        condition: service_healthy
     command: >
       mlflow server
       --host 0.0.0.0
       --port 5000
-      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --backend-store-uri postgresql://${DATABASE_USER}:${DATABASE_PASS}@db_processing:5432/${MLFLOW_DATABASE_NAME:-mlflow}
       --default-artifact-root /mlflow/artifacts
     ports:
       - "5000:5000"
     volumes:
       - ./src/artifacts/mlruns:/mlflow/artifacts
-      - mlflow_platform_db:/mlflow
     networks:
       - nwprocessing
 
@@ -223,7 +228,7 @@ services:
       DATABASE_SERVER: db_processing
       ML_PROJECT_ROOT: /var/www/ml_shared
       MLFLOW_TRACKING_URI: http://mlflow_server:5000
-      MLFLOW_ARTIFACT_ROOT: /var/www/ml_shared/src/artifacts/mlruns
+      MLFLOW_ARTIFACT_ROOT: /mlflow/artifacts
     depends_on:
       db_processing:
         condition: service_healthy
@@ -240,6 +245,7 @@ services:
       - ./src/artifacts/models:/var/www/ml_shared/src/artifacts/models
       - ./src/graphs:/var/www/ml_shared/src/graphs
       - ./src/artifacts/mlruns:/var/www/ml_shared/src/artifacts/mlruns
+      - ./src/artifacts/mlruns:/mlflow/artifacts
       - ./src/artifacts/reports:/var/www/ml_shared/src/artifacts/reports
       - ./data/recommendation:/var/www/ml_shared/data/recommendation
       - ./models/recommendation:/var/www/ml_shared/models/recommendation
@@ -366,4 +372,3 @@ volumes:
   api_graphs:
   ml_shared:
   airflow_logs:
-  mlflow_platform_db:

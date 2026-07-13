@@ -1,3 +1,5 @@
+-- Schema da aplicação (API): base ``processing`` (POSTGRES_DB).
+-- Bases ``airflow`` e ``mlflow`` criadas em 00_create_databases.sql.
 
 CREATE TABLE public.roles (
 	id serial4 NOT NULL,

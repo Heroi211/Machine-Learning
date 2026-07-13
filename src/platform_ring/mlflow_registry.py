@@ -39,7 +39,7 @@ class RegistryPromoteResult:
 
 
 def _tracking_uri() -> str:
-    return (settings.mlflow_tracking_uri or "").strip() or "sqlite:///src/artifacts/mlruns/mlflow.db"
+    return (settings.mlflow_tracking_uri or "").strip() or "http://localhost:5000"
 
 
 def _metrics_dict(metrics: Any) -> dict[str, Any]:

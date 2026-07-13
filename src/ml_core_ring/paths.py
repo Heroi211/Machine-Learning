@@ -8,6 +8,7 @@ from pathlib import Path
 # Prefixos gravados na BD pelo Airflow / worker (volume ml_shared ≡ ml_project no compose).
 _AIRFLOW_ML_PREFIX = "/opt/airflow/ml_project/"
 _API_ML_SHARED_PREFIX = "/var/www/ml_shared/"
+_MLFLOW_ARTIFACT_PREFIX = "/mlflow/artifacts"
 
 
 def ml_project_root() -> str:
@@ -39,7 +40,11 @@ def resolve_shared_artifact_path(path: str | None) -> str | None:
     """
     if not path:
         return path
-    root = ml_project_root() + "/"
+    root = ml_project_root().rstrip("/") + "/"
+    if path.startswith(_MLFLOW_ARTIFACT_PREFIX):
+        suffix = path[len(_MLFLOW_ARTIFACT_PREFIX) :].lstrip("/")
+        base = f"{root}src/artifacts/mlruns"
+        return f"{base}/{suffix}" if suffix else base
     for src in (_AIRFLOW_ML_PREFIX, _API_ML_SHARED_PREFIX):
         if path.startswith(src):
             return root + path[len(src) :]

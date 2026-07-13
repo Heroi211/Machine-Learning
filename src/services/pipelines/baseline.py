@@ -27,14 +27,10 @@ import re
 
 import shutil
 
-from services.utils import log_training_csv_to_active_run, filename_with_suffix
-from services.pipelines.binary_decision_threshold import labels_from_probability_threshold
-
+from ml_core_ring.mlflow_setup import configure_mlflow_tracking, ensure_mlflow_experiment
 
 load_dotenv()
-
-os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
-mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+configure_mlflow_tracking()
 
 #Enviroments
 ppath_data = settings.path_data
@@ -718,9 +714,7 @@ class Baseline:
         )
 
         experiment_name = f"{self.objective}_baseline"
-        if not mlflow.get_experiment_by_name(experiment_name):
-            mlflow.create_experiment(experiment_name, artifact_location=settings.mlflow_artifact_root)
-        mlflow.set_experiment(experiment_name)
+        ensure_mlflow_experiment(experiment_name)
         with mlflow.start_run(run_name=f"baseline_{self.objective}") as _mlr:
             self.mlflow_run_id = _mlr.info.run_id
             mlflow.log_param("classification_decision_threshold", float(self.decision_threshold))

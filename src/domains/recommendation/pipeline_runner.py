@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ml_core_ring.mlflow_setup import ensure_mlflow_experiment
 import mlflow
 import pandas as pd
 
@@ -43,11 +44,7 @@ def _load_params(ctx: RunContext) -> dict[str, Any]:
 
 
 def _ensure_mlflow(experiment: str) -> None:
-    os.makedirs(settings.mlflow_artifact_root, exist_ok=True)
-    mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
-    if not mlflow.get_experiment_by_name(experiment):
-        mlflow.create_experiment(experiment, artifact_location=settings.mlflow_artifact_root)
-    mlflow.set_experiment(experiment)
+    ensure_mlflow_experiment(experiment)
 
 
 @register_runner

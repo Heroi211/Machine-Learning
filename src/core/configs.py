@@ -44,10 +44,15 @@ class Settings(BaseSettings):
     path_graphs: str = Field(default="src/graphs/", validation_alias="PATH_GRAPHS")
     path_logs: str = Field(default="logs/", validation_alias="PATH_LOGS")
     mlflow_tracking_uri: str = Field(
-        default="sqlite:///src/artifacts/mlruns/mlflow.db",
+        default="http://localhost:5000",
         validation_alias="MLFLOW_TRACKING_URI",
+        description="Tracking server HTTP (Docker: http://mlflow_server:5000 via compose).",
     )
-    mlflow_artifact_root: str = Field(default="src/artifacts/mlruns", validation_alias="MLFLOW_ARTIFACT_ROOT")
+    mlflow_artifact_root: str = Field(
+        default="src/artifacts/mlruns",
+        validation_alias="MLFLOW_ARTIFACT_ROOT",
+        description="Artefactos no host; Docker compose usa /mlflow/artifacts (mesmo bind mount).",
+    )
     
     debug: bool = Field(default=False,validation_alias="DEBUG",description="Ativa modo debug"    )
     test_size: float = Field(default=0.2,validation_alias="TEST_SIZE",description="Proporção de teste (0.0 a 1.0)")
@@ -68,7 +73,17 @@ class Settings(BaseSettings):
     database_server: str = Field(validation_alias="DATABASE_SERVER", description="Servidor do banco de dados")
     database_port: int = Field(validation_alias="DATABASE_PORT", description="Porta do banco de dados")
     database_name: str = Field(validation_alias="DATABASE_NAME", description="Nome do banco de dados")
-    
+    airflow_database_name: str = Field(
+        default="airflow",
+        validation_alias="AIRFLOW_DATABASE_NAME",
+        description="Base Postgres dos metadados Airflow (separada de processing).",
+    )
+    mlflow_database_name: str = Field(
+        default="mlflow",
+        validation_alias="MLFLOW_DATABASE_NAME",
+        description="Base Postgres do backend store MLflow (servidor :5000).",
+    )
+
     database_url: str | None = None
     
     jwt_secret: str = Field(validation_alias="SECRET", description="Chave secreta JWT")

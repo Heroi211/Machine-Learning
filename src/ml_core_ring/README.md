@@ -10,6 +10,8 @@ Contratos ML reutilizáveis — **registries, sem algoritmos pesados**.
 - `ArtifactManifest`, `PredictionResult`
 - `PipelineRunner` (Template Method) — pipelines reprodutíveis
 - `orchestration_hooks` — interface Airflow → backend — Fase 1
+- `mlflow_setup.py` — tracking URI + experimentos (Postgres `mlflow`, artefactos `/mlflow/artifacts`)
+- `paths.py` — remap cross-container incl. `/mlflow/artifacts/`
 
 ## Pode importar
 
