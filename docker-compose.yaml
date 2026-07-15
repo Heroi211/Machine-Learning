@@ -162,6 +162,7 @@ services:
       ML_PROJECT_ROOT: /var/www/ml_shared
       MLFLOW_TRACKING_URI: http://mlflow_server:5000
       MLFLOW_ARTIFACT_ROOT: /mlflow/artifacts
+      WORKER_RECOMMENDATION_URL: http://worker_recommendation:8010
     depends_on:
       db_processing:
         condition: service_healthy
