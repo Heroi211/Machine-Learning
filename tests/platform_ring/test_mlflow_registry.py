@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from platform_ring.mlflow_registry import (
     RegistryPromoteResult,
+    _promote_registry_version,
     resolve_registry_model_name,
     sync_mlflow_registry_on_promote,
 )
@@ -32,9 +33,11 @@ def test_sync_skips_unknown_domain():
 
 @patch("mlflow.tracking.set_tracking_uri")
 @patch("mlflow.MlflowClient")
-def test_sync_transitions_version_by_run_id(mock_client_cls, mock_set_uri):
+def test_sync_promotes_version_via_alias(mock_client_cls, mock_set_uri):
     client = MagicMock()
     mock_client_cls.return_value = client
+    client.set_registered_model_alias = MagicMock()
+    del client.transition_model_version  # MLflow 3.x
 
     mv = MagicMock()
     mv.version = "3"
@@ -51,8 +54,17 @@ def test_sync_transitions_version_by_run_id(mock_client_cls, mock_set_uri):
     assert result.version == "3"
     assert result.stage == "Production"
     assert result.model_name == "tc02_recommender"
-    assert client.transition_model_version.call_count == 2
+    client.set_registered_model_alias.assert_called_once_with("tc02_recommender", "Production", "3")
     mock_set_uri.assert_called_once()
+
+
+def test_promote_registry_version_legacy_stages():
+    client = MagicMock(spec=["transition_model_version"])
+    client.transition_model_version = MagicMock()
+
+    _promote_registry_version(client, model_name="tc02_recommender", version="3")
+
+    assert client.transition_model_version.call_count == 2
 
 
 @patch("mlflow.tracking.set_tracking_uri")
@@ -60,12 +72,12 @@ def test_sync_transitions_version_by_run_id(mock_client_cls, mock_set_uri):
 def test_sync_best_effort_on_registry_failure(mock_client_cls, mock_set_uri):
     client = MagicMock()
     mock_client_cls.return_value = client
+    client.set_registered_model_alias = MagicMock(side_effect=RuntimeError("MLflow offline"))
 
     mv = MagicMock()
     mv.version = "1"
     mv.run_id = "run-1"
     client.search_model_versions.return_value = [mv]
-    client.transition_model_version.side_effect = RuntimeError("MLflow offline")
 
     result = sync_mlflow_registry_on_promote(
         domain="recommendation",

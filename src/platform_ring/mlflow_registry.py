@@ -50,6 +50,33 @@ def resolve_registry_model_name(domain: str) -> str | None:
     return REGISTRY_MODEL_BY_DOMAIN.get(domain.strip().lower())
 
 
+def _promote_registry_version(client: Any, *, model_name: str, version: str) -> None:
+    """Coloca versão em Production — aliases (MLflow ≥2.9 / 3.x) ou stages legados."""
+
+    if hasattr(client, "set_registered_model_alias"):
+        client.set_registered_model_alias(model_name, "Production", version)
+        return
+
+    if hasattr(client, "transition_model_version"):
+        client.transition_model_version(
+            name=model_name,
+            version=version,
+            stage="Staging",
+            archive_existing_versions=False,
+        )
+        client.transition_model_version(
+            name=model_name,
+            version=version,
+            stage="Production",
+            archive_existing_versions=True,
+        )
+        return
+
+    raise AttributeError(
+        "MlflowClient sem API Registry (set_registered_model_alias ou transition_model_version)"
+    )
+
+
 def sync_mlflow_registry_on_promote(
     *,
     domain: str,
@@ -107,18 +134,7 @@ def sync_mlflow_registry_on_promote(
                 ),
             )
 
-        client.transition_model_version(
-            name=model_name,
-            version=version,
-            stage="Staging",
-            archive_existing_versions=False,
-        )
-        client.transition_model_version(
-            name=model_name,
-            version=version,
-            stage="Production",
-            archive_existing_versions=True,
-        )
+        _promote_registry_version(client, model_name=model_name, version=version)
         _logger.info(
             "MLflow Registry: %s v%s → Production (run_id=%s)",
             model_name,
