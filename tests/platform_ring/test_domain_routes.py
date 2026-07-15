@@ -47,4 +47,4 @@ def test_churn_predict_uses_features_schema_not_domain():
 
 def test_api_mounts_domains_router():
     assert "domains_router" in API
-    assert "processor (legacy)" in API
+    assert "processor" not in API

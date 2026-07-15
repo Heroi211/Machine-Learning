@@ -72,7 +72,7 @@ async def require_sync_training_routes_enabled(admin: users_models = Depends(req
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
                 "Treino síncrono não está disponível neste ambiente. Em produção use o Airflow: "
-                "variável ml_training_pipeline_conf + CSV no volume partilhado + trigger manual do DAG."
+                "variável ml_training_dispatch_conf + CSV no volume partilhado + trigger manual do DAG ml_training_dispatch."
             ),
         )
     return admin
@@ -85,7 +85,7 @@ async def require_airflow_api_trigger_enabled(admin: users_models = Depends(requ
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
                 "Trigger do DAG pela API não está disponível em produção. Use a UI do Airflow: "
-                "Admin → Variables (ml_training_pipeline_conf), coloque o dataset no volume acessível ao worker e Trigger DAG."
+                "Admin → Variables (ml_training_dispatch_conf), coloque o dataset no volume acessível ao worker e Trigger DAG ml_training_dispatch."
             ),
         )
     return admin

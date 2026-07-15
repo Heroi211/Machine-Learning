@@ -30,7 +30,8 @@ from platform_ring.domains.common import (
     rollback_domain,
 )
 from platform_ring.training_trigger import trigger_training_dag
-from schemas import processor_schemas
+from platform_ring.schemas.churn_features import ChurnFeaturesInput
+from platform_ring.schemas import contracts as platform_schemas
 from services.processor import processor_service
 
 DOMAIN = "churn"
@@ -46,9 +47,9 @@ def _schedule_remove(path: str) -> None:
         pass
 
 
-@router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
+@router.post("/predict", status_code=status.HTTP_200_OK, response_model=platform_schemas.PredictResponse)
 async def churn_predict(
-    payload: processor_schemas.ChurnFeaturesInput,
+    payload: ChurnFeaturesInput,
     db: AsyncSession = Depends(get_session),
     user_logged: users_models = Depends(get_current_user),
 ):
@@ -57,7 +58,7 @@ async def churn_predict(
     return await predict_for_domain_route(db, domain=DOMAIN, features=features, user=user_logged)
 
 
-@router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=processor_schemas.DeployedModelResponse)
+@router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=platform_schemas.DeployedModelResponse)
 async def churn_promote(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
@@ -86,7 +87,7 @@ async def churn_list_runs(
 @router.get(
     "/admin/deployments/history",
     status_code=status.HTTP_200_OK,
-    response_model=list[processor_schemas.DeployedModelResponse],
+    response_model=list[platform_schemas.DeployedModelResponse],
 )
 async def churn_deployment_history(
     db: AsyncSession = Depends(get_session),
@@ -95,7 +96,7 @@ async def churn_deployment_history(
     return await deployment_history(db, domain=DOMAIN)
 
 
-@router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
+@router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=platform_schemas.DeployedModelResponse)
 async def churn_rollback(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
@@ -106,7 +107,7 @@ async def churn_rollback(
 @router.post(
     "/admin/train/trigger",
     status_code=status.HTTP_202_ACCEPTED,
-    response_model=processor_schemas.TriggerDagResponse,
+    response_model=platform_schemas.TriggerDagResponse,
 )
 async def churn_train_trigger(
     file: UploadFile = File(..., description="CSV Telco (obrigatório)."),
@@ -156,7 +157,7 @@ async def churn_train_trigger(
             detail=f"Airflow indisponível: {exc}",
         ) from exc
 
-    return processor_schemas.TriggerDagResponse(
+    return platform_schemas.TriggerDagResponse(
         dag_run_id=result.dag_run_id,
         dag_id=result.dag_id,
         domain=result.domain,

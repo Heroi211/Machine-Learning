@@ -15,7 +15,7 @@ from models.users import Users as users_models
 from platform_ring.promote_response import build_deployed_model_response
 from platform_ring.promote_service import promote_for_domain
 from platform_ring.runs_service import list_runs_for_domain
-from schemas import processor_schemas
+from platform_ring.schemas import contracts as platform_schemas
 from services.processor import processor_service
 from services.processor.deployment_service import (
     NoActiveDeploymentError,
@@ -95,7 +95,7 @@ async def promote_domain(
     domain: str,
     admin: users_models,
     pipeline_run_id: int | None = None,
-) -> processor_schemas.DeployedModelResponse:
+) -> platform_schemas.DeployedModelResponse:
     try:
         result = await promote_for_domain(
             domain=domain.strip().lower(),
@@ -112,7 +112,7 @@ async def deployment_history(
     db: AsyncSession,
     *,
     domain: str,
-) -> list[processor_schemas.DeployedModelResponse]:
+) -> list[platform_schemas.DeployedModelResponse]:
     records = await get_deployment_history(domain=domain.strip().lower(), db=db)
     if not records:
         raise HTTPException(
@@ -126,7 +126,7 @@ async def rollback_domain(
     db: AsyncSession,
     *,
     domain: str,
-) -> processor_schemas.DeployedModelResponse:
+) -> platform_schemas.DeployedModelResponse:
     try:
         return await rollback_deployment(domain=domain.strip().lower(), db=db)
     except RollbackError as exc:
@@ -144,7 +144,7 @@ async def predict_for_domain_route(
     domain: str,
     features: dict[str, Any],
     user: users_models,
-) -> processor_schemas.PredictResponse:
+) -> platform_schemas.PredictResponse:
     try:
         pred, inference_report, reco_extra = await processor_service.predict_for_domain(
             domain=domain.strip().lower(),
@@ -167,7 +167,7 @@ async def predict_for_domain_route(
         prob_pct = round(float(pred.probability) * 100, 2)
     prob_display = f"{prob_pct}%" if prob_pct is not None else None
     recommended = reco_extra.get("recommended_items") if reco_extra else None
-    return processor_schemas.PredictResponse(
+    return platform_schemas.PredictResponse(
         id=pred.id,
         domain=domain.strip().lower(),
         pipeline_run_id=pred.pipeline_run_id,

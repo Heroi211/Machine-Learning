@@ -18,7 +18,7 @@ class LegacyFeTrainBackend:
             return TrainBackendResult(
                 status="orchestrated",
                 detail=(
-                    "Treino tabular via Airflow DAG ml_training_pipeline "
+                    "Treino tabular via Airflow DAG ml_training_dispatch "
                     "(Baseline + Feature Engineering). Passe execute_locally=true e csv_path "
                     "para execução programática no executor."
                 ),

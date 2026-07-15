@@ -18,7 +18,7 @@ from core.configs import settings
 from core.custom_logger import setup_pipeline_run_logging
 from models.pipeline_runs import PipelineRuns
 from models.predictions import Predictions
-from schemas.processor_schemas import InferenceReport
+from platform_ring.schemas.contracts import InferenceReport
 from services.processor.fe_bundle_export import (
     finalize_fe_bundle_pipeline_outputs,
     prepare_fe_bundle_baseline_tree,

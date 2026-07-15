@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ml_core_ring.domain_plugin import DomainPlugin, register_domain
-from schemas.processor_schemas import ChurnFeaturesInput
+from platform_ring.schemas.churn_features import ChurnFeaturesInput
 from services.pipelines.feature_strategies.churn_features import ChurnFeatures
 
 register_domain(

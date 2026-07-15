@@ -12,7 +12,7 @@ import math
 from typing import Any
 
 from core.configs import settings
-from schemas.processor_schemas import (
+from platform_ring.schemas.contracts import (
     BaselinePredictBlock,
     ComparisonPredict,
     ExperimentationPredict,

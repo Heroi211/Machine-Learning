@@ -28,7 +28,8 @@ from platform_ring.domains.common import (
     rollback_domain,
 )
 from platform_ring.training_trigger import trigger_training_dag
-from schemas import processor_schemas
+from platform_ring.schemas.recommendation_features import RecommendationFeaturesInput
+from platform_ring.schemas import contracts as platform_schemas
 
 DOMAIN = "recommendation"
 
@@ -54,9 +55,9 @@ class RecommendationTrainSyncResponse(BaseModel):
     status: str = "completed"
 
 
-@router.post("/predict", status_code=status.HTTP_200_OK, response_model=processor_schemas.PredictResponse)
+@router.post("/predict", status_code=status.HTTP_200_OK, response_model=platform_schemas.PredictResponse)
 async def recommendation_predict(
-    payload: processor_schemas.RecommendationFeaturesInput,
+    payload: RecommendationFeaturesInput,
     db: AsyncSession = Depends(get_session),
     user_logged: users_models = Depends(get_current_user),
 ):
@@ -65,7 +66,7 @@ async def recommendation_predict(
     return await predict_for_domain_route(db, domain=DOMAIN, features=features, user=user_logged)
 
 
-@router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=processor_schemas.DeployedModelResponse)
+@router.post("/admin/promote", status_code=status.HTTP_201_CREATED, response_model=platform_schemas.DeployedModelResponse)
 async def recommendation_promote(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
@@ -94,7 +95,7 @@ async def recommendation_list_runs(
 @router.get(
     "/admin/deployments/history",
     status_code=status.HTTP_200_OK,
-    response_model=list[processor_schemas.DeployedModelResponse],
+    response_model=list[platform_schemas.DeployedModelResponse],
 )
 async def recommendation_deployment_history(
     db: AsyncSession = Depends(get_session),
@@ -103,7 +104,7 @@ async def recommendation_deployment_history(
     return await deployment_history(db, domain=DOMAIN)
 
 
-@router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=processor_schemas.DeployedModelResponse)
+@router.post("/admin/rollback", status_code=status.HTTP_200_OK, response_model=platform_schemas.DeployedModelResponse)
 async def recommendation_rollback(
     db: AsyncSession = Depends(get_session),
     admin: users_models = Depends(require_admin),
@@ -114,7 +115,7 @@ async def recommendation_rollback(
 @router.post(
     "/admin/train/trigger",
     status_code=status.HTTP_202_ACCEPTED,
-    response_model=processor_schemas.TriggerDagResponse,
+    response_model=platform_schemas.TriggerDagResponse,
 )
 async def recommendation_train_trigger(
     top_k: int = Form(10, ge=1, le=100),
@@ -162,7 +163,7 @@ async def recommendation_train_trigger(
             detail=f"Airflow indisponível: {exc}",
         ) from exc
 
-    return processor_schemas.TriggerDagResponse(
+    return platform_schemas.TriggerDagResponse(
         dag_run_id=result.dag_run_id,
         dag_id=result.dag_id,
         domain=result.domain,

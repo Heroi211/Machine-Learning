@@ -6,8 +6,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
-from src.api.v1.endpoints import processor, authorize
+from src.api.v1.endpoints import authorize
 from src.services.auth import auth_service
+from core.deps import get_current_user, get_session
+from platform_ring.schemas.contracts import (
+    InferenceReport,
+    ServedModelPredict,
+    TrainingSelectionSummaryPredict,
+    ComparisonPredict,
+)
 
 
 class DummyUser:
@@ -27,20 +34,44 @@ class MockRegisteredUser:
         self.role_id = role_id
 
 
+class DummyPrediction:
+    id = 1
+    pipeline_run_id = 10
+    prediction = 1
+    probability = 0.8
+    input_data = {"gender": "Female"}
+
+
+def _fake_inference_report() -> InferenceReport:
+    return InferenceReport(
+        served_model=ServedModelPredict(
+            inference_backend="sklearn",
+            predict_model_key="sklearn_pipeline",
+            name="Logistic Regression",
+            origin="fe_holdout",
+        ),
+        training_selection_summary=TrainingSelectionSummaryPredict(),
+        comparison=ComparisonPredict(),
+    )
+
+
 @pytest.fixture(autouse=True)
 def app_overrides(monkeypatch):
     """Override app dependencies for all smoke tests"""
-    # Override processor dependencies
-    app.dependency_overrides[processor.get_current_user] = lambda: DummyUser()
-    app.dependency_overrides[processor.get_session] = lambda: None
-
-    # Override auth dependencies
+    app.dependency_overrides[get_current_user] = lambda: DummyUser()
+    app.dependency_overrides[get_session] = lambda: None
     app.dependency_overrides[authorize.get_session] = lambda: None
 
-    # Mock auth service
     async def fake_register_user(user, db):
         return MockRegisteredUser(id=1, name=user.name, email=user.email)
 
+    async def fake_predict_for_domain(*args, **kwargs):
+        return DummyPrediction(), _fake_inference_report(), None
+
+    monkeypatch.setattr(
+        "platform_ring.domains.common.processor_service.predict_for_domain",
+        fake_predict_for_domain,
+    )
     monkeypatch.setattr(auth_service, "register_user", fake_register_user)
     yield
     app.dependency_overrides.clear()
@@ -72,33 +103,31 @@ class TestSmokeAuthFlow:
 class TestSmokePredictorFlow:
     """Smoke tests for ML predictor flow"""
 
-    def test_predict_endpoint_works(self, client):
-        """Test that prediction endpoint is working"""
+    def test_churn_predict_endpoint_works(self, client):
+        """Test that domain churn prediction endpoint is working"""
         payload = {
-            "domain": "heart_disease",
-            "features": {
-                "age": 60.0,
-                "trestbps": 130.0,
-                "chol": 250.0,
-                "fbs": False,
-                "thalch": 150.0,
-                "exang": False,
-                "oldpeak": 1.5,
-                "ca": 0.0,
-                "sex_Male": True,
-                "cp_atypical angina": False,
-                "cp_non-anginal": False,
-                "cp_typical angina": True,
-                "restecg_normal": True,
-                "restecg_st-t abnormality": False,
-                "slope_flat": False,
-                "slope_upsloping": True,
-                "thal_normal": True,
-                "thal_reversable defect": False,
-            },
+            "gender": "Female",
+            "seniorcitizen": 0,
+            "partner": 1,
+            "dependents": 0,
+            "tenure": 12,
+            "phoneservice": 1,
+            "multiplelines": 0,
+            "internetservice": "DSL",
+            "onlinesecurity": 0,
+            "onlinebackup": 0,
+            "deviceprotection": 0,
+            "techsupport": 0,
+            "streamingtv": 0,
+            "streamingmovies": 0,
+            "contract": "Month-to-month",
+            "paperlessbilling": 1,
+            "paymentmethod": "Electronic check",
+            "monthlycharges": 70.5,
+            "totalcharges": 845.0,
         }
 
-        response = client.post("/v1/processor/predict", json=payload)
+        response = client.post("/v1/domains/churn/predict", json=payload)
 
         assert response.status_code == 200
         assert response.json()["prediction"] == 1

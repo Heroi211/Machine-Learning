@@ -6,7 +6,7 @@ Uso:
   python3 scripts/check_ring_imports.py
   python3 scripts/check_ring_imports.py --strict   # falha em avisos legados
 
-Regras: docs/IMPORT_RULES_RINGS.md
+Regras: docs/DOCUMENTACAO.md (secção Arquitectura)
 """
 
 from __future__ import annotations
@@ -129,21 +129,6 @@ def _check_file(path: Path, *, strict_legacy: bool) -> list[str]:
     return errors
 
 
-def _required_readmes() -> list[str]:
-    missing = []
-    for name in (
-        "infra_ring",
-        "platform_ring",
-        "ml_core_ring",
-        "domains_ring",
-        "executors_ring",
-        "orchestration_ring",
-    ):
-        readme = SRC / name / "README.md"
-        if not readme.is_file():
-            missing.append(str(readme.relative_to(REPO_ROOT)))
-    return missing
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verifica imports entre anéis _ring.")
@@ -154,20 +139,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    docs = [
-        REPO_ROOT / "docs/ARCHITECTURE_RINGS.md",
-        REPO_ROOT / "docs/PLATFORM_CONTRACT.md",
-        REPO_ROOT / "docs/IMPORT_RULES_RINGS.md",
-        REPO_ROOT / "docs/MIGRATION_RINGS.md",
-    ]
+    docs = [REPO_ROOT / "docs/DOCUMENTACAO.md"]
     missing_docs = [str(p.relative_to(REPO_ROOT)) for p in docs if not p.is_file()]
     if missing_docs:
-        print("Documentação Fase 0 em falta:", ", ".join(missing_docs))
-        return 1
-
-    missing_readmes = _required_readmes()
-    if missing_readmes:
-        print("README _ring em falta:", ", ".join(missing_readmes))
+        print("Documentação oficial em falta:", ", ".join(missing_docs))
         return 1
 
     py_files = [
@@ -198,7 +173,7 @@ def main() -> int:
             print(e)
         return 1
 
-    print("check_ring_imports: documentação OK; anéis README OK.")
+    print("check_ring_imports: documentação OK.")
     if warns and not args.strict:
         print(f"{len(warns)} aviso(s) em código legado (esperado até migrar).")
     else:

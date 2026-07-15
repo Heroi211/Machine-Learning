@@ -1,1 +1,1 @@
-"""Domains ring — ver README.md."""
+"""Domains ring — ver docs/DOCUMENTACAO.md."""

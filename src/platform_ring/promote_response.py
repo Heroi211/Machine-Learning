@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from models.deployed_models import DeployedModels
 from platform_ring.mlflow_registry import RegistryPromoteResult
-from schemas import processor_schemas
+from platform_ring.schemas import contracts as platform_schemas
 
 
 def build_deployed_model_response(
     deployment: DeployedModels,
     registry: RegistryPromoteResult | None = None,
-) -> processor_schemas.DeployedModelResponse:
+) -> platform_schemas.DeployedModelResponse:
     run = deployment.pipeline_run
     pipeline_type = run.pipeline_type if run else None
     warning = None
@@ -31,7 +31,7 @@ def build_deployed_model_response(
             stage = registry.stage
             run_id = registry.mlflow_run_id
 
-    return processor_schemas.DeployedModelResponse(
+    return platform_schemas.DeployedModelResponse(
         id=deployment.id,
         domain=deployment.domain,
         pipeline_run_id=deployment.pipeline_run_id,

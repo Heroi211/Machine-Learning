@@ -1,1 +1,1 @@
-"""Platform ring — ver README.md."""
+"""Platform ring — ver docs/DOCUMENTACAO.md."""

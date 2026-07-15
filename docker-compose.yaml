@@ -105,7 +105,7 @@ x-airflow-common: &airflow-common
     - ./src/artifacts/reports:/opt/airflow/ml_project/src/artifacts/reports
     # Código Python alinhado ao layout ``src/`` da API (import services, core, …)
     - ./src:/opt/airflow/ml_code:ro
-    # Defaults da Variable ml_training_pipeline_conf (airflow-init importa para a BD do Airflow)
+    # Defaults da Variable ml_training_dispatch_conf (airflow-init importa para a BD do Airflow)
     - ./airflow/bootstrap:/opt/airflow/bootstrap:ro
     - ./data/recommendation:/opt/airflow/ml_project/data/recommendation
     - ./models/recommendation:/opt/airflow/ml_project/models/recommendation

@@ -1,5 +1,5 @@
 """
-Persistência de ``PipelineRuns`` para o DAG ``ml_training_pipeline`` (Airflow).
+Persistência de ``PipelineRuns`` para treino tabular via DAG ``ml_training_dispatch`` (Airflow).
 
 Desactiva runs **manuais** antes do treino automático e grava baseline/FE com
 ``is_airflow_run=True``, reutilizando os mesmos comparadores de campeão da API.

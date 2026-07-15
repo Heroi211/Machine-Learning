@@ -4,8 +4,8 @@
 #
 # Escopo: infra Docker, auth, platform_ring (runs, trigger, promote, predict,
 #         deployments, rollback), worker reco, MLflow, orquestração Airflow.
-# Rotas E2E: /v1/domains/recommendation/… (Fase 5.5). Legado /processor fora de escopo.
-# Fora de escopo: churn / tabular (baseline, FE, ml_training_pipeline tabular).
+# Rotas E2E: /v1/domains/recommendation/… (Fase 5.5).
+# Churn tabular: validar manualmente via /v1/domains/churn/…
 #
 # Uso:
 # Credenciais para o script de validação (NÃO usadas pela aplicação).

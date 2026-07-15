@@ -15,7 +15,7 @@ from ml_core_ring.run_context import RunContext, RunResult
 def test_run_training_churn_returns_orchestrated():
     result = run_training_for_domain("churn", {"objective": "churn"})
     assert result.status == "orchestrated"
-    assert "ml_training_pipeline" in (result.detail or "")
+    assert "ml_training_dispatch" in (result.detail or "")
 
 
 def test_run_training_unknown_domain_raises():

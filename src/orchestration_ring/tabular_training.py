@@ -30,7 +30,7 @@ def task_validate_tabular_input(**context) -> None:
 
     conf = merge_run_conf(
         context,
-        variable_key="ml_training_pipeline_conf",
+        variable_key="ml_training_dispatch_conf",
         fallback_keys=(("objective", "ml_training_objective"), ("csv_path", "ml_training_csv_path")),
     )
     from core.configs import settings as svc_settings

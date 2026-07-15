@@ -1,3 +1,3 @@
-"""Orchestration ring — ver README.md (import submódulos explicitamente)."""
+"""Orchestration ring — ver docs/DOCUMENTACAO.md."""
 
 __all__: list[str] = []
