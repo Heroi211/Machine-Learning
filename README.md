@@ -29,7 +29,9 @@ docker exec airflow_scheduler airflow dags unpause ml_training_dispatch
 | Airflow | http://localhost:8080 | `airflow` / `airflow` |
 | MLflow | http://localhost:5000 | — |
 
-## Validação
+## Testes e validação
+
+**Roteiro detalhado TC02 (stack zero → DVC → Swagger → Registry):** [`docs/roteiro_teste_completo.md`](docs/roteiro_teste_completo.md)
 
 ```bash
 PYTHONPATH=src:. python3 -m pytest tests/platform_ring/ tests/ml_core_ring/ -q -o addopts=
