@@ -4,7 +4,7 @@ PIP ?= $(PYTHON) -m pip
 # Pacotes em ``src/``; testes importam ``main`` na raiz.
 export PYTHONPATH := $(abspath $(CURDIR)/src):$(abspath $(CURDIR))
 
-.PHONY: help install install-dev requirements lint lint-fix format test test-fast coverage run docker-up docker-down docker-fresh clean check check-rings check-rings-strict validate-platform validate-platform-infra
+.PHONY: help install install-dev requirements lint lint-fix format test test-fast coverage run docker-up docker-down docker-fresh clean check check-rings check-rings-strict validate-platform validate-platform-infra tc02-dvc-init tc02-repro tc02-validate tc02-promote tc02-up
 
 help:
 	@echo "Alvos principais:"
@@ -70,7 +70,10 @@ docker-fresh:
 	docker compose up -d --force-recreate
 	@echo "Stack limpa e a subir. Acompanhe: docker compose ps"
 
-tc02-repro:
+tc02-dvc-init:
+	@if [ ! -d .dvc ]; then dvc init; fi
+
+tc02-repro: tc02-dvc-init
 	PYTHONPATH=src dvc repro
 
 tc02-validate:

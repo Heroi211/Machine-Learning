@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import shutil
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Alinhado a ``mlflow_server --default-artifact-root`` e bind mount compose.
 MLFLOW_ARTIFACT_CONTAINER_ROOT = "/mlflow/artifacts"
@@ -60,3 +64,36 @@ def ensure_mlflow_experiment(experiment_name: str) -> None:
             artifact_location=resolved_mlflow_artifact_dir(),
         )
     mlflow.set_experiment(experiment_name)
+
+
+def log_artifact_resilient(local_path: str, artifact_path: str | None = None) -> None:
+    """
+    Regista artefacto via cliente MLflow; no host, faz fallback para ``src/artifacts/mlruns``.
+
+    Com tracking HTTP, o experimento no servidor pode apontar ``file:///mlflow/artifacts/...``.
+    Dentro do contentor isso funciona; no host o cliente falha em ``/mlflow`` — copiamos para o
+    bind mount local (mesmo volume que o ``mlflow_server`` expõe).
+    """
+    import mlflow
+    from ml_core_ring.paths import resolve_shared_artifact_path
+
+    try:
+        mlflow.log_artifact(local_path, artifact_path=artifact_path)
+        return
+    except (PermissionError, OSError) as exc:
+        run = mlflow.active_run()
+        if run is None:
+            raise
+        uri = (run.info.artifact_uri or "").removeprefix("file://")
+        if MLFLOW_ARTIFACT_CONTAINER_ROOT not in uri and "/mlflow/" not in str(exc):
+            raise
+        host_base = resolve_shared_artifact_path(uri)
+        if not host_base:
+            logger.warning("mlflow.log_artifact ignorado (sem mapeamento host): %s", exc)
+            return
+        dest_dir = Path(host_base)
+        if artifact_path:
+            dest_dir = dest_dir / artifact_path
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(local_path, dest_dir / Path(local_path).name)
+        logger.info("Artefacto copiado para bind mount MLflow (host): %s", dest_dir)

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ml_core_ring.mlflow_setup import ensure_mlflow_experiment
+from ml_core_ring.mlflow_setup import ensure_mlflow_experiment, log_artifact_resilient
 import mlflow
 import pandas as pd
 
@@ -215,13 +215,13 @@ class RecommendationPipelineRunner(PipelineRunner):
             mlflow.log_metrics({k: float(v) for k, v in champion.metrics.items()})
             manifest_path = _repo_path("models", "recommendation", "champion_manifest.json")
             if manifest_path.is_file():
-                mlflow.log_artifact(str(manifest_path), artifact_path="manifest")
+                log_artifact_resilient(str(manifest_path), artifact_path="manifest")
             if champion.engine == "torch_embedding" and champion.artifact_paths.get("prefix"):
                 prefix = Path(champion.artifact_paths["prefix"])
                 for suffix in (".pt", ".meta.json"):
                     p = prefix.with_suffix(suffix)
                     if p.is_file():
-                        mlflow.log_artifact(str(p), artifact_path="model")
+                        log_artifact_resilient(str(p), artifact_path="model")
                 try:
                     mlflow.pytorch.log_model(
                         pytorch_model=_load_torch_module(prefix),

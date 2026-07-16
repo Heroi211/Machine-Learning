@@ -31,7 +31,7 @@ docker exec airflow_scheduler airflow dags unpause ml_training_dispatch
 
 ## Testes e validação
 
-**Roteiro detalhado TC02 (stack zero → DVC → Swagger → Registry):** [`docs/roteiro_teste_completo.md`](docs/roteiro_teste_completo.md)
+**Roteiro completo (manual → automatizado):** [`docs/roteiro_teste_completo.md`](docs/roteiro_teste_completo.md)
 
 ```bash
 PYTHONPATH=src:. python3 -m pytest tests/platform_ring/ tests/ml_core_ring/ -q -o addopts=

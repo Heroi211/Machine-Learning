@@ -1,9 +1,5 @@
-# DVC — dados TC02 (raw MovieLens baixado localmente; processed/features via pipeline)
+# DVC — ignorar apenas dados raw locais (não versionados).
+# NÃO listar aqui pastas que são `outs` em dvc.yaml (processed, features, models, reports).
+
 data/recommendation/raw/*.csv
 data/recommendation/raw/*.zip
-data/recommendation/processed/
-data/recommendation/features/
-
-# Artefactos gerados pelo pipeline TC02 (reproduzíveis via dvc repro)
-models/recommendation/
-reports/recommendation/

@@ -15,7 +15,7 @@ Documento **único** do repositório: arquitectura, operação, testes, model ca
 3. [Contrato da plataforma](#3-contrato-da-plataforma)
 4. [Mapa do repositório](#4-mapa-do-repositório)
 5. [Setup e execução](#5-setup-e-execução)
-6. [Testes e validação](#6-testes-e-validação) — ver também [`roteiro_teste_completo.md`](roteiro_teste_completo.md) (TC02 passo a passo)
+6. [Testes e validação](#6-testes-e-validação) — manual + automatizado: [`roteiro_teste_completo.md`](roteiro_teste_completo.md)
 7. [Apresentação à banca](#7-apresentação-à-banca)
 8. [Model Card — Churn (TC01)](#8-model-card--churn-tc01)
 9. [Model Card — Recomendação (TC02)](#9-model-card--recomendação-tc02)
@@ -296,9 +296,16 @@ curl -s -X POST "$API/v1/domains/recommendation/predict" \
 
 ## 6. Testes e validação
 
-> **Roteiro passo a passo TC02** (docker-fresh, DVC, Swagger, Model Registry): [`roteiro_teste_completo.md`](roteiro_teste_completo.md)
+> **Roteiro completo:** [`roteiro_teste_completo.md`](roteiro_teste_completo.md) — **Parte A** (manual: Swagger, UIs, DVC) → **Parte B** (automatizado: pytest + `validate_platform.sh`).
 
-### 6.1 Unitários (anéis)
+### Escopo resumido
+
+| Parte | Tipo | Conteúdo |
+|-------|------|----------|
+| **A** | Manual | Dozzle, pgAdmin, Swagger (TC02 + churn opc.), Airflow, MLflow, DVC |
+| **B** | Automatizado | Infra script, pytest anéis, E2E `validate_platform.sh` |
+
+### 6.1 Unitários (Parte B — anéis)
 
 ```bash
 PYTHONPATH=src:. python3 -m pytest tests/platform_ring/ tests/ml_core_ring/ -q -o addopts=
@@ -306,11 +313,14 @@ PYTHONPATH=src:. python3 -m pytest tests/platform_ring/ tests/ml_core_ring/ -q -
 
 > Não usar `make test-fast` como gate — suite completa pode falhar em `tests/src/` (pandera × numpy 2.0).
 
-### 6.2 E2E plataforma (~15–20 min)
+### 6.2 E2E plataforma (Parte B — gate)
 
 ```bash
+docker exec airflow_scheduler airflow dags unpause ml_training_dispatch
 VALIDATE_API_PASSWORD=admin1 ./scripts/validate_platform.sh --skip-build
 ```
+
+Infra rápida: `bash scripts/validate_platform.sh --skip-build --infra-only --skip-local`
 
 Esperado: **46+ PASS · 0 FAIL**. Cobre infra, auth, worker, Airflow DAG, promote, predict, rollback, MLflow Registry.
 
